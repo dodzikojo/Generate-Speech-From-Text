@@ -31,7 +31,7 @@ This Python application reads text from a `.txt` file and converts it to speech 
 
 3. **Install dependencies**:
    ```bash
-   pip install google-genai
+   pip install -r requirements.txt
    ```
 
 ## Authentication Setup
@@ -102,6 +102,7 @@ This Python application reads text from a `.txt` file and converts it to speech 
 - `--voice`: The voice to use for speech synthesis (optional). Default: Achird. Available voices: Zephyr, Puck, Charon, Kore, Fenrir, Leda, Orus, Aoede, Callirrhoe, Autonoe, Enceladus, Iapetus, Umbriel, Algieba, Despina, Erinome, Algenib, Rasalgethi, Laomedeia, Achernar, Alnilam, Schedar, Gacrux, Pulcherrima, Achird, Zubenelgenubi, Vindemiatrix, Sadachbia, Sadaltager, Sulafat.
 - `--split-paragraphs`: Split text by paragraphs (double newlines) and create separate audio files for each paragraph in a subfolder named after the base filename (optional).
 - `--random-voices`: Number of random voices to use (1-30). Generates multiple audio files with randomly selected voices (optional).
+- `--verbose`: Enable verbose output to see detailed processing steps (optional).
 
 ## Getting Help
 
