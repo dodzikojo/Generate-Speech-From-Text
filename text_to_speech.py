@@ -4,8 +4,6 @@ import os
 import re
 import struct
 import random
-from google import genai
-from google.genai import types
 from datetime import datetime
 
 # List of available voices
@@ -96,47 +94,109 @@ def parse_audio_mime_type(mime_type: str) -> dict[str, int | None]:
 
     return {"bits_per_sample": bits_per_sample, "rate": rate}
 
-def text_to_speech(text_file, output_file=None, voice="Autonoe"):
+def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename=None, split_paragraphs=False):
     """
-    Converts text from a file to speech using Google Generative AI's TTS model and saves it as an audio file.
+    Converts text from a file or string to speech using Google Generative AI's TTS model and saves it as an audio file.
     The filename always includes the selected voice name.
 
     Args:
-        text_file (str): The path to the input text file.
-        output_file (str, optional): The path to save the output audio file. Defaults to None.
+        text_input (str): Either the path to the input text file or the text content directly.
+        output_folder (str, optional): The folder to save the output audio file. Defaults to "output".
         voice (str): The voice to use for speech synthesis.
+        filename (str, optional): Base name for the output file. If None, uses first few words from text.
+        split_paragraphs (bool, optional): If True, splits text by paragraphs and creates separate audio files. Defaults to False.
     """
     try:
         print("Starting text-to-speech conversion...")
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        print("Gemini client initialized.")
-
-        # Read the text from the file
-        with open(text_file, 'r') as f:
-            text = f.read()
-        print(f"Read {len(text)} characters from {text_file}")
-
         print(f"Selected voice: {voice}")
 
-        # Determine output file path
-        if output_file is None:
-            os.makedirs('output', exist_ok=True)
-            title = '_'.join(text.split()[:3]) if text.split() else 'generated'
-            # Sanitize title for filename
-            title = ''.join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_file = f'output/{title}_{voice}_{timestamp}.wav'
+        # Determine if input is a file path or direct text
+        is_file_path = os.path.isfile(text_input)
+
+        if is_file_path:
+            # Read the text from the file
+            with open(text_input, 'r') as f:
+                full_text = f.read()
+            print(f"Read {len(full_text)} characters from {text_input}")
         else:
-            # Always include voice in the filename
-            base, ext = os.path.splitext(output_file)
-            output_file = f'{voice}_{base}{ext}'
-        print(f"Output will be saved to: {output_file}")
+            # Use the input directly as text
+            full_text = text_input
+            print(f"Using provided text content ({len(full_text)} characters)")
+
+        # Split text into paragraphs if requested
+        if split_paragraphs:
+            # Split by double newlines (paragraphs)
+            paragraphs = [p.strip() for p in full_text.split('\n\n') if p.strip()]
+            print(f"Split into {len(paragraphs)} paragraphs")
+        else:
+            paragraphs = [full_text]
+
+        # Determine base filename and folder structure
+        os.makedirs(output_folder, exist_ok=True)
+        if filename:
+            # Use custom filename, sanitize it
+            base_title = ''.join(c for c in filename if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        else:
+            # Use first few words from text
+            base_title = '_'.join(full_text.split()[:3]) if full_text.split() else 'generated'
+            # Sanitize title for filename
+            base_title = ''.join(c for c in base_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+
+        # Create subfolder for paragraph splits
+        if split_paragraphs and len(paragraphs) > 1:
+            paragraph_folder = os.path.join(output_folder, base_title)
+            os.makedirs(paragraph_folder, exist_ok=True)
+            print(f"Created paragraph folder: {paragraph_folder}")
+        else:
+            paragraph_folder = output_folder
+
+        # Process each paragraph
+        for i, paragraph in enumerate(paragraphs, 1):
+            if not paragraph:
+                continue
+
+            # Generate filename for this paragraph
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            if split_paragraphs and len(paragraphs) > 1:
+                output_file = f'{paragraph_folder}/{base_title}_{voice}_part{i}_{timestamp}.wav'
+            else:
+                output_file = f'{paragraph_folder}/{base_title}_{voice}_{timestamp}.wav'
+
+            print(f"Processing paragraph {i}/{len(paragraphs)}")
+            print(f"Output will be saved to: {output_file}")
+
+            # Generate audio for this paragraph
+            success = generate_audio(paragraph, output_file, voice)
+            if not success:
+                print(f"Failed to generate audio for paragraph {i}")
+                continue
+
+        print("Text-to-speech conversion completed successfully!")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        print("Please ensure you have set GEMINI_API_KEY for Generative AI.")
+        print("See https://ai.google.dev/aistudio for Generative AI API key.")
+
+def generate_audio(text_chunk, output_file, voice):
+    """
+    Generates audio for a given text chunk and saves it to the specified file.
+    This is a helper function used by text_to_speech to process each paragraph or text chunk.
+    """
+    try:
+        print(f"Generating audio for text chunk ({len(text_chunk)} characters)...")
+
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        print("Gemini client initialized.")
 
         model = "gemini-2.5-flash-preview-tts"
         contents = [
             types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=text)],
+                parts=[types.Part.from_text(text=text_chunk)],
             ),
         ]
         generate_content_config = types.GenerateContentConfig(
@@ -183,23 +243,41 @@ def text_to_speech(text_file, output_file=None, voice="Autonoe"):
                 output_file = output_file.replace('.wav', file_extension)  # Adjust extension if needed
             print("Saving audio file...")
             save_binary_file(output_file, audio_data)
+            return True
         else:
             print("No audio data generated.")
+            return False
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred during audio generation: {e}")
         print("Please ensure you have set GEMINI_API_KEY for Generative AI.")
         print("See https://ai.google.dev/aistudio for Generative AI API key.")
+        return False
 
 if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='Convert text from a file to speech using Google AI.')
-    parser.add_argument('text_file', help='The path to the input text file.')
-    parser.add_argument('output_file', nargs='?', default=None, help='The path to save the output audio file (optional).')
-    parser.add_argument('--voice', choices=VOICES, default='Autonoe', help='The voice to use for speech synthesis (default: Autonoe).')
+    parser.add_argument('text_file', nargs='?', default=None, help='The path to the input text file (optional if --text is provided).')
+    parser.add_argument('--text', help='The text to convert to speech (optional if text_file is provided).')
+    parser.add_argument('--output-folder', '-o', default='output', help='The folder to save the output audio file (default: output).')
+    parser.add_argument('--filename', default=None, help='Base name for the output file (optional). If not provided, uses first few words from text.')
+    parser.add_argument('--voice', choices=VOICES, default='Achird', help='The voice to use for speech synthesis (default: Achird).')
+    parser.add_argument('--split-paragraphs', action='store_true', help='Split text by paragraphs (double newlines) and create separate audio files for each paragraph.')
     parser.add_argument('--random-voices', type=int, default=None, help='Number of random voices to use (1-30). Generates multiple audio files with random voices.')
     args = parser.parse_args()
+
+    # Validate that either text_file or text is provided
+    if not args.text_file and not args.text:
+        parser.error("Either text_file or --text must be provided.")
+    if args.text_file and args.text:
+        parser.error("Cannot specify both text_file and --text. Choose one.")
+
+    # Get the text content
+    if args.text:
+        text_content = args.text
+    else:
+        text_content = args.text_file
 
     if args.random_voices:
         if args.random_voices < 1 or args.random_voices > len(VOICES):
@@ -208,10 +286,6 @@ if __name__ == '__main__':
         selected_voices = random.sample(VOICES, args.random_voices)
         print(f"Selected random voices: {', '.join(selected_voices)}")
         for voice in selected_voices:
-            output_file = args.output_file
-            if output_file:
-                base, ext = os.path.splitext(output_file)
-                output_file = f'{voice}_{base}{ext}'
-            text_to_speech(args.text_file, output_file, voice)
+            text_to_speech(text_content, args.output_folder, voice, args.filename, args.split_paragraphs)
     else:
-        text_to_speech(args.text_file, args.output_file, args.voice)
+        text_to_speech(text_content, args.output_folder, args.voice, args.filename, args.split_paragraphs)

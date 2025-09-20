@@ -1,8 +1,8 @@
-With ClashWiseAI in Autodesk Navisworks, you can automatically transform generic, uninformative default clash names into clear, descriptive titles that provide immediate context and actionable insights. Our AI-powered intelligence analyses your federated BIM model clash data and generates intelligent clash titles that incorporate essential data—including disciplines, levels, locations, and object metadata—ensuring every clash name is informative. You can also choose to update clash descriptions, or add as a comment.
+With "Clash-Wise-AI", an Autodesk Navisworks plugin, you can go from the uninformative default clash names into descriptive titles that provide immediate context. Our AI-powered intelligence examines each clash data and generates intelligent clash titles that incorporate essential model elements data—including associated levels or locations, object name, type and other relevant metadata and can also determine the associated discipline—ensuring every clash name is informative. You can choose to update the clash title, descriptions, or add as a comment.
 
 Monitor the update progress in realtime or choose to receive an email notification when the update is completed so you can stay informed.
 
-With ClashWiseAI you can Transform your BIM coordination from a challenge into a smooth, intelligent process—bring clarity to your clashes and keep your project workflows moving efficiently.
+With "Clash-Wise-AI" you can Transform your BIM coordination from a challenge into a smooth, intelligent process—bring clarity to your clashes and keep your project workflows moving efficiently.
 
 
 
