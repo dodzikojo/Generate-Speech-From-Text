@@ -5,6 +5,8 @@ import re
 import struct
 import random
 from datetime import datetime
+from google import genai
+from google.genai import types
 
 # List of available voices
 VOICES = [
@@ -14,6 +16,8 @@ VOICES = [
     "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"
 ]
+
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
 
 def save_binary_file(file_name, data):
     with open(file_name, "wb") as f:
@@ -75,10 +79,17 @@ def parse_audio_mime_type(mime_type: str) -> dict[str, int | None]:
     bits_per_sample = 16
     rate = 24000
 
+    parts = [p.strip() for p in mime_type.split(";")]
+    main_type = parts[0]
+
+    if main_type.startswith("audio/L"):
+        try:
+            bits_per_sample = int(main_type.split("L", 1)[1])
+        except (ValueError, IndexError):
+            pass  # Keep default
+
     # Extract rate from parameters
-    parts = mime_type.split(";")
-    for param in parts:  # Skip the main type part
-        param = param.strip()
+    for param in parts[1:]:
         if param.lower().startswith("rate="):
             try:
                 rate_str = param.split("=", 1)[1]
@@ -86,15 +97,10 @@ def parse_audio_mime_type(mime_type: str) -> dict[str, int | None]:
             except (ValueError, IndexError):
                 # Handle cases like "rate=" with no value or non-integer value
                 pass  # Keep rate as default
-        elif param.startswith("audio/L"):
-            try:
-                bits_per_sample = int(param.split("L", 1)[1])
-            except (ValueError, IndexError):
-                pass  # Keep bits_per_sample as default if conversion fails
 
     return {"bits_per_sample": bits_per_sample, "rate": rate}
 
-def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename=None, split_paragraphs=False):
+def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename=None, split_paragraphs=False, verbose=False):
     """
     Converts text from a file or string to speech using Google Generative AI's TTS model and saves it as an audio file.
     The filename always includes the selected voice name.
@@ -105,6 +111,7 @@ def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename
         voice (str): The voice to use for speech synthesis.
         filename (str, optional): Base name for the output file. If None, uses first few words from text.
         split_paragraphs (bool, optional): If True, splits text by paragraphs and creates separate audio files. Defaults to False.
+        verbose (bool, optional): If True, enables verbose output. Defaults to False.
     """
     try:
         print("Starting text-to-speech conversion...")
@@ -150,6 +157,7 @@ def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename
         else:
             paragraph_folder = output_folder
 
+        all_successful = True
         # Process each paragraph
         for i, paragraph in enumerate(paragraphs, 1):
             if not paragraph:
@@ -163,36 +171,40 @@ def text_to_speech(text_input, output_folder="output", voice="Autonoe", filename
                 output_file = f'{paragraph_folder}/{base_title}_{voice}_{timestamp}.wav'
 
             print(f"Processing paragraph {i}/{len(paragraphs)}")
-            print(f"Output will be saved to: {output_file}")
+            if verbose:
+                print(f"Output will be saved to: {output_file}")
 
             # Generate audio for this paragraph
-            success = generate_audio(paragraph, output_file, voice)
+            success = generate_audio(paragraph, output_file, voice, verbose)
             if not success:
                 print(f"Failed to generate audio for paragraph {i}")
+                all_successful = False
                 continue
 
-        print("Text-to-speech conversion completed successfully!")
+        if all_successful:
+            print("Text-to-speech conversion completed successfully!")
+        else:
+            print("Text-to-speech conversion completed with some errors.")
 
     except Exception as e:
         print(f"An error occurred: {e}")
         print("Please ensure you have set GEMINI_API_KEY for Generative AI.")
         print("See https://ai.google.dev/aistudio for Generative AI API key.")
 
-def generate_audio(text_chunk, output_file, voice):
+def generate_audio(text_chunk, output_file, voice, verbose=False):
     """
     Generates audio for a given text chunk and saves it to the specified file.
     This is a helper function used by text_to_speech to process each paragraph or text chunk.
     """
     try:
-        print(f"Generating audio for text chunk ({len(text_chunk)} characters)...")
-
-        from google import genai
-        from google.genai import types
+        if verbose:
+            print(f"Generating audio for text chunk ({len(text_chunk)} characters)...")
 
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        print("Gemini client initialized.")
+        if verbose:
+            print("Gemini client initialized.")
 
-        model = "gemini-2.5-flash-preview-tts"
+        model = TTS_MODEL
         contents = [
             types.Content(
                 role="user",
@@ -211,7 +223,8 @@ def generate_audio(text_chunk, output_file, voice):
             ),
         )
 
-        print("Starting audio generation...")
+        if verbose:
+            print("Starting audio generation...")
         audio_data = b""
         chunk_count = 0
         for chunk in client.models.generate_content_stream(
@@ -221,6 +234,7 @@ def generate_audio(text_chunk, output_file, voice):
         ):
             if (
                 chunk.candidates is None
+                or not chunk.candidates
                 or chunk.candidates[0].content is None
                 or chunk.candidates[0].content.parts is None
             ):
@@ -229,19 +243,23 @@ def generate_audio(text_chunk, output_file, voice):
                 inline_data = chunk.candidates[0].content.parts[0].inline_data
                 audio_data += inline_data.data
                 chunk_count += 1
-                print(f"Processed chunk {chunk_count}, total audio data: {len(audio_data)} bytes")
+                if verbose:
+                    print(f"Processed chunk {chunk_count}, total audio data: {len(audio_data)} bytes")
 
         if audio_data:
-            print(f"Audio generation complete. Total data: {len(audio_data)} bytes")
+            if verbose:
+                print(f"Audio generation complete. Total data: {len(audio_data)} bytes")
             inline_data = chunk.candidates[0].content.parts[0].inline_data  # Use the last chunk's mime_type
             file_extension = mimetypes.guess_extension(inline_data.mime_type)
             if file_extension is None:
-                print("Converting audio to WAV format...")
+                if verbose:
+                    print("Converting audio to WAV format...")
                 file_extension = ".wav"
                 audio_data = convert_to_wav(audio_data, inline_data.mime_type)
             else:
                 output_file = output_file.replace('.wav', file_extension)  # Adjust extension if needed
-            print("Saving audio file...")
+            if verbose:
+                print("Saving audio file...")
             save_binary_file(output_file, audio_data)
             return True
         else:
@@ -265,6 +283,7 @@ if __name__ == '__main__':
     parser.add_argument('--voice', choices=VOICES, default='Achird', help='The voice to use for speech synthesis (default: Achird).')
     parser.add_argument('--split-paragraphs', action='store_true', help='Split text by paragraphs (double newlines) and create separate audio files for each paragraph.')
     parser.add_argument('--random-voices', type=int, default=None, help='Number of random voices to use (1-30). Generates multiple audio files with random voices.')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose output.')
     args = parser.parse_args()
 
     # Validate that either text_file or text is provided
@@ -286,6 +305,6 @@ if __name__ == '__main__':
         selected_voices = random.sample(VOICES, args.random_voices)
         print(f"Selected random voices: {', '.join(selected_voices)}")
         for voice in selected_voices:
-            text_to_speech(text_content, args.output_folder, voice, args.filename, args.split_paragraphs)
+            text_to_speech(text_content, args.output_folder, voice, args.filename, args.split_paragraphs, args.verbose)
     else:
-        text_to_speech(text_content, args.output_folder, args.voice, args.filename, args.split_paragraphs)
+        text_to_speech(text_content, args.output_folder, args.voice, args.filename, args.split_paragraphs, args.verbose)
