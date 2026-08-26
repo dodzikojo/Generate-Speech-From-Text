@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>IssueLab.VoiceBench.App</RootNamespace>
+    <AssemblyName>IssueLab.VoiceBench.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishProfile>win-x64.pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <AppxBundle>Never</AppxBundle>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <GeneratedBrandingDirectory>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\GeneratedBranding</GeneratedBrandingDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VoiceBench.Core\VoiceBench.Core.csproj" />
+    <ProjectReference Include="..\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(GeneratedBrandingDirectory)\Square44x44Logo.png" Link="Assets\Square44x44Logo.png" />
+    <Content Include="$(GeneratedBrandingDirectory)\Square150x150Logo.png" Link="Assets\Square150x150Logo.png" />
+    <Content Include="$(GeneratedBrandingDirectory)\Wide310x150Logo.png" Link="Assets\Wide310x150Logo.png" />
+    <Content Include="$(GeneratedBrandingDirectory)\SplashScreen.png" Link="Assets\SplashScreen.png" />
+  </ItemGroup>
+  <Target Name="GeneratePlaceholderBranding" BeforeTargets="PrepareForBuild"
+          Inputs="$(MSBuildProjectDirectory)\Build\GeneratePlaceholderAssets.ps1"
+          Outputs="$(GeneratedBrandingDirectory)\Square44x44Logo.png;$(GeneratedBrandingDirectory)\Square150x150Logo.png;$(GeneratedBrandingDirectory)\Wide310x150Logo.png;$(GeneratedBrandingDirectory)\SplashScreen.png">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build\GeneratePlaceholderAssets.ps1&quot; -OutputDirectory &quot;$(GeneratedBrandingDirectory)&quot;" />
+  </Target>
+</Project>

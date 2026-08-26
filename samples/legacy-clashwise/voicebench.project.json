@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "projectId": "3cc01fb0-e2ce-4ec9-a83f-8b5c708cc899",
+  "name": "Legacy ClashWise narration",
+  "createdAt": "2026-08-26T00:00:00+00:00",
+  "updatedAt": "2026-08-26T07:23:33.2845513+00:00",
+  "audioStandard": {
+    "sampleRate": 48000,
+    "channels": 1,
+    "pcmBitsPerSample": 24,
+    "integratedLufs": -16,
+    "truePeakDbtp": -1,
+    "pauseMilliseconds": 500
+  },
+  "segmentOrder": [
+    "a1b2c3legacy",
+    "d4e5f6legacy"
+  ],
+  "segments": [
+    {
+      "segmentId": "a1b2c3legacy",
+      "title": "ClashWise AI overview",
+      "scriptRelativePath": "02-scripts/001-clashwise-ai-overview--a1b2c3.md",
+      "status": "draft",
+      "sourceSha256": "4c39de0746541e36f812b417e502d84a7c611ee698cf15d977dfc61fc45474e3",
+      "voicePresetId": null,
+      "directions": null,
+      "approvedRenderId": null,
+      "renderHistory": []
+    },
+    {
+      "segmentId": "d4e5f6legacy",
+      "title": "Create a clash matrix",
+      "scriptRelativePath": "02-scripts/002-clash-matrix--d4e5f6.md",
+      "status": "draft",
+      "sourceSha256": "cdd3a8082e8b9492878f3a5a5577bc5612bcdd38fcd017c7e38e629895e785fc",
+      "voicePresetId": null,
+      "directions": null,
+      "approvedRenderId": null,
+      "renderHistory": []
+    }
+  ],
+  "voicePresets": [],
+  "defaultVoicePresetId": null,
+  "lexicon": []
+}

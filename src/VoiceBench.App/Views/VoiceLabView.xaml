@@ -1,0 +1,145 @@
+<UserControl
+    x:Class="IssueLab.VoiceBench.App.Views.VoiceLabView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:DesignWidth="1280" d:DesignHeight="800">
+
+    <ScrollViewer Background="{ThemeResource BaseBrush}" VerticalScrollBarVisibility="Auto">
+        <Grid x:Name="VoiceLabRoot" Margin="32,28,32,48" MaxWidth="1180" HorizontalAlignment="Stretch">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="VOICE LAB  /  A–B AUDITION" Style="{StaticResource UtilityLabelTextStyle}" />
+                    <TextBlock Text="Choose the voice before the work begins" Style="{StaticResource PageTitleTextStyle}" />
+                    <TextBlock Text="Compare exact provider, model, voice, and direction combinations. VoiceBench never substitutes another voice silently."
+                               Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
+                </StackPanel>
+                <Button x:Name="RenderBothButton" Grid.Column="1" Content="Render both samples" Style="{StaticResource SignalButtonStyle}"
+                        VerticalAlignment="Bottom" Click="RenderBoth_Click"
+                        AutomationProperties.Name="Render both A and B voice audition samples"
+                        AutomationProperties.AcceleratorKey="Control+Shift+R">
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="R" Modifiers="Control,Shift" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+            </Grid>
+
+            <InfoBar x:Name="AuditionInfoBar" Grid.Row="1" Margin="0,20,0,0"
+                     IsOpen="True" IsClosable="True" Severity="Informational"
+                     Title="No audition has been completed"
+                     Message="Render A and B, listen to both, then choose the project default. All four fields are saved with the preset." />
+
+            <TextBox x:Name="AuditionTextBox" Grid.Row="2" Margin="0,16,0,0"
+                     Header="Audition text" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="84"
+                     AutomationProperties.Name="Exact text submitted to both voice auditions" />
+
+            <Grid Grid.Row="3" Margin="0,20,0,0" ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+
+                <Border Style="{StaticResource StudioPanelStyle}" AutomationProperties.Name="Voice audition A">
+                    <StackPanel Spacing="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="AUDITION A" Style="{StaticResource StudioHeadingTextStyle}" />
+                                <TextBlock Text="OPENAI  /  CONTROLLED" Style="{StaticResource UtilityLabelTextStyle}" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="{ThemeResource ActiveSignalBrush}" CornerRadius="10" Padding="9,3">
+                                <TextBlock Text="A" Foreground="#081014" FontFamily="{StaticResource UtilityFont}" />
+                            </Border>
+                        </Grid>
+                        <ComboBox x:Name="ModelAComboBox" Header="Model" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="gpt-4o-mini-tts" />
+                        </ComboBox>
+                        <ComboBox x:Name="VoiceAComboBox" Header="Voice" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="marin" />
+                            <ComboBoxItem Content="cedar" />
+                        </ComboBox>
+                        <TextBox x:Name="DirectionATextBox" Header="Direction" AcceptsReturn="True" Height="94"
+                                 Text="Calm, measured, technically clear. Ease through acronyms." />
+                        <Border Background="{ThemeResource BaseBrush}" BorderBrush="{ThemeResource DividerBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="14">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="AuditionAStatusText" Text="No audio yet" Style="{StaticResource StudioHeadingTextStyle}" />
+                                <TextBlock Text="Render this sample to hear the exact configuration."
+                                           Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
+                                <Button Content="Render A" Style="{StaticResource QuietButtonStyle}" Tag="A"
+                                        HorizontalAlignment="Left" Click="RenderSingle_Click"
+                                        AutomationProperties.Name="Render audition A" />
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="UseAButton" Content="Use A as project default" Style="{StaticResource QuietButtonStyle}" Tag="A"
+                                Click="UseDefault_Click"
+                                IsEnabled="False" AutomationProperties.Name="Use audition A as project default, unavailable until rendered" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Style="{StaticResource StudioPanelStyle}" AutomationProperties.Name="Voice audition B">
+                    <StackPanel Spacing="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="AUDITION B" Style="{StaticResource StudioHeadingTextStyle}" />
+                                <TextBlock Text="GEMINI  /  NATURAL" Style="{StaticResource UtilityLabelTextStyle}" />
+                            </StackPanel>
+                            <Border Grid.Column="1" BorderBrush="{ThemeResource PickupBrush}" BorderThickness="2" CornerRadius="10" Padding="9,2">
+                                <TextBlock Text="B" Foreground="{ThemeResource PickupBrush}" FontFamily="{StaticResource UtilityFont}" />
+                            </Border>
+                        </Grid>
+                        <ComboBox x:Name="ModelBComboBox" Header="Model" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="gemini-3.1-flash-tts-preview" />
+                            <ComboBoxItem Content="gemini-2.5-flash-preview-tts" />
+                            <ComboBoxItem Content="gemini-2.5-pro-preview-tts" />
+                        </ComboBox>
+                        <ComboBox x:Name="VoiceBComboBox" Header="Voice" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Kore" />
+                            <ComboBoxItem Content="Charon" />
+                        </ComboBox>
+                        <TextBox x:Name="DirectionBTextBox" Header="Direction" AcceptsReturn="True" Height="94"
+                                 Text="Warm and assured. Keep technical terms precise and transitions unhurried." />
+                        <Border Background="{ThemeResource BaseBrush}" BorderBrush="{ThemeResource DividerBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="14">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="AuditionBStatusText" Text="No audio yet" Style="{StaticResource StudioHeadingTextStyle}" />
+                                <TextBlock Text="Render this sample to hear the exact configuration."
+                                           Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
+                                <Button Content="Render B" Style="{StaticResource QuietButtonStyle}" Tag="B"
+                                        HorizontalAlignment="Left" Click="RenderSingle_Click"
+                                        AutomationProperties.Name="Render audition B" />
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="UseBButton" Content="Use B as project default" Style="{StaticResource QuietButtonStyle}" Tag="B"
+                                Click="UseDefault_Click"
+                                IsEnabled="False" AutomationProperties.Name="Use audition B as project default, unavailable until rendered" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="VoiceLabWidthStates">
+                    <VisualState x:Name="NarrowVoiceLab">
+                        <VisualState.Setters>
+                            <Setter Target="VoiceLabRoot.Margin" Value="16,20,16,36" />
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="ComfortableVoiceLab">
+                        <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="900" /></VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="VoiceLabRoot.Margin" Value="32,28,32,48" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

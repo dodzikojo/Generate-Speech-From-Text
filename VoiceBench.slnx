@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VoiceBench.App/VoiceBench.App.csproj" />
+    <Project Path="src/VoiceBench.Cli/VoiceBench.Cli.csproj" />
+    <Project Path="src/VoiceBench.Core/VoiceBench.Core.csproj" />
+    <Project Path="src/VoiceBench.Infrastructure/VoiceBench.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VoiceBench.App.Tests/VoiceBench.App.Tests.csproj" />
+    <Project Path="tests/VoiceBench.Core.Tests/VoiceBench.Core.Tests.csproj" />
+    <Project Path="tests/VoiceBench.Infrastructure.Tests/VoiceBench.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

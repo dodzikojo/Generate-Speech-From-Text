@@ -1,0 +1,73 @@
+using System.Buffers.Binary;
+
+namespace IssueLab.VoiceBench.Infrastructure.Providers;
+
+public sealed record WaveFileMetadata(
+    int SampleRate,
+    int Channels,
+    int BitsPerSample,
+    TimeSpan Duration);
+
+public static class WaveFileInspector
+{
+    public static WaveFileMetadata Read(ReadOnlySpan<byte> audio)
+    {
+        if (audio.Length < 12
+            || !audio[..4].SequenceEqual("RIFF"u8)
+            || !audio.Slice(8, 4).SequenceEqual("WAVE"u8))
+        {
+            throw new InvalidDataException("Audio is not a RIFF/WAVE file.");
+        }
+
+        int? sampleRate = null;
+        int? channels = null;
+        int? bitsPerSample = null;
+        int? byteRate = null;
+        int? dataLength = null;
+
+        for (var offset = 12; offset <= audio.Length - 8;)
+        {
+            var chunkLength = BinaryPrimitives.ReadInt32LittleEndian(audio.Slice(offset + 4, 4));
+            if (chunkLength < 0 || offset + 8L + chunkLength > audio.Length)
+            {
+                throw new InvalidDataException("WAVE chunk length exceeds the audio payload.");
+            }
+
+            var chunkId = audio.Slice(offset, 4);
+            var chunk = audio.Slice(offset + 8, chunkLength);
+            if (chunkId.SequenceEqual("fmt "u8))
+            {
+                if (chunk.Length < 16)
+                {
+                    throw new InvalidDataException("WAVE format chunk is incomplete.");
+                }
+
+                channels = BinaryPrimitives.ReadUInt16LittleEndian(chunk.Slice(2, 2));
+                sampleRate = BinaryPrimitives.ReadInt32LittleEndian(chunk.Slice(4, 4));
+                byteRate = BinaryPrimitives.ReadInt32LittleEndian(chunk.Slice(8, 4));
+                bitsPerSample = BinaryPrimitives.ReadUInt16LittleEndian(chunk.Slice(14, 2));
+            }
+            else if (chunkId.SequenceEqual("data"u8))
+            {
+                dataLength = chunkLength;
+            }
+
+            offset += 8 + chunkLength + (chunkLength & 1);
+        }
+
+        if (sampleRate is not > 0
+            || channels is not > 0
+            || bitsPerSample is not > 0
+            || byteRate is not > 0
+            || dataLength is null)
+        {
+            throw new InvalidDataException("WAVE audio is missing required format or data metadata.");
+        }
+
+        return new WaveFileMetadata(
+            sampleRate.Value,
+            channels.Value,
+            bitsPerSample.Value,
+            TimeSpan.FromSeconds((double)dataLength.Value / byteRate.Value));
+    }
+}

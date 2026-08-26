@@ -1,0 +1,147 @@
+<UserControl
+    x:Class="IssueLab.VoiceBench.App.Views.ProjectsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:DesignWidth="1280" d:DesignHeight="800">
+
+    <Grid Background="{ThemeResource BaseBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid Margin="32,28,32,48" MaxWidth="1180" HorizontalAlignment="Stretch">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="PROJECTS  /  LOCAL FOLDERS" Style="{StaticResource UtilityLabelTextStyle}" />
+                        <TextBlock Text="Your narration rooms" Style="{StaticResource PageTitleTextStyle}" />
+                        <TextBlock Text="Scripts stay in their folders. VoiceBench keeps takes, approvals, and exports beside them."
+                                   Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                        <Button Content="Open folder" Style="{StaticResource QuietButtonStyle}"
+                                Click="OpenFolder_Click"
+                                AutomationProperties.Name="Open an existing project folder"
+                                AutomationProperties.AcceleratorKey="Control+O">
+                            <Button.KeyboardAccelerators>
+                                <KeyboardAccelerator Key="O" Modifiers="Control" />
+                            </Button.KeyboardAccelerators>
+                        </Button>
+                        <Button Content="New project" Style="{StaticResource SignalButtonStyle}"
+                                Click="NewProject_Click"
+                                AutomationProperties.Name="Create a new VoiceBench project"
+                                AutomationProperties.AcceleratorKey="Control+N">
+                            <Button.KeyboardAccelerators>
+                                <KeyboardAccelerator Key="N" Modifiers="Control" />
+                            </Button.KeyboardAccelerators>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <InfoBar x:Name="ProjectStatusBar" Grid.Row="1" Margin="0,20,0,0"
+                         IsOpen="False" IsClosable="True" Severity="Informational"
+                         Title="Project action" />
+
+                <Grid Grid.Row="2" Margin="0,24,0,0" ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3*" />
+                        <ColumnDefinition Width="2*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Style="{StaticResource StudioPanelStyle}">
+                        <StackPanel Spacing="16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="RECENT PROJECT" Style="{StaticResource UtilityLabelTextStyle}" />
+                                    <TextBlock x:Name="RecentProjectNameText" Text="Legacy ClashWise narration" Style="{StaticResource StudioHeadingTextStyle}" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="{ThemeResource ApprovalBrush}"
+                                        CornerRadius="10" Padding="9,3" VerticalAlignment="Top">
+                                    <TextBlock Text="✓  HEALTHY" Foreground="#08140F"
+                                               Style="{StaticResource UtilityLabelTextStyle}" />
+                                </Border>
+                            </Grid>
+                            <TextBlock x:Name="RecentProjectPathText" Text="samples\legacy-clashwise" Style="{StaticResource UtilityLabelTextStyle}" />
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock x:Name="RecentSegmentCountText" Text="2" FontSize="24" FontFamily="{StaticResource UtilityFont}" />
+                                    <TextBlock Text="SEGMENTS" Style="{StaticResource UtilityLabelTextStyle}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock x:Name="RecentApprovedCountText" Text="0" FontSize="24" FontFamily="{StaticResource UtilityFont}" />
+                                    <TextBlock Text="APPROVED" Style="{StaticResource UtilityLabelTextStyle}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock x:Name="RecentRenderedDurationText" Text="00:00" FontSize="24" FontFamily="{StaticResource UtilityFont}" />
+                                    <TextBlock Text="RENDERED" Style="{StaticResource UtilityLabelTextStyle}" />
+                                </StackPanel>
+                            </Grid>
+                            <Button x:Name="ContinueProjectButton" Content="Continue in Workbench" HorizontalAlignment="Left"
+                                    Style="{StaticResource QuietButtonStyle}"
+                                    Click="ContinueProject_Click"
+                                    AutomationProperties.Name="Continue Legacy ClashWise narration in Workbench" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource StudioPanelStyle}">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    MaxWidth="320" Spacing="10">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="32" Foreground="{ThemeResource ActiveSignalBrush}" />
+                            <TextBlock Text="Bring in a script" Style="{StaticResource StudioHeadingTextStyle}"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="Create a project, then import Markdown or text. Headings and --- markers become separate takes."
+                                       Style="{StaticResource ReadingTextStyle}"
+                                       Foreground="{ThemeResource MutedTextBrush}"
+                                       TextAlignment="Center" />
+                            <Button Content="Create the first project" Style="{StaticResource SignalButtonStyle}"
+                                    Click="NewProject_Click"
+                                    AutomationProperties.Name="Create the first VoiceBench project" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <TextBlock Grid.Row="3" Margin="0,24,0,0"
+                           Text="VoiceBench stores relative paths only. You can move or archive the whole project folder."
+                           Style="{StaticResource UtilityLabelTextStyle}" />
+            </Grid>
+        </ScrollViewer>
+
+        <ContentDialog x:Name="NewProjectDialog"
+                       Title="Create a narration project"
+                       PrimaryButtonText="Create project"
+                       CloseButtonText="Cancel"
+                       DefaultButton="Primary"
+                       PrimaryButtonClick="NewProjectDialog_PrimaryButtonClick">
+            <StackPanel MinWidth="460" Spacing="12">
+                <TextBlock Text="VoiceBench creates a movable folder with scripts, takes, masters, and reports."
+                           Style="{StaticResource ReadingTextStyle}" />
+                <TextBox x:Name="ProjectNameBox" Header="Project name" PlaceholderText="Training video narration" />
+                <TextBox x:Name="ProjectFolderBox" Header="Parent folder" PlaceholderText="C:\Narration" />
+                <ComboBox Header="Audio standard" SelectedIndex="0" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Mono · 48 kHz · −16 LUFS · −1 dBTP" />
+                </ComboBox>
+                <TextBlock Text="No provider key is needed until you audition a voice."
+                           Style="{StaticResource UtilityLabelTextStyle}" />
+            </StackPanel>
+        </ContentDialog>
+    </Grid>
+</UserControl>

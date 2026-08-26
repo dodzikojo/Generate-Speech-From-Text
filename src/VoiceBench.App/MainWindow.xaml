@@ -1,0 +1,107 @@
+<Window
+    x:Class="IssueLab.VoiceBench.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:views="using:IssueLab.VoiceBench.App.Views"
+    mc:Ignorable="d"
+    Title="VoiceBench">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid Background="{ThemeResource BaseBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="AppTitleBar"
+              Background="{ThemeResource BaseBrush}"
+              AutomationProperties.Name="VoiceBench title bar">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border Width="18" Height="18" Margin="14,0,10,0"
+                    BorderBrush="{ThemeResource ActiveSignalBrush}" BorderThickness="2"
+                    CornerRadius="2" VerticalAlignment="Center">
+                <Rectangle Width="8" Height="2" Fill="{ThemeResource ActiveSignalBrush}" />
+            </Border>
+            <TextBlock Grid.Column="1" Text="VOICEBENCH  /  NARRATION WORKSTATION"
+                       Style="{StaticResource UtilityLabelTextStyle}"
+                       VerticalAlignment="Center" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                        Margin="0,0,144,0" VerticalAlignment="Center">
+                <Ellipse Width="7" Height="7" Fill="{ThemeResource ApprovalBrush}" />
+                <TextBlock Text="LOCAL" Style="{StaticResource UtilityLabelTextStyle}"
+                           AutomationProperties.Name="Local workspace status" />
+            </StackPanel>
+        </Grid>
+
+        <NavigationView x:Name="ShellNavigation"
+                        Grid.Row="1"
+                        PaneDisplayMode="LeftCompact"
+                        CompactPaneLength="52"
+                        OpenPaneLength="220"
+                        IsPaneOpen="True"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        SelectionFollowsFocus="Disabled"
+                        ItemInvoked="ShellNavigation_ItemInvoked"
+                        AutomationProperties.Name="VoiceBench sections">
+            <NavigationView.PaneHeader>
+                <StackPanel Margin="4,10,0,14" Spacing="2">
+                    <TextBlock Text="VOICEBENCH" Style="{StaticResource StudioHeadingTextStyle}" />
+                    <TextBlock Text="STUDIO 01" Style="{StaticResource UtilityLabelTextStyle}" />
+                </StackPanel>
+            </NavigationView.PaneHeader>
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="ProjectsNavigationItem"
+                                    Content="Projects" Icon="Folder" Tag="projects"
+                                    AutomationProperties.Name="Projects"
+                                    AutomationProperties.AcceleratorKey="Alt+1">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number1" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="WorkbenchNavigationItem"
+                                    Content="Workbench" Icon="Edit" Tag="workbench"
+                                    AutomationProperties.Name="Workbench"
+                                    AutomationProperties.AcceleratorKey="Alt+2">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number2" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="VoiceLabNavigationItem"
+                                    Content="Voice Lab" Icon="Audio" Tag="voice-lab"
+                                    AutomationProperties.Name="Voice Lab"
+                                    AutomationProperties.AcceleratorKey="Alt+3">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number3" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="SettingsNavigationItem"
+                                    Content="Settings" Icon="Setting" Tag="settings"
+                                    AutomationProperties.Name="Settings"
+                                    AutomationProperties.AcceleratorKey="Alt+4">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number4" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Grid Background="{ThemeResource BaseBrush}">
+                <views:ProjectsView x:Name="ProjectsSurface" />
+                <views:WorkbenchView x:Name="WorkbenchSurface" Visibility="Collapsed" />
+                <views:VoiceLabView x:Name="VoiceLabSurface" Visibility="Collapsed" />
+                <views:SettingsView x:Name="SettingsSurface" Visibility="Collapsed" />
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

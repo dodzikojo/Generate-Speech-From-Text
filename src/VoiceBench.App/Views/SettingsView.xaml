@@ -1,0 +1,100 @@
+<UserControl
+    x:Class="IssueLab.VoiceBench.App.Views.SettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    d:DesignWidth="1280" d:DesignHeight="800">
+
+    <ScrollViewer Background="{ThemeResource BaseBrush}" VerticalScrollBarVisibility="Auto">
+        <Grid Margin="32,28,32,48" MaxWidth="980" HorizontalAlignment="Left">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="SETTINGS  /  LOCAL TOOLCHAIN" Style="{StaticResource UtilityLabelTextStyle}" />
+                <TextBlock Text="Keep the studio ready" Style="{StaticResource PageTitleTextStyle}" />
+                <TextBlock Text="Credentials stay in Windows Credential Manager. Audio tools live beneath your local app data folder."
+                           Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
+            </StackPanel>
+
+            <Border Grid.Row="1" Margin="0,22,0,0" Style="{StaticResource StudioPanelStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="PROVIDER CREDENTIALS" Style="{StaticResource StudioHeadingTextStyle}" />
+                        <TextBlock Text="SECRETS ARE NEVER STORED IN PROJECTS OR LOGS" Style="{StaticResource UtilityLabelTextStyle}" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="OpenAI" Style="{StaticResource ReadingTextStyle}" />
+                            <TextBlock x:Name="OpenAiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Add OpenAI key" Style="{StaticResource QuietButtonStyle}" Tag="openai"
+                                Click="Credential_Click" AutomationProperties.Name="Add OpenAI API key to Windows Credential Manager" />
+                    </Grid>
+                    <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Google Gemini" Style="{StaticResource ReadingTextStyle}" />
+                            <TextBlock x:Name="GeminiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Add Gemini key" Style="{StaticResource QuietButtonStyle}" Tag="gemini"
+                                Click="Credential_Click" AutomationProperties.Name="Add Gemini API key to Windows Credential Manager" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Margin="0,16,0,0" Style="{StaticResource StudioPanelStyle}">
+                <StackPanel Spacing="14">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="FFMPEG TOOLCHAIN" Style="{StaticResource StudioHeadingTextStyle}" />
+                            <TextBlock Text="REQUIRED FOR PROCESSING AND MASTERING" Style="{StaticResource UtilityLabelTextStyle}" />
+                        </StackPanel>
+                        <Border Grid.Column="1" BorderBrush="{ThemeResource PickupBrush}" BorderThickness="1" CornerRadius="10" Padding="9,3">
+                            <TextBlock x:Name="FfmpegStatusText" Text="!  MISSING" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
+                        </Border>
+                    </Grid>
+                    <TextBlock Text="VoiceBench can download the pinned BtbN FFmpeg 9.0.1 LGPL build, verify its published SHA-256, and install it for this Windows account."
+                               Style="{StaticResource ReadingTextStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Download and verify" Style="{StaticResource SignalButtonStyle}"
+                                Click="DownloadFfmpeg_Click" AutomationProperties.Name="Download and verify the pinned FFmpeg toolchain" />
+                        <Button Content="Select existing executable" Style="{StaticResource QuietButtonStyle}"
+                                Click="SelectFfmpeg_Click"
+                                AutomationProperties.Name="Select an existing FFmpeg executable" />
+                    </StackPanel>
+                    <TextBlock Text="%LOCALAPPDATA%\IssueLab\VoiceBench\Tools" Style="{StaticResource UtilityLabelTextStyle}" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="3" Margin="0,16,0,0" Style="{StaticResource StudioPanelStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="MASTERING DEFAULT" Style="{StaticResource StudioHeadingTextStyle}" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <ComboBox Header="Audio standard" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Mono · 48 kHz PCM WAV" />
+                        </ComboBox>
+                        <ComboBox Grid.Column="1" Header="Loudness target" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="−16 LUFS · ≤ −1 dBTP" />
+                        </ComboBox>
+                    </Grid>
+                    <TextBlock Text="Projects copy these defaults when they are created; existing project standards do not change silently."
+                               Style="{StaticResource UtilityLabelTextStyle}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <InfoBar x:Name="SettingsInfoBar" Grid.Row="4" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
+        </Grid>
+    </ScrollViewer>
+</UserControl>

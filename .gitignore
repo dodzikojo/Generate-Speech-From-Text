@@ -1,6 +1,22 @@
 # Output folder
 output/
 
+# .NET and Visual Studio build output
+**/bin/
+**/obj/
+.vs/
+TestResults/
+AppPackages/
+*.user
+*.suo
+
+# VoiceBench local/runtime state
+.voicebench/
+*.tmp
+*.raw.wav
+*.processed.wav
+*.master.wav
+
 # Python virtual environment
 .venv/
 venv/
@@ -24,5 +40,6 @@ Thumbs.db
 .env
 .env.local
 
-# Google service account keys
-*.json
+# Common local Google service-account key names
+service-account*.json
+google-credentials*.json
