@@ -2,6 +2,7 @@
     x:Class="IssueLab.VoiceBench.App.Views.WorkbenchView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:IssueLab.VoiceBench.App.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -15,7 +16,11 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Margin="20,16,20,12">
+        <Grid x:Name="WorkbenchHeader" Margin="12,14,12,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -24,7 +29,8 @@
                 <TextBlock x:Name="ProjectHeaderText" Text="WORKBENCH  /  NO PROJECT" Style="{StaticResource UtilityLabelTextStyle}" />
                 <TextBlock x:Name="ProjectTitleText" Text="Open a project to begin" Style="{StaticResource StudioHeadingTextStyle}" />
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <StackPanel x:Name="WorkbenchHeaderActions" Grid.Row="1" Grid.Column="0"
+                        Margin="0,12,0,0" Orientation="Horizontal" Spacing="8">
                 <Button Content="Import script" Style="{StaticResource QuietButtonStyle}"
                         Click="ImportScript_Click"
                         AutomationProperties.Name="Import a Markdown or text script" />
@@ -39,7 +45,7 @@
             </StackPanel>
         </Grid>
 
-        <InfoBar x:Name="WorkbenchInfoBar" Grid.Row="1" Margin="20,0,20,12"
+        <InfoBar x:Name="WorkbenchInfoBar" Grid.Row="1" Margin="12,0,12,12"
                  IsOpen="True" IsClosable="True" Severity="Warning"
                  Title="Choose a project voice"
                  Message="Complete an A/B audition in Voice Lab before setting the default preset.">
@@ -50,7 +56,7 @@
             </InfoBar.ActionButton>
         </InfoBar>
 
-        <Grid Grid.Row="2" Margin="20,0" ColumnSpacing="12">
+        <Grid x:Name="WorkbenchColumns" Grid.Row="2" Margin="12,0" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="TakeRailColumn" Width="286" />
                 <ColumnDefinition x:Name="ScriptColumn" Width="*" />
@@ -68,18 +74,17 @@
                         <TextBlock Text="TAKE RAIL" Style="{StaticResource StudioHeadingTextStyle}" />
                         <TextBlock x:Name="TakeRailSummaryText" Text="0 SEGMENTS  ·  0 APPROVED" Style="{StaticResource UtilityLabelTextStyle}" />
                     </StackPanel>
-                    <Grid Grid.Row="1">
-                        <Border Width="2" Margin="29,0,0,0" HorizontalAlignment="Left"
-                                Background="{ThemeResource DividerBrush}" />
-                        <ListView x:Name="TakeRailList" SelectionMode="Single" SelectedIndex="-1"
-                                  SelectionChanged="TakeRailList_SelectionChanged"
-                                  Background="Transparent" BorderThickness="0"
-                                  AutomationProperties.Name="Narration segments and take states" />
-                    </Grid>
+                    <ListView x:Name="TakeRailList" Grid.Row="1"
+                              Padding="6,0,6,8"
+                              SelectionMode="Single" SelectedIndex="-1"
+                              SelectionChanged="TakeRailList_SelectionChanged"
+                              Background="Transparent" BorderThickness="0"
+                              AutomationProperties.Name="Narration segments and take states" />
                 </Grid>
             </Border>
 
-            <Border x:Name="ScriptEditor" Grid.Column="1" Style="{StaticResource StudioPanelStyle}"
+            <Border x:Name="ScriptEditor" Grid.Column="1" Margin="0,76,0,0"
+                    Style="{StaticResource StudioPanelStyle}"
                     AutomationProperties.Name="Canonical script editor">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -88,13 +93,18 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Grid>
+                    <Grid x:Name="ScriptEditorHeader" RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock x:Name="SegmentTitleText" Text="NO SEGMENT SELECTED" Style="{StaticResource StudioHeadingTextStyle}" />
                             <TextBlock x:Name="SegmentStatsText" Text="0 WORDS  ·  EST. 00:00  ·  SAVED" Style="{StaticResource UtilityLabelTextStyle}" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <StackPanel x:Name="ScriptEditorActions" Grid.Row="1" Grid.Column="0"
+                                    Orientation="Horizontal" Spacing="8">
                             <Button Content="Pronunciation" Style="{StaticResource QuietButtonStyle}"
                                     Click="Pronunciation_Click"
                                     AutomationProperties.Name="Edit pronunciation for selected text" />
@@ -154,23 +164,17 @@
                         <InfoBar x:Name="VoicePresetInfoBar" IsOpen="True" IsClosable="False" Severity="Warning"
                                  Title="A/B audition required"
                                  Message="No default project voice is selected." />
-                        <ComboBox x:Name="ProviderComboBox" Header="Provider" SelectedIndex="0" HorizontalAlignment="Stretch"
+                        <ComboBox x:Name="ProviderComboBox" Header="Provider" HorizontalAlignment="Stretch"
+                                  SelectionChanged="ProviderComboBox_SelectionChanged"
                                   AutomationProperties.Name="Speech provider">
-                            <ComboBoxItem Content="OpenAI" />
-                            <ComboBoxItem Content="Google Gemini" />
+                            <ComboBoxItem Content="OpenAI" Tag="openai" />
+                            <ComboBoxItem Content="Google Gemini" Tag="gemini" />
                         </ComboBox>
-                        <ComboBox x:Name="ModelComboBox" Header="Model" SelectedIndex="0" HorizontalAlignment="Stretch"
-                                  AutomationProperties.Name="Speech model">
-                            <ComboBoxItem Content="gpt-4o-mini-tts" />
-                            <ComboBoxItem Content="gemini-3.1-flash-tts-preview" />
-                            <ComboBoxItem Content="gemini-2.5-flash-preview-tts" />
-                            <ComboBoxItem Content="gemini-2.5-pro-preview-tts" />
-                        </ComboBox>
-                        <ComboBox x:Name="VoiceComboBox" Header="Voice" SelectedIndex="0" HorizontalAlignment="Stretch"
-                                  AutomationProperties.Name="Narration voice">
-                            <ComboBoxItem Content="marin" />
-                            <ComboBoxItem Content="cedar" />
-                        </ComboBox>
+                        <ComboBox x:Name="ModelComboBox" Header="Model" HorizontalAlignment="Stretch"
+                                  SelectionChanged="ModelComboBox_SelectionChanged"
+                                  AutomationProperties.Name="Speech model" />
+                        <ComboBox x:Name="VoiceComboBox" Header="Voice" HorizontalAlignment="Stretch"
+                                  AutomationProperties.Name="Narration voice" />
                         <TextBox x:Name="DirectionTextBox" Header="Direction" AcceptsReturn="True" Height="118"
                                  PlaceholderText="Calm, measured, technically clear. Ease through acronyms."
                                  AutomationProperties.Name="Directions sent with this render" />
@@ -214,55 +218,45 @@
                     <TextBlock Text="●" FontSize="9" Foreground="#081014" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel Grid.Column="1" Spacing="2">
-                    <TextBlock x:Name="CompactSegmentTitleText" Text="NO SEGMENT SELECTED" Style="{StaticResource ReadingTextStyle}" />
-                    <TextBlock x:Name="CompactSegmentStatusText" Text="OPEN A PROJECT TO BEGIN" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource ActiveSignalBrush}" />
+                    <TextBlock x:Name="CompactSegmentTitleText" Text="NO SEGMENT SELECTED" Style="{StaticResource ReadingTextStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="CompactSegmentStatusText" Text="OPEN A PROJECT TO BEGIN" Style="{StaticResource UtilityLabelTextStyle}"
+                               Foreground="{ThemeResource ActiveSignalBrush}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
                 <Button Grid.Column="2" Content="All segments" Style="{StaticResource QuietButtonStyle}"
                         AutomationProperties.Name="Show all script segments" />
             </Grid>
         </Border>
 
-        <Border Grid.Row="3" Margin="20,12,20,18" Style="{StaticResource StudioPanelStyle}"
+        <Border x:Name="WorkbenchFooter" Grid.Row="3" Margin="12,12,12,14" Style="{StaticResource StudioPanelStyle}"
                 AutomationProperties.Name="Take transport and mastering controls">
-            <Grid ColumnSpacing="14">
+            <Grid ColumnSpacing="14" RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="4">
+                <StackPanel x:Name="TakeSelectionControls" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button x:Name="PreviousTakeButton" Content="◀" Style="{StaticResource QuietButtonStyle}" Click="PreviousTake_Click" IsEnabled="False" AutomationProperties.Name="Previous take" />
-                    <Button x:Name="PlayTakeButton" Content="▶" Style="{StaticResource SignalButtonStyle}" Click="PlayTake_Click" IsEnabled="False" AutomationProperties.Name="Play selected take" AutomationProperties.AcceleratorKey="Space" />
-                    <Button x:Name="StopTakeButton" Content="■" Style="{StaticResource QuietButtonStyle}" Click="StopTake_Click" IsEnabled="False" AutomationProperties.Name="Stop playback" />
-                </StackPanel>
-                <Grid Grid.Column="1" Height="42" VerticalAlignment="Center"
-                      AutomationProperties.Name="Take waveform preview">
-                    <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
-                        <Rectangle Width="2" Height="8" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="19" Fill="{ThemeResource ActiveSignalBrush}" />
-                        <Rectangle Width="2" Height="31" Fill="{ThemeResource ActiveSignalBrush}" />
-                        <Rectangle Width="2" Height="14" Fill="{ThemeResource ActiveSignalBrush}" />
-                        <Rectangle Width="2" Height="25" Fill="{ThemeResource ActiveSignalBrush}" />
-                        <Rectangle Width="2" Height="36" Fill="{ThemeResource ActiveSignalBrush}" />
-                        <Rectangle Width="2" Height="17" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="10" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="27" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="13" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="33" Fill="{ThemeResource MutedTextBrush}" />
-                        <Rectangle Width="2" Height="20" Fill="{ThemeResource MutedTextBrush}" />
-                    </StackPanel>
-                </Grid>
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <ComboBox x:Name="TakeSelector" SelectedIndex="-1" MinWidth="96" SelectionChanged="TakeSelector_SelectionChanged" AutomationProperties.Name="Selected take" />
-                    <TextBlock x:Name="TransportDurationText" Text="NO TAKE" Style="{StaticResource UtilityLabelTextStyle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <controls:AudioTransport x:Name="TakeTransport" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4" VerticalAlignment="Center" />
+                <StackPanel x:Name="TakeDecisionControls" Grid.Row="2" Grid.Column="0"
+                            Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button x:Name="PickupButton" Content="Pickup" Style="{StaticResource QuietButtonStyle}" Click="Pickup_Click" IsEnabled="False"
                             AutomationProperties.Name="Mark selected segment as Pickup Required" />
                     <Button x:Name="ApproveButton" Content="✓ Approve" Style="{StaticResource QuietButtonStyle}" Click="Approve_Click" IsEnabled="False"
                             AutomationProperties.Name="Approve selected take" />
                 </StackPanel>
-                <Button Grid.Column="3" Content="Build master" Style="{StaticResource SignalButtonStyle}"
+                <Button x:Name="BuildMasterButton" Grid.Row="3" Grid.Column="0"
+                        HorizontalAlignment="Stretch" Content="Build master" Style="{StaticResource SignalButtonStyle}"
                         Click="BuildMaster_Click"
                         AutomationProperties.Name="Build master from approved segments"
                         AutomationProperties.AcceleratorKey="Control+M">
@@ -292,6 +286,15 @@
                         <Setter Target="VoiceDirector.Visibility" Value="Collapsed" />
                         <Setter Target="TakeRailColumn.Width" Value="250" />
                         <Setter Target="DirectorColumn.Width" Value="0" />
+                        <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="12,0,0,0" />
+                        <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
+                        <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
+                        <Setter Target="ScriptEditor.Margin" Value="0" />
+                        <Setter Target="ScriptEditorActions.(Grid.Row)" Value="0" />
+                        <Setter Target="ScriptEditorActions.(Grid.Column)" Value="1" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="WideWorkbench">
@@ -302,6 +305,24 @@
                         <Setter Target="VoiceDirector.Visibility" Value="Visible" />
                         <Setter Target="TakeRailColumn.Width" Value="286" />
                         <Setter Target="DirectorColumn.Width" Value="326" />
+                        <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="12,0,0,0" />
+                        <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
+                        <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
+                        <Setter Target="ScriptEditor.Margin" Value="0" />
+                        <Setter Target="ScriptEditorActions.(Grid.Row)" Value="0" />
+                        <Setter Target="ScriptEditorActions.(Grid.Column)" Value="1" />
+                        <Setter Target="WorkbenchFooter.Margin" Value="20,12,20,18" />
+                        <Setter Target="TakeTransport.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeTransport.(Grid.Column)" Value="1" />
+                        <Setter Target="TakeTransport.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeDecisionControls.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeDecisionControls.(Grid.Column)" Value="2" />
+                        <Setter Target="BuildMasterButton.(Grid.Row)" Value="0" />
+                        <Setter Target="BuildMasterButton.(Grid.Column)" Value="3" />
+                        <Setter Target="BuildMasterButton.HorizontalAlignment" Value="Right" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>

@@ -12,7 +12,7 @@
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <Grid Background="{ThemeResource BaseBrush}">
+    <Grid x:Name="ShellRoot" Background="{ThemeResource BaseBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="40" />
             <RowDefinition Height="*" />
@@ -31,10 +31,10 @@
                     CornerRadius="2" VerticalAlignment="Center">
                 <Rectangle Width="8" Height="2" Fill="{ThemeResource ActiveSignalBrush}" />
             </Border>
-            <TextBlock Grid.Column="1" Text="VOICEBENCH  /  NARRATION WORKSTATION"
+            <TextBlock x:Name="TitleBarLabel" Grid.Column="1" Text="VOICEBENCH"
                        Style="{StaticResource UtilityLabelTextStyle}"
                        VerticalAlignment="Center" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+            <StackPanel x:Name="LocalStatus" Grid.Column="2" Orientation="Horizontal" Spacing="8"
                         Margin="0,0,144,0" VerticalAlignment="Center">
                 <Ellipse Width="7" Height="7" Fill="{ThemeResource ApprovalBrush}" />
                 <TextBlock Text="LOCAL" Style="{StaticResource UtilityLabelTextStyle}"
@@ -44,10 +44,11 @@
 
         <NavigationView x:Name="ShellNavigation"
                         Grid.Row="1"
-                        PaneDisplayMode="LeftCompact"
+                        PaneDisplayMode="Auto"
                         CompactPaneLength="52"
                         OpenPaneLength="220"
-                        IsPaneOpen="True"
+                        CompactModeThresholdWidth="720"
+                        ExpandedModeThresholdWidth="1100"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="False"
                         SelectionFollowsFocus="Disabled"
@@ -103,5 +104,24 @@
                 <views:SettingsView x:Name="SettingsSurface" Visibility="Collapsed" />
             </Grid>
         </NavigationView>
+
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="ShellWidthStates">
+                <VisualState x:Name="NarrowShell">
+                    <VisualState.Setters>
+                        <Setter Target="LocalStatus.Visibility" Value="Collapsed" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="WideShell">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="640" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="TitleBarLabel.Text" Value="VOICEBENCH  /  NARRATION WORKSTATION" />
+                        <Setter Target="LocalStatus.Visibility" Value="Visible" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
     </Grid>
 </Window>

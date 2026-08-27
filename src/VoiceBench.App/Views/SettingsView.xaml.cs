@@ -1,3 +1,4 @@
+using IssueLab.VoiceBench.App.Layout;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
@@ -10,6 +11,17 @@ public sealed partial class SettingsView : UserControl
     {
         InitializeComponent();
         Loaded += SettingsView_Loaded;
+        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
+    }
+
+    private void ApplyResponsiveState(double width)
+    {
+        bool isWide = width >= 700;
+        VisualStateManager.GoToState(
+            this,
+            isWide ? "WideSettings" : "NarrowSettings",
+            false);
+        StudioPageFrame.Resize(SettingsRoot, width, 980, isWide ? 32 : 16);
     }
 
     private async void SettingsView_Loaded(object sender, RoutedEventArgs e) => await RefreshStatusAsync();
@@ -22,7 +34,6 @@ public sealed partial class SettingsView : UserControl
         {
             Header = $"{providerName} API key",
             PlaceholderText = "Stored only in Windows Credential Manager",
-            MinWidth = 460,
         };
         ContentDialog dialog = new()
         {

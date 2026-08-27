@@ -1,4 +1,5 @@
 using IssueLab.VoiceBench.Core;
+using IssueLab.VoiceBench.App.Layout;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
@@ -11,7 +12,18 @@ public sealed partial class ProjectsView : UserControl
     {
         InitializeComponent();
         Loaded += ProjectsView_Loaded;
+        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
+    }
+
+    private void ApplyResponsiveState(double width)
+    {
+        bool isWide = width >= 960;
+        VisualStateManager.GoToState(
+            this,
+            isWide ? "WideProjects" : width >= 560 ? "MediumProjects" : "NarrowProjects",
+            false);
+        StudioPageFrame.Resize(ProjectsRoot, width, 1180, isWide ? 32 : 16);
     }
 
     private void ProjectsView_Loaded(object sender, RoutedEventArgs e) => UpdateRecentProject();

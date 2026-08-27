@@ -12,7 +12,7 @@ public sealed class OpenAiSpeechProvider : HttpSpeechProviderBase
     private static readonly string[] Voices =
     [
         "alloy", "ash", "ballad", "coral", "echo", "fable", "nova",
-        "onyx", "sage", "shimmer", "verse", "cedar", "marin",
+        "onyx", "sage", "shimmer", "verse", "marin", "cedar",
     ];
 
     private static readonly SpeechProviderDescriptor ProviderDescriptor = new(

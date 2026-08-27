@@ -9,6 +9,16 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Providers;
 public sealed class GeminiSpeechProviderTests
 {
     [Fact]
+    public void Descriptor_exposes_all_thirty_documented_gemini_tts_voices_for_each_model()
+    {
+        var provider = new GeminiSpeechProvider(new HttpClient(new StubHttpMessageHandler()));
+
+        Assert.All(provider.Descriptor.Models, model => Assert.Equal(30, model.Voices.Count));
+        Assert.All(provider.Descriptor.Models, model => Assert.Contains("Zephyr", model.Voices));
+        Assert.All(provider.Descriptor.Models, model => Assert.Contains("Zubenelgenubi", model.Voices));
+    }
+
+    [Fact]
     public async Task SynthesizeAsync_SendsHeaderAndConvertsPcmToWave()
     {
         var handler = new StubHttpMessageHandler();

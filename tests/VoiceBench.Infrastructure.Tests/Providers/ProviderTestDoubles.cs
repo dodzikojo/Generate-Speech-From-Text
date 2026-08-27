@@ -78,6 +78,14 @@ internal sealed class RecordingRetryDelay : IRetryDelayStrategy
 
 internal static class ProviderTestAudio
 {
+    public static byte[] StreamingWave()
+    {
+        var bytes = Wave();
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(40), uint.MaxValue);
+        return bytes;
+    }
+
     public static byte[] Wave()
     {
         const int dataLength = 4;

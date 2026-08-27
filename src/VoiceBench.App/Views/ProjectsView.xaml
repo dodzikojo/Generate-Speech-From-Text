@@ -9,7 +9,7 @@
 
     <Grid Background="{ThemeResource BaseBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <Grid Margin="32,28,32,48" MaxWidth="1180" HorizontalAlignment="Stretch">
+            <Grid x:Name="ProjectsRoot" Margin="16,20,16,36" MaxWidth="1180" HorizontalAlignment="Center">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -17,7 +17,11 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid>
+                <Grid x:Name="ProjectsHeader">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -28,7 +32,9 @@
                         <TextBlock Text="Scripts stay in their folders. VoiceBench keeps takes, approvals, and exports beside them."
                                    Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                    <StackPanel x:Name="ProjectHeaderActions" Grid.Row="1" Grid.Column="0"
+                                Margin="0,16,0,0" Orientation="Vertical" Spacing="8"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Bottom">
                         <Button Content="Open folder" Style="{StaticResource QuietButtonStyle}"
                                 Click="OpenFolder_Click"
                                 AutomationProperties.Name="Open an existing project folder"
@@ -52,15 +58,23 @@
                          IsOpen="False" IsClosable="True" Severity="Informational"
                          Title="Project action" />
 
-                <Grid Grid.Row="2" Margin="0,24,0,0" ColumnSpacing="16">
+                <Grid x:Name="ProjectCards" Grid.Row="2" Margin="0,24,0,0" ColumnSpacing="16" RowSpacing="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="3*" />
-                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition x:Name="RecentProjectColumn" Width="*" />
+                        <ColumnDefinition x:Name="EmptyProjectColumn" Width="0" />
                     </Grid.ColumnDefinitions>
 
                     <Border Style="{StaticResource StudioPanelStyle}">
                         <StackPanel Spacing="16">
-                            <Grid>
+                            <Grid x:Name="RecentProjectHeader">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -69,7 +83,9 @@
                                     <TextBlock Text="RECENT PROJECT" Style="{StaticResource UtilityLabelTextStyle}" />
                                     <TextBlock x:Name="RecentProjectNameText" Text="Legacy ClashWise narration" Style="{StaticResource StudioHeadingTextStyle}" />
                                 </StackPanel>
-                                <Border Grid.Column="1" Background="{ThemeResource ApprovalBrush}"
+                                <Border x:Name="RecentProjectHealth" Grid.Row="1" Grid.Column="0"
+                                        Margin="0,8,0,0" HorizontalAlignment="Left"
+                                        Background="{ThemeResource ApprovalBrush}"
                                         CornerRadius="10" Padding="9,3" VerticalAlignment="Top">
                                     <TextBlock Text="✓  HEALTHY" Foreground="#08140F"
                                                Style="{StaticResource UtilityLabelTextStyle}" />
@@ -102,7 +118,8 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Column="1" Style="{StaticResource StudioPanelStyle}">
+                    <Border x:Name="EmptyProjectCard" Grid.Row="1" Grid.Column="0"
+                            Style="{StaticResource StudioPanelStyle}">
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                     MaxWidth="320" Spacing="10">
                             <FontIcon Glyph="&#xE8B7;" FontSize="32" Foreground="{ThemeResource ActiveSignalBrush}" />
@@ -113,6 +130,7 @@
                                        Foreground="{ThemeResource MutedTextBrush}"
                                        TextAlignment="Center" />
                             <Button Content="Create the first project" Style="{StaticResource SignalButtonStyle}"
+                                    HorizontalAlignment="Center"
                                     Click="NewProject_Click"
                                     AutomationProperties.Name="Create the first VoiceBench project" />
                         </StackPanel>
@@ -131,7 +149,7 @@
                        CloseButtonText="Cancel"
                        DefaultButton="Primary"
                        PrimaryButtonClick="NewProjectDialog_PrimaryButtonClick">
-            <StackPanel MinWidth="460" Spacing="12">
+            <StackPanel Spacing="12">
                 <TextBlock Text="VoiceBench creates a movable folder with scripts, takes, masters, and reports."
                            Style="{StaticResource ReadingTextStyle}" />
                 <TextBox x:Name="ProjectNameBox" Header="Project name" PlaceholderText="Training video narration" />
@@ -143,5 +161,45 @@
                            Style="{StaticResource UtilityLabelTextStyle}" />
             </StackPanel>
         </ContentDialog>
+
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="ProjectsWidthStates">
+                <VisualState x:Name="NarrowProjects" />
+                <VisualState x:Name="MediumProjects">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="560" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ProjectHeaderActions.Orientation" Value="Horizontal" />
+                        <Setter Target="ProjectHeaderActions.HorizontalAlignment" Value="Left" />
+                        <Setter Target="RecentProjectHealth.(Grid.Row)" Value="0" />
+                        <Setter Target="RecentProjectHealth.(Grid.Column)" Value="1" />
+                        <Setter Target="RecentProjectHealth.Margin" Value="12,0,0,0" />
+                        <Setter Target="RecentProjectHealth.HorizontalAlignment" Value="Right" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="WideProjects">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="960" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ProjectsRoot.Margin" Value="32,28,32,48" />
+                        <Setter Target="ProjectHeaderActions.(Grid.Row)" Value="0" />
+                        <Setter Target="ProjectHeaderActions.(Grid.Column)" Value="1" />
+                        <Setter Target="ProjectHeaderActions.Margin" Value="16,0,0,0" />
+                        <Setter Target="ProjectHeaderActions.Orientation" Value="Horizontal" />
+                        <Setter Target="ProjectHeaderActions.HorizontalAlignment" Value="Right" />
+                        <Setter Target="RecentProjectHealth.(Grid.Row)" Value="0" />
+                        <Setter Target="RecentProjectHealth.(Grid.Column)" Value="1" />
+                        <Setter Target="RecentProjectHealth.Margin" Value="12,0,0,0" />
+                        <Setter Target="RecentProjectHealth.HorizontalAlignment" Value="Right" />
+                        <Setter Target="RecentProjectColumn.Width" Value="3*" />
+                        <Setter Target="EmptyProjectColumn.Width" Value="2*" />
+                        <Setter Target="EmptyProjectCard.(Grid.Row)" Value="0" />
+                        <Setter Target="EmptyProjectCard.(Grid.Column)" Value="1" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
     </Grid>
 </UserControl>

@@ -9,6 +9,16 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Providers;
 public sealed class OpenAiSpeechProviderTests
 {
     [Fact]
+    public void Descriptor_exposes_every_documented_gpt_4o_mini_tts_voice()
+    {
+        var provider = new OpenAiSpeechProvider(new HttpClient(new StubHttpMessageHandler()));
+
+        Assert.Equal(
+            ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"],
+            provider.Descriptor.Models.Single().Voices);
+    }
+
+    [Fact]
     public async Task SynthesizeAsync_SendsExactModelDirectionsAndWavFormat()
     {
         var handler = new StubHttpMessageHandler();
@@ -31,6 +41,23 @@ public sealed class OpenAiSpeechProviderTests
         Assert.Equal("Read with calm authority.", body.RootElement.GetProperty("instructions").GetString());
         Assert.Equal("wav", body.RootElement.GetProperty("response_format").GetString());
         Assert.Equal("Canonical narration.", body.RootElement.GetProperty("input").GetString());
+    }
+
+    [Fact]
+    public async Task SynthesizeAsync_AcceptsStreamingWaveWithUnknownLengths()
+    {
+        var handler = new StubHttpMessageHandler();
+        handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(ProviderTestAudio.StreamingWave()),
+        });
+        var provider = new OpenAiSpeechProvider(new HttpClient(handler), new RecordingRetryDelay());
+
+        var result = await provider.SynthesizeAsync(Request(), "key", CancellationToken.None);
+
+        Assert.NotEmpty(result.Audio);
+        Assert.Equal(24_000, result.SampleRate);
+        Assert.Equal(1, result.Channels);
     }
 
     [Fact]

@@ -27,13 +27,31 @@ public static class WaveFileInspector
 
         for (var offset = 12; offset <= audio.Length - 8;)
         {
-            var chunkLength = BinaryPrimitives.ReadInt32LittleEndian(audio.Slice(offset + 4, 4));
-            if (chunkLength < 0 || offset + 8L + chunkLength > audio.Length)
+            var chunkId = audio.Slice(offset, 4);
+            var declaredChunkLength = BinaryPrimitives.ReadUInt32LittleEndian(audio.Slice(offset + 4, 4));
+            var streamingDataChunk = chunkId.SequenceEqual("data"u8)
+                && declaredChunkLength == uint.MaxValue;
+            int chunkLength;
+            if (streamingDataChunk)
+            {
+                // Streamed WAV responses cannot know the data length when the header is emitted.
+                // Once the HTTP body has been buffered, the remaining payload is the complete data chunk.
+                chunkLength = audio.Length - offset - 8;
+            }
+            else if (declaredChunkLength > int.MaxValue)
+            {
+                throw new InvalidDataException("WAVE chunk length exceeds the supported payload size.");
+            }
+            else
+            {
+                chunkLength = (int)declaredChunkLength;
+            }
+
+            if (offset + 8L + chunkLength > audio.Length)
             {
                 throw new InvalidDataException("WAVE chunk length exceeds the audio payload.");
             }
 
-            var chunkId = audio.Slice(offset, 4);
             var chunk = audio.Slice(offset + 8, chunkLength);
             if (chunkId.SequenceEqual("fmt "u8))
             {
@@ -52,7 +70,9 @@ public static class WaveFileInspector
                 dataLength = chunkLength;
             }
 
-            offset += 8 + chunkLength + (chunkLength & 1);
+            offset = streamingDataChunk
+                ? audio.Length
+                : offset + 8 + chunkLength + (chunkLength & 1);
         }
 
         if (sampleRate is not > 0

@@ -8,7 +8,7 @@
     d:DesignWidth="1280" d:DesignHeight="800">
 
     <ScrollViewer Background="{ThemeResource BaseBrush}" VerticalScrollBarVisibility="Auto">
-        <Grid Margin="32,28,32,48" MaxWidth="980" HorizontalAlignment="Left">
+        <Grid x:Name="SettingsRoot" Margin="16,20,16,36" MaxWidth="980" HorizontalAlignment="Center">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -30,23 +30,27 @@
                         <TextBlock Text="PROVIDER CREDENTIALS" Style="{StaticResource StudioHeadingTextStyle}" />
                         <TextBlock Text="SECRETS ARE NEVER STORED IN PROJECTS OR LOGS" Style="{StaticResource UtilityLabelTextStyle}" />
                     </StackPanel>
-                    <Grid ColumnSpacing="12">
+                    <Grid x:Name="OpenAiCredentialRow" ColumnSpacing="12" RowSpacing="10">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock Text="OpenAI" Style="{StaticResource ReadingTextStyle}" />
                             <TextBlock x:Name="OpenAiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="Add OpenAI key" Style="{StaticResource QuietButtonStyle}" Tag="openai"
+                        <Button x:Name="OpenAiCredentialButton" Grid.Row="1" Grid.Column="0"
+                                HorizontalAlignment="Stretch" Content="Add OpenAI key" Style="{StaticResource QuietButtonStyle}" Tag="openai"
                                 Click="Credential_Click" AutomationProperties.Name="Add OpenAI API key to Windows Credential Manager" />
                     </Grid>
                     <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" />
-                    <Grid ColumnSpacing="12">
+                    <Grid x:Name="GeminiCredentialRow" ColumnSpacing="12" RowSpacing="10">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock Text="Google Gemini" Style="{StaticResource ReadingTextStyle}" />
                             <TextBlock x:Name="GeminiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="Add Gemini key" Style="{StaticResource QuietButtonStyle}" Tag="gemini"
+                        <Button x:Name="GeminiCredentialButton" Grid.Row="1" Grid.Column="0"
+                                HorizontalAlignment="Stretch" Content="Add Gemini key" Style="{StaticResource QuietButtonStyle}" Tag="gemini"
                                 Click="Credential_Click" AutomationProperties.Name="Add Gemini API key to Windows Credential Manager" />
                     </Grid>
                 </StackPanel>
@@ -54,19 +58,21 @@
 
             <Border Grid.Row="2" Margin="0,16,0,0" Style="{StaticResource StudioPanelStyle}">
                 <StackPanel Spacing="14">
-                    <Grid>
+                    <Grid x:Name="FfmpegHeader" RowSpacing="10">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock Text="FFMPEG TOOLCHAIN" Style="{StaticResource StudioHeadingTextStyle}" />
                             <TextBlock Text="REQUIRED FOR PROCESSING AND MASTERING" Style="{StaticResource UtilityLabelTextStyle}" />
                         </StackPanel>
-                        <Border Grid.Column="1" BorderBrush="{ThemeResource PickupBrush}" BorderThickness="1" CornerRadius="10" Padding="9,3">
+                        <Border x:Name="FfmpegStatusBadge" Grid.Row="1" Grid.Column="0"
+                                HorizontalAlignment="Left" BorderBrush="{ThemeResource PickupBrush}" BorderThickness="1" CornerRadius="10" Padding="9,3">
                             <TextBlock x:Name="FfmpegStatusText" Text="!  MISSING" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
                         </Border>
                     </Grid>
                     <TextBlock Text="VoiceBench can download the pinned BtbN FFmpeg 9.0.1 LGPL build, verify its published SHA-256, and install it for this Windows account."
                                Style="{StaticResource ReadingTextStyle}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
+                    <StackPanel x:Name="FfmpegActions" Orientation="Vertical" Spacing="8">
                         <Button Content="Download and verify" Style="{StaticResource SignalButtonStyle}"
                                 Click="DownloadFfmpeg_Click" AutomationProperties.Name="Download and verify the pinned FFmpeg toolchain" />
                         <Button Content="Select existing executable" Style="{StaticResource QuietButtonStyle}"
@@ -80,12 +86,14 @@
             <Border Grid.Row="3" Margin="0,16,0,0" Style="{StaticResource StudioPanelStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Text="MASTERING DEFAULT" Style="{StaticResource StudioHeadingTextStyle}" />
-                    <Grid ColumnSpacing="12">
+                    <Grid x:Name="MasteringDefaults" ColumnSpacing="12" RowSpacing="10">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <ComboBox Header="Audio standard" SelectedIndex="0" HorizontalAlignment="Stretch">
                             <ComboBoxItem Content="Mono · 48 kHz PCM WAV" />
                         </ComboBox>
-                        <ComboBox Grid.Column="1" Header="Loudness target" SelectedIndex="0" HorizontalAlignment="Stretch">
+                        <ComboBox x:Name="LoudnessTargetComboBox" Grid.Row="1" Grid.Column="0"
+                                  Header="Loudness target" SelectedIndex="0" HorizontalAlignment="Stretch">
                             <ComboBoxItem Content="−16 LUFS · ≤ −1 dBTP" />
                         </ComboBox>
                     </Grid>
@@ -95,6 +103,32 @@
             </Border>
 
             <InfoBar x:Name="SettingsInfoBar" Grid.Row="4" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
+
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup x:Name="SettingsWidthStates">
+                    <VisualState x:Name="NarrowSettings" />
+                    <VisualState x:Name="WideSettings">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="700" />
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="SettingsRoot.Margin" Value="32,28,32,48" />
+                            <Setter Target="OpenAiCredentialButton.(Grid.Row)" Value="0" />
+                            <Setter Target="OpenAiCredentialButton.(Grid.Column)" Value="1" />
+                            <Setter Target="OpenAiCredentialButton.HorizontalAlignment" Value="Right" />
+                            <Setter Target="GeminiCredentialButton.(Grid.Row)" Value="0" />
+                            <Setter Target="GeminiCredentialButton.(Grid.Column)" Value="1" />
+                            <Setter Target="GeminiCredentialButton.HorizontalAlignment" Value="Right" />
+                            <Setter Target="FfmpegStatusBadge.(Grid.Row)" Value="0" />
+                            <Setter Target="FfmpegStatusBadge.(Grid.Column)" Value="1" />
+                            <Setter Target="FfmpegStatusBadge.HorizontalAlignment" Value="Right" />
+                            <Setter Target="FfmpegActions.Orientation" Value="Horizontal" />
+                            <Setter Target="LoudnessTargetComboBox.(Grid.Row)" Value="0" />
+                            <Setter Target="LoudnessTargetComboBox.(Grid.Column)" Value="1" />
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
         </Grid>
     </ScrollViewer>
 </UserControl>

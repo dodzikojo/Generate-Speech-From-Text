@@ -5,8 +5,7 @@ using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Windows.Media.Core;
-using Windows.Media.Playback;
+using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Pickers;
 
 namespace IssueLab.VoiceBench.App.Views;
@@ -20,14 +19,69 @@ public sealed partial class WorkbenchView : UserControl
     private bool _ignoreTextChanges;
     private bool _isDirty;
     private bool _externalOverwriteApproved;
-    private readonly MediaPlayer _mediaPlayer = new();
     private CancellationTokenSource? _renderCancellation;
 
     public WorkbenchView()
     {
         InitializeComponent();
+        SetSelectedContent(ProviderComboBox, "OpenAI");
+        PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
+        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         Loaded += WorkbenchView_Loaded;
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
+    }
+
+    private void ApplyResponsiveState(double width) => VisualStateManager.GoToState(
+        this,
+        width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
+        false);
+
+    private void ProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ModelComboBox is null || VoiceComboBox is null || ProviderComboBox.SelectedItem is null) return;
+        PopulateProviderControls(GetSelectedProviderId(), null, null);
+    }
+
+    private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VoiceComboBox is null || ModelComboBox.SelectedItem is null || ProviderComboBox.SelectedItem is null) return;
+        PopulateVoiceControls(GetSelectedProviderId(), null);
+    }
+
+    private void PopulateProviderControls(string providerId, string? preferredModel, string? preferredVoice)
+    {
+        SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
+            item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
+        ModelComboBox.Items.Clear();
+        foreach (SpeechModelDescriptor model in provider.Models)
+        {
+            ModelComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = model.DisplayName,
+                Tag = model.ModelId,
+            });
+        }
+
+        SetSelectedContent(ModelComboBox, preferredModel ?? provider.Models[0].ModelId);
+        PopulateVoiceControls(providerId, preferredVoice);
+    }
+
+    private void PopulateVoiceControls(string providerId, string? preferredVoice)
+    {
+        if (ModelComboBox.SelectedItem is not ComboBoxItem) return;
+        string modelId = GetSelectedContent(ModelComboBox);
+        SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
+            item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
+        SpeechModelDescriptor model = provider.Models.Single(item => item.ModelId == modelId);
+        string? currentVoice = preferredVoice ??
+            ((VoiceComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? VoiceComboBox.SelectedItem?.ToString());
+        VoiceComboBox.Items.Clear();
+        foreach (string voice in model.Voices)
+        {
+            VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice, Tag = voice });
+        }
+
+        SetSelectedContent(VoiceComboBox, currentVoice ?? model.Voices[0]);
     }
 
     private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
@@ -42,6 +96,7 @@ public sealed partial class WorkbenchView : UserControl
             _project = null;
             _segment = null;
             TakeRailList.Items.Clear();
+            TakeTransport.ClearAudio();
             SetEditorText(string.Empty);
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
             return;
@@ -64,6 +119,7 @@ public sealed partial class WorkbenchView : UserControl
         if (segmentId is null)
         {
             _segment = null;
+            TakeTransport.ClearAudio();
             SetEditorText(string.Empty);
             SegmentTitleText.Text = "NO SEGMENTS";
             SegmentStatsText.Text = "IMPORT A MARKDOWN OR TEXT SCRIPT TO BEGIN";
@@ -96,23 +152,99 @@ public sealed partial class WorkbenchView : UserControl
             if (!segments.TryGetValue(id, out SegmentDocument? segment)) continue;
             number++;
             string status = FormatStatus(segment.Status);
-            string takes = segment.RenderHistory.Count == 0 ? "NO TAKES" : $"T{segment.RenderHistory.Max(item => item.TakeNumber):00}";
+            string takes = segment.RenderHistory.Count == 0
+                ? "NO TAKES"
+                : $"TAKE {segment.RenderHistory.Max(item => item.TakeNumber):00}";
             TimeSpan duration = segment.RenderHistory.OrderByDescending(item => item.TakeNumber).Select(item => item.Duration).FirstOrDefault();
-            TextBlock title = new() { Text = $"{number:000}  {segment.Title}", TextWrapping = TextWrapping.Wrap };
-            TextBlock details = new()
+            Grid content = CreateTakeRailItemContent(number, segment, status, takes, duration);
+            ListViewItem item = new()
             {
-                Text = $"{status}  ·  {takes}{(duration > TimeSpan.Zero ? $"  ·  {FormatDuration(duration)}" : string.Empty)}",
-                TextWrapping = TextWrapping.Wrap,
+                Tag = segment.SegmentId,
+                Content = content,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(0),
             };
-            title.Style = (Style)Application.Current.Resources["ReadingTextStyle"];
-            details.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
-            StackPanel content = new() { Spacing = 3, Margin = new Thickness(8, 6, 8, 6) };
-            content.Children.Add(title);
-            content.Children.Add(details);
-            ListViewItem item = new() { Tag = segment.SegmentId, Content = content };
             AutomationProperties.SetName(item, $"Segment {number:000}, {segment.Title}, {status}, {segment.RenderHistory.Count} takes");
             TakeRailList.Items.Add(item);
         }
+    }
+
+    private static Grid CreateTakeRailItemContent(
+        int number,
+        SegmentDocument segment,
+        string status,
+        string takes,
+        TimeSpan duration)
+    {
+        Grid content = new()
+        {
+            ColumnSpacing = 10,
+            Margin = new Thickness(10, 9, 10, 9),
+        };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        TextBlock numberLabel = new()
+        {
+            Text = number.ToString("000", System.Globalization.CultureInfo.InvariantCulture),
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+        numberLabel.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
+
+        TextBlock title = new()
+        {
+            Text = segment.Title,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 2,
+        };
+        title.Style = (Style)Application.Current.Resources["ReadingTextStyle"];
+
+        Brush statusBrush = GetSegmentStatusBrush(segment.Status);
+        Microsoft.UI.Xaml.Shapes.Ellipse statusDot = new()
+        {
+            Width = 6,
+            Height = 6,
+            Fill = statusBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        TextBlock statusText = new() { Text = status, Foreground = statusBrush };
+        statusText.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
+        statusText.Foreground = statusBrush;
+        TextBlock takeText = new()
+        {
+            Text = duration > TimeSpan.Zero ? $"{takes}  {FormatDuration(duration)}" : takes,
+        };
+        takeText.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
+
+        StackPanel metadata = new()
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+        };
+        metadata.Children.Add(statusDot);
+        metadata.Children.Add(statusText);
+        metadata.Children.Add(takeText);
+
+        StackPanel body = new() { Spacing = 5 };
+        body.Children.Add(title);
+        body.Children.Add(metadata);
+        Grid.SetColumn(body, 1);
+        content.Children.Add(numberLabel);
+        content.Children.Add(body);
+        return content;
+    }
+
+    private static Brush GetSegmentStatusBrush(SegmentStatus status)
+    {
+        string resourceKey = status switch
+        {
+            SegmentStatus.Approved => "ApprovalBrush",
+            SegmentStatus.Stale or SegmentStatus.PickupRequired => "PickupBrush",
+            SegmentStatus.Ready or SegmentStatus.Rendering or SegmentStatus.Rendered => "ActiveSignalBrush",
+            _ => "MutedTextBrush",
+        };
+        return (Brush)Application.Current.Resources[resourceKey];
     }
 
     private async void TakeRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -579,11 +711,24 @@ public sealed partial class WorkbenchView : UserControl
         RenderRecord? render = GetSelectedRender();
         bool hasTake = render is not null;
         PreviousTakeButton.IsEnabled = TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1;
-        PlayTakeButton.IsEnabled = hasTake;
-        StopTakeButton.IsEnabled = hasTake;
         PickupButton.IsEnabled = hasTake;
         ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated;
-        TransportDurationText.Text = render is null ? "NO TAKE" : $"00:00 / {FormatDuration(render.Duration)}";
+        if (render is null)
+        {
+            TakeTransport.ClearAudio("NO TAKE SELECTED");
+            return;
+        }
+
+        string relativePath = render.ProcessedAudioRelativePath ?? render.RawAudioRelativePath;
+        string path = App.Services.Session.ResolveProjectPath(relativePath);
+        if (File.Exists(path))
+        {
+            TakeTransport.LoadAudio(path, $"Take {render.TakeNumber:00} · {render.Voice}", render.Duration);
+        }
+        else
+        {
+            TakeTransport.ClearAudio("TAKE AUDIO MISSING");
+        }
     }
 
     private RenderRecord? GetSelectedRender()
@@ -596,29 +741,6 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1)
             TakeSelector.SelectedIndex++;
-    }
-
-    private void PlayTake_Click(object sender, RoutedEventArgs e)
-    {
-        RenderRecord? render = GetSelectedRender();
-        if (render is null) return;
-        string relativePath = render.ProcessedAudioRelativePath ?? render.RawAudioRelativePath;
-        string path = App.Services.Session.ResolveProjectPath(relativePath);
-        if (!File.Exists(path))
-        {
-            ShowStatus(InfoBarSeverity.Error, "Take audio is missing", $"Expected {relativePath} inside the project folder.");
-            return;
-        }
-
-        _mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(path));
-        _mediaPlayer.Play();
-        ShowStatus(InfoBarSeverity.Informational, $"Playing take {render.TakeNumber:00}", relativePath);
-    }
-
-    private void StopTake_Click(object sender, RoutedEventArgs e)
-    {
-        _mediaPlayer.Pause();
-        _mediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
     }
 
     private void UpdateEditorStats()
@@ -643,20 +765,20 @@ public sealed partial class WorkbenchView : UserControl
             .FirstOrDefault(item => string.Equals(item.Tag as string, segmentId, StringComparison.Ordinal));
     }
 
-    private string GetSelectedProviderId() => GetSelectedContent(ProviderComboBox) switch
-    {
-        "OpenAI" => "openai",
-        "Google Gemini" => "gemini",
-        _ => throw new InvalidOperationException("Choose an exact speech provider."),
-    };
+    private string GetSelectedProviderId() =>
+        (ProviderComboBox.SelectedItem as ComboBoxItem)?.Tag as string
+        ?? throw new InvalidOperationException("Choose an exact speech provider.");
 
     private static string GetSelectedContent(ComboBox comboBox) =>
-        (comboBox.SelectedItem as ComboBoxItem)?.Content?.ToString()
-        ?? throw new InvalidOperationException($"Choose {comboBox.Header?.ToString()?.ToLowerInvariant() ?? "a value"}.");
+        comboBox.SelectedItem is ComboBoxItem item
+            ? item.Tag as string ?? item.Content?.ToString()
+                ?? throw new InvalidOperationException("The selected option has no identifier.")
+            : throw new InvalidOperationException($"Choose {comboBox.Header?.ToString()?.ToLowerInvariant() ?? "a value"}.");
 
     private static void SetSelectedContent(ComboBox comboBox, string content)
     {
         ComboBoxItem? item = comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(candidate =>
+            string.Equals(candidate.Tag as string, content, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(candidate.Content?.ToString(), content, StringComparison.OrdinalIgnoreCase));
         if (item is null)
         {

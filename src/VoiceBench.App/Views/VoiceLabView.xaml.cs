@@ -1,5 +1,8 @@
 using IssueLab.VoiceBench.App.Services;
+using IssueLab.VoiceBench.App.Layout;
 using IssueLab.VoiceBench.Core;
+using IssueLab.VoiceBench.Infrastructure.Projects;
+using IssueLab.VoiceBench.Infrastructure.Providers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -9,13 +12,86 @@ public sealed partial class VoiceLabView : UserControl
 {
     private AuditionResult? _auditionA;
     private AuditionResult? _auditionB;
+    private Guid? _loadedProjectId;
     private bool _busy;
 
     public VoiceLabView()
     {
         InitializeComponent();
+        PopulateProviderControls(ModelAComboBox, VoiceAComboBox, "openai", "gpt-4o-mini-tts", "marin");
+        PopulateProviderControls(ModelBComboBox, VoiceBComboBox, "gemini", "gemini-3.1-flash-tts-preview", "Kore");
+        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         Loaded += VoiceLabView_Loaded;
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
+        AuditionATransport.PlaybackStarted += (_, _) => AuditionBTransport.Pause();
+        AuditionBTransport.PlaybackStarted += (_, _) => AuditionATransport.Pause();
+    }
+
+    private void ApplyResponsiveState(double width)
+    {
+        bool isComfortable = width >= 900;
+        VisualStateManager.GoToState(
+            this,
+            isComfortable ? "ComfortableVoiceLab" : "NarrowVoiceLab",
+            false);
+        StudioPageFrame.Resize(VoiceLabRoot, width, 1180, isComfortable ? 32 : 16);
+    }
+
+    private void ModelAComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        PopulateVoiceControls(ModelAComboBox, VoiceAComboBox, "openai", null);
+
+    private void ModelBComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        PopulateVoiceControls(ModelBComboBox, VoiceBComboBox, "gemini", null);
+
+    private static void PopulateProviderControls(
+        ComboBox modelBox,
+        ComboBox voiceBox,
+        string providerId,
+        string preferredModel,
+        string preferredVoice)
+    {
+        SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
+            item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
+        modelBox.Items.Clear();
+        foreach (SpeechModelDescriptor model in provider.Models)
+        {
+            modelBox.Items.Add(new ComboBoxItem
+            {
+                Content = model.DisplayName,
+                Tag = model.ModelId,
+            });
+        }
+
+        SelectTaggedValue(modelBox, preferredModel);
+        PopulateVoiceControls(modelBox, voiceBox, providerId, preferredVoice);
+    }
+
+    private static void PopulateVoiceControls(
+        ComboBox modelBox,
+        ComboBox voiceBox,
+        string providerId,
+        string? preferredVoice)
+    {
+        if (modelBox.SelectedItem is not ComboBoxItem modelItem) return;
+        string modelId = modelItem.Tag as string ?? modelItem.Content?.ToString() ?? string.Empty;
+        SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
+            item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
+        SpeechModelDescriptor model = provider.Models.Single(item => item.ModelId == modelId);
+        string? currentVoice = preferredVoice ?? (voiceBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        voiceBox.Items.Clear();
+        foreach (string voice in model.Voices)
+        {
+            voiceBox.Items.Add(new ComboBoxItem { Content = voice, Tag = voice });
+        }
+
+        SelectTaggedValue(voiceBox, currentVoice ?? model.Voices[0]);
+    }
+
+    private static void SelectTaggedValue(ComboBox comboBox, string value)
+    {
+        ComboBoxItem? item = comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(candidate =>
+            string.Equals(candidate.Tag as string, value, StringComparison.OrdinalIgnoreCase));
+        comboBox.SelectedItem = item ?? comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
     }
 
     private async void VoiceLabView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
@@ -28,11 +104,25 @@ public sealed partial class VoiceLabView : UserControl
         VoiceBenchProjectDocument? project = App.Services.Session.Project;
         if (project is null)
         {
+            _loadedProjectId = null;
+            _auditionA = null;
+            _auditionB = null;
+            AuditionATransport.ClearAudio();
+            AuditionBTransport.ClearAudio();
             AuditionTextBox.Text = string.Empty;
             UseAButton.IsEnabled = false;
             UseBButton.IsEnabled = false;
             ShowStatus(InfoBarSeverity.Warning, "Open a project first", "Audition audio and presets are stored inside the active project folder.");
             return;
+        }
+
+        if (_loadedProjectId != project.ProjectId)
+        {
+            _loadedProjectId = project.ProjectId;
+            _auditionA = null;
+            _auditionB = null;
+            AuditionATransport.ClearAudio();
+            AuditionBTransport.ClearAudio();
         }
 
         if (string.IsNullOrWhiteSpace(AuditionTextBox.Text))
@@ -50,9 +140,18 @@ public sealed partial class VoiceLabView : UserControl
 
         VoicePreset? presetA = project.VoicePresets.FirstOrDefault(item => item.PresetId == "voice-lab-a");
         VoicePreset? presetB = project.VoicePresets.FirstOrDefault(item => item.PresetId == "voice-lab-b");
-        bool complete = presetA is not null && presetB is not null
+        bool savedAudition = presetA is not null && presetB is not null
             && VoicePresetRules.CanSelectAsProjectDefault(presetA)
             && VoicePresetRules.CanSelectAsProjectDefault(presetB);
+        if (savedAudition)
+        {
+            _auditionA ??= TryRestoreAudition(presetA!, "A");
+            _auditionB ??= TryRestoreAudition(presetB!, "B");
+            if (_auditionA is not null) LoadTransport("A", _auditionA);
+            if (_auditionB is not null) LoadTransport("B", _auditionB);
+        }
+
+        bool complete = savedAudition && _auditionA is not null && _auditionB is not null;
         UseAButton.IsEnabled = complete && !_busy;
         UseBButton.IsEnabled = complete && !_busy;
         if (complete)
@@ -122,8 +221,56 @@ public sealed partial class VoiceLabView : UserControl
         ShowStatus(InfoBarSeverity.Informational, $"Rendering audition {slot}", $"Submitting {providerId} / {model} / {voice} exactly as selected.");
         AuditionResult result = await App.Services.RenderAuditionAsync(
             new AuditionRequest(slot, providerId, model, voice, directions, AuditionTextBox.Text));
+        LoadTransport(slot, result);
         (isA ? AuditionAStatusText : AuditionBStatusText).Text = $"Rendered · {FormatDuration(result.Duration)}";
         return result;
+    }
+
+    private void LoadTransport(string slot, AuditionResult result)
+    {
+        bool isA = slot.Equals("A", StringComparison.OrdinalIgnoreCase);
+        string provider = isA ? "OpenAI" : "Gemini";
+        string voice = GetSelectedContent(isA ? VoiceAComboBox : VoiceBComboBox);
+        string path = App.Services.Session.ResolveProjectPath(result.AudioRelativePath);
+        (isA ? AuditionATransport : AuditionBTransport).LoadAudio(
+            path,
+            $"Audition {slot.ToUpperInvariant()} · {provider} · {voice}",
+            result.Duration);
+    }
+
+    private static AuditionResult? TryRestoreAudition(VoicePreset preset, string slot)
+    {
+        string root = App.Services.Session.RequireProjectRoot();
+        string directory = VoiceBenchProjectLayout.ResolveRelativePath(
+            root,
+            VoiceBenchProjectLayout.AuditionsDirectory);
+        if (!Directory.Exists(directory)) return null;
+
+        foreach (Guid renderId in preset.AuditionRenderIds)
+        {
+            string pattern = $"audition-{slot.ToLowerInvariant()}--*--{renderId:N}.raw.wav";
+            string? path = Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+            if (path is null) continue;
+
+            try
+            {
+                WaveFileMetadata wave = WaveFileInspector.Read(File.ReadAllBytes(path));
+                string relativePath = VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(root, path));
+                return new AuditionResult(renderId, relativePath, wave.Duration, wave.SampleRate, wave.Channels);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (InvalidDataException)
+            {
+                continue;
+            }
+        }
+
+        return null;
     }
 
     private async Task SaveCompletedAuditionAsync()
@@ -189,8 +336,10 @@ public sealed partial class VoiceLabView : UserControl
     }
 
     private static string GetSelectedContent(ComboBox box) =>
-        (box.SelectedItem as ComboBoxItem)?.Content?.ToString()
-        ?? throw new InvalidOperationException($"Choose {box.Header?.ToString()?.ToLowerInvariant() ?? "a value"}.");
+        box.SelectedItem is ComboBoxItem item
+            ? item.Tag as string ?? item.Content?.ToString()
+                ?? throw new InvalidOperationException("The selected voice option has no identifier.")
+            : throw new InvalidOperationException($"Choose {box.Header?.ToString()?.ToLowerInvariant() ?? "a value"}.");
 
     private static string FormatDuration(TimeSpan duration) => $"{(int)duration.TotalMinutes:00}:{duration.Seconds:00}";
 
