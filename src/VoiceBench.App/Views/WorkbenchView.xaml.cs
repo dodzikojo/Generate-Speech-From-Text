@@ -39,6 +39,8 @@ public sealed partial class WorkbenchView : UserControl
     private ScriptFileMonitor? _scriptFileMonitor;
     private string? _monitoredProjectRoot;
     private int _scriptChangeVersion;
+    private int _projectChangeVersion;
+    private bool _suppressProjectChangedReload;
     private string _lastEditorText = string.Empty;
     private DispatcherQueueTimer? _cueFormatTimer;
     private bool _ignoreCueToggle;
@@ -223,8 +225,17 @@ public sealed partial class WorkbenchView : UserControl
         _monitoredProjectRoot = null;
     }
 
-    private void Session_ProjectChanged(object? sender, EventArgs e) =>
-        _ = DispatcherQueue.TryEnqueue(async () => await LoadProjectAsync(_segment?.SegmentId));
+    private void Session_ProjectChanged(object? sender, EventArgs e)
+    {
+        if (_suppressProjectChangedReload) return;
+        int version = Interlocked.Increment(ref _projectChangeVersion);
+        string? preferredSegmentId = _segment?.SegmentId;
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (_suppressProjectChangedReload || version != _projectChangeVersion) return;
+            await LoadProjectAsync(preferredSegmentId);
+        });
+    }
 
     private async Task LoadProjectAsync(string? preferredSegmentId = null)
     {
@@ -1633,17 +1644,23 @@ public sealed partial class WorkbenchView : UserControl
             ShowStatus(InfoBarSeverity.Warning, "That split would create an empty segment", "Move the cursor between two narration passages and try again.");
             return;
         }
-        if (!await SaveCurrentScriptAsync()) return;
+        _suppressProjectChangedReload = true;
+        Interlocked.Increment(ref _projectChangeVersion);
         try
         {
+            if (!await SaveCurrentScriptAsync()) return;
+            string originalSegmentId = _segment.SegmentId;
+            string originalChapterId = _segment.ChapterId;
             VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.SplitSegmentAsync(
                 App.Services.Session.RequireProjectRoot(),
-                _segment.SegmentId,
+                originalSegmentId,
                 cursor,
                 _segment.AuthoringSha256);
             await App.Services.Session.RefreshAsync();
-            ChapterDocument chapter = updated.Chapters.Single(item => item.ChapterId == _segment.ChapterId);
-            int originalIndex = chapter.SegmentOrder.IndexOf(_segment.SegmentId);
+            ChapterDocument chapter = updated.Chapters.Single(item => item.ChapterId == originalChapterId);
+            int originalIndex = chapter.SegmentOrder.IndexOf(originalSegmentId);
+            if (originalIndex < 0 || originalIndex + 1 >= chapter.SegmentOrder.Count)
+                throw new InvalidOperationException("The new segment could not be located after the split.");
             string newSegmentId = chapter.SegmentOrder[originalIndex + 1];
             await LoadProjectAsync(newSegmentId);
             ShowStatus(InfoBarSeverity.Success, "Segment split", "Created a new segment immediately after the original.");
@@ -1651,6 +1668,10 @@ public sealed partial class WorkbenchView : UserControl
         catch (Exception exception)
         {
             ShowStatus(InfoBarSeverity.Error, "Segment could not be split", exception.Message);
+        }
+        finally
+        {
+            _suppressProjectChangedReload = false;
         }
     }
 

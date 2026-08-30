@@ -161,6 +161,26 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Workbench_editor_console_keeps_tools_compact_and_split_transaction_current()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("IsDynamicOverflowEnabled=\"True\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ClosedDisplayMode=\"Compact\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Label=\"Pronunciation\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Label=\"Split\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"ScriptEditorActions\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<RichEditBox x:Name=\"ScriptTextBox\" Grid.Row=\"2\"", xaml, StringComparison.Ordinal);
+
+        Assert.Contains("_suppressProjectChangedReload", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Interlocked.Increment(ref _projectChangeVersion)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("version != _projectChangeVersion", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string originalSegmentId = _segment.SegmentId", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("chapter.SegmentOrder.IndexOf(originalSegmentId)", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Assembly_exposes_persisted_order_inclusion_blockers_and_scoped_builds()
     {
         string xaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
