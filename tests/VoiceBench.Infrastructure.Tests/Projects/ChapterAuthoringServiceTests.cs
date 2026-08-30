@@ -95,11 +95,15 @@ public sealed class ChapterAuthoringServiceTests
                 ""),
             null,
             []);
+        string chapterDirectory = Path.GetDirectoryName(VoiceBenchProjectLayout.ResolveRelativePath(
+            directory.Root,
+            project.Segments[0].ScriptRelativePath))!;
 
         project = await service.DeleteSegmentAsync(directory.Root, "segment01");
 
         Assert.DoesNotContain(project.Segments, item => item.SegmentId == "segment01");
         Assert.Equal(["segment02"], project.Chapters.Single().SegmentOrder);
+        Assert.True(Directory.Exists(chapterDirectory));
         Assert.Single(Directory.EnumerateFiles(
             VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, VoiceBenchProjectLayout.ScriptTrashDirectory)));
 
@@ -108,6 +112,7 @@ public sealed class ChapterAuthoringServiceTests
         Assert.Empty(project.Chapters);
         Assert.Empty(project.ChapterOrder);
         Assert.Empty(project.Segments);
+        Assert.False(Directory.Exists(chapterDirectory));
         Assert.Equal(2, Directory.EnumerateFiles(
             VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, VoiceBenchProjectLayout.ScriptTrashDirectory)).Count());
     }

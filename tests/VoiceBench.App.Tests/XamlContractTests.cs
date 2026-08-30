@@ -226,6 +226,21 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Empty_authoring_state_blocks_the_editor_and_receives_focus()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"EmptyNewChapterButton\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Canvas.ZIndex=\"10\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("SetEditorAvailability", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptEditor.IsHitTestVisible = hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = !hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("EmptyNewChapterButton.Focus(FocusState.Programmatic)", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Workbench_panels_are_collapsible_and_rail_actions_are_contextual()
     {
         string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));

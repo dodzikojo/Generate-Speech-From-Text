@@ -222,6 +222,7 @@ public sealed class ChapterAuthoringService(
         List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, [segment]);
         try
         {
+            RemoveEmptyScriptDirectories(moved);
             await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
             return updated;
         }
@@ -253,6 +254,7 @@ public sealed class ChapterAuthoringService(
         List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, removedSegments);
         try
         {
+            RemoveEmptyScriptDirectories(moved);
             await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
             return updated;
         }
@@ -620,6 +622,20 @@ public sealed class ChapterAuthoringService(
             if (!File.Exists(item.TrashPath)) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(item.OriginalPath)!);
             File.Move(item.TrashPath, item.OriginalPath, overwrite: true);
+        }
+    }
+
+    private static void RemoveEmptyScriptDirectories(IEnumerable<TrashedScript> moved)
+    {
+        foreach (string directory in moved
+                     .Select(item => Path.GetDirectoryName(item.OriginalPath))
+                     .OfType<string>()
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+            }
         }
     }
 

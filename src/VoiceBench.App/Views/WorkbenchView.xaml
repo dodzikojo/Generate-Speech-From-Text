@@ -282,19 +282,23 @@
                 </TabView>
             </Border>
 
-            <Border x:Name="EmptyAuthoringState" Grid.ColumnSpan="3" Grid.RowSpan="2" Style="{StaticResource StudioPanelStyle}"
-                    Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="620">
-                <StackPanel Spacing="14" HorizontalAlignment="Center">
-                    <TextBlock Text="Start your first chapter" Style="{StaticResource StudioHeadingTextStyle}" HorizontalAlignment="Center" />
-                    <TextBlock Text="Create from a blank page, draft an outline with AI, or import one or more Markdown/text scripts."
-                               Style="{StaticResource ReadingTextStyle}" TextWrapping="Wrap" TextAlignment="Center" />
-                    <StackPanel x:Name="EmptyActions" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <Button Content="New chapter" Style="{StaticResource SignalButtonStyle}" Click="NewChapter_Click" />
-                        <Button Content="Draft with AI" Style="{StaticResource QuietButtonStyle}" Click="DraftWithAi_Click" />
-                        <Button Content="Import scripts" Style="{StaticResource QuietButtonStyle}" Click="ImportScript_Click" />
+            <Grid x:Name="EmptyAuthoringState" Grid.ColumnSpan="3" Grid.RowSpan="2"
+                  Background="{ThemeResource BaseBrush}" Canvas.ZIndex="10" Visibility="Collapsed"
+                  AutomationProperties.Name="Empty project authoring choices">
+                <Border Style="{StaticResource StudioPanelStyle}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        MaxWidth="620" Margin="16">
+                    <StackPanel Spacing="14" HorizontalAlignment="Center">
+                        <TextBlock Text="Start your first chapter" Style="{StaticResource StudioHeadingTextStyle}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Create from a blank page, draft an outline with AI, or import one or more Markdown/text scripts."
+                                   Style="{StaticResource ReadingTextStyle}" TextWrapping="Wrap" TextAlignment="Center" />
+                        <StackPanel x:Name="EmptyActions" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <Button x:Name="EmptyNewChapterButton" Content="New chapter" Style="{StaticResource SignalButtonStyle}" Click="NewChapter_Click" />
+                            <Button Content="Draft with AI" Style="{StaticResource QuietButtonStyle}" Click="DraftWithAi_Click" />
+                            <Button Content="Import scripts" Style="{StaticResource QuietButtonStyle}" Click="ImportScript_Click" />
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
+            </Grid>
         </Grid>
 
         <Border x:Name="WorkbenchFooter" Grid.Row="4" Margin="12,12,12,14" Padding="12"

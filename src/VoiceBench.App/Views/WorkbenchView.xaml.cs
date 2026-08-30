@@ -224,7 +224,7 @@ public sealed partial class WorkbenchView : UserControl
             TakeTransport.ClearAudio();
             ResetTakeReviewContext();
             SetEditorText(string.Empty);
-            EmptyAuthoringState.Visibility = Visibility.Collapsed;
+            SetEditorAvailability(hasSegment: false, showEmptyState: false);
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
             return;
         }
@@ -256,15 +256,27 @@ public sealed partial class WorkbenchView : UserControl
             SetEditorText(string.Empty);
             SegmentTitleText.Text = "NO SEGMENTS";
             SegmentStatsText.Text = "CREATE, DRAFT, OR IMPORT A CHAPTER TO BEGIN";
-            EmptyAuthoringState.Visibility = Visibility.Visible;
+            SetEditorAvailability(hasSegment: false, showEmptyState: true);
             ShowStatus(InfoBarSeverity.Informational, "Start your first chapter", "Create a blank chapter, draft one with AI, or import one or more scripts here in VoiceBench.");
             return;
         }
 
-        EmptyAuthoringState.Visibility = Visibility.Collapsed;
+        SetEditorAvailability(hasSegment: true, showEmptyState: false);
         SelectTakeRailItem(segmentId);
         await LoadSegmentAsync(segmentId);
         WorkbenchInfoBar.IsOpen = false;
+    }
+
+    private void SetEditorAvailability(bool hasSegment, bool showEmptyState)
+    {
+        ScriptEditor.IsHitTestVisible = hasSegment;
+        ScriptTextBox.IsEnabled = hasSegment;
+        ScriptTextBox.IsReadOnly = !hasSegment;
+        EmptyAuthoringState.Visibility = showEmptyState ? Visibility.Visible : Visibility.Collapsed;
+        if (showEmptyState)
+        {
+            EmptyNewChapterButton.Focus(FocusState.Programmatic);
+        }
     }
 
     private void PopulateChapterTree(VoiceBenchProjectDocument project)
