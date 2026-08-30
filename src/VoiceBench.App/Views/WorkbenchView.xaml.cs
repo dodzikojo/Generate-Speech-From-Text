@@ -1989,7 +1989,6 @@ public sealed partial class WorkbenchView : UserControl
             ITextRange all = ScriptTextBox.Document.GetRange(0, text.Length);
             ITextCharacterFormat baseFormat = all.CharacterFormat;
             baseFormat.ForegroundColor = ThemeColor("ReadingTextBrush", Color.FromArgb(255, 255, 255, 255));
-            baseFormat.BackgroundColor = Color.FromArgb(0, 0, 0, 0);
             baseFormat.Bold = FormatEffect.Off;
             all.CharacterFormat = baseFormat;
 
@@ -2008,7 +2007,6 @@ public sealed partial class WorkbenchView : UserControl
                     Math.Min(text.Length, cue.SourceStart + cue.SourceLength));
                 ITextCharacterFormat format = range.CharacterFormat;
                 format.ForegroundColor = accent;
-                format.BackgroundColor = Color.FromArgb(30, accent.R, accent.G, accent.B);
                 format.Bold = FormatEffect.On;
                 range.CharacterFormat = format;
             }

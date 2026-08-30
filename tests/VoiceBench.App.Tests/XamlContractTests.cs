@@ -126,6 +126,8 @@ public sealed class XamlContractTests
 
         Assert.Contains("<RichEditBox", xaml, StringComparison.Ordinal);
         Assert.Contains("ClipboardCopyFormat=\"PlainText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Background=\"{ThemeResource BaseBrush}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Foreground=\"{ThemeResource ReadingTextBrush}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("InsertCue_Click", xaml, StringComparison.Ordinal);
         Assert.Contains("InsertCustomCue_Click", xaml, StringComparison.Ordinal);
         Assert.Contains("ChangeCueType_Click", xaml, StringComparison.Ordinal);
@@ -154,6 +156,7 @@ public sealed class XamlContractTests
         Assert.Contains("_cueFormatTimer.IsRepeating = false", codeBehind, StringComparison.Ordinal);
         Assert.Contains("_cueFormatTimer.Stop()", codeBehind, StringComparison.Ordinal);
         Assert.Contains("_cueFormatTimer.Start()", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("BackgroundColor =", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
     }
 

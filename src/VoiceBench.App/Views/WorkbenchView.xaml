@@ -214,6 +214,8 @@
                     <RichEditBox x:Name="ScriptTextBox" Grid.Row="3" Margin="0,8" TextWrapping="Wrap"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="18"
                                  FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
+                                 Background="{ThemeResource BaseBrush}" Foreground="{ThemeResource ReadingTextBrush}"
+                                 BorderBrush="{ThemeResource DividerBrush}"
                                  ClipboardCopyFormat="PlainText" IsSpellCheckEnabled="True"
                                  AutomationProperties.Name="Canonical production script text">
                         <RichEditBox.ContextFlyout>
