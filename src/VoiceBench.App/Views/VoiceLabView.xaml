@@ -25,8 +25,8 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <StackPanel Spacing="6">
                     <TextBlock Text="VOICE LAB  /  A–B AUDITION" Style="{StaticResource UtilityLabelTextStyle}" />
-                    <TextBlock Text="Choose the voice before the work begins" Style="{StaticResource PageTitleTextStyle}" />
-                    <TextBlock Text="Compare exact provider, model, voice, and direction combinations. VoiceBench never substitutes another voice silently."
+                    <TextBlock Text="Compare voices when you want to" Style="{StaticResource PageTitleTextStyle}" />
+                    <TextBlock Text="Select either configuration immediately, or render samples before deciding. VoiceBench never substitutes another voice silently."
                                Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
                 </StackPanel>
                 <Button x:Name="RenderBothButton" Grid.Row="1" Grid.Column="0"
@@ -43,8 +43,8 @@
 
             <InfoBar x:Name="AuditionInfoBar" Grid.Row="1" Margin="0,20,0,0"
                      IsOpen="True" IsClosable="True" Severity="Informational"
-                     Title="No audition has been completed"
-                     Message="Render A and B, listen to both, then choose the project default. All four fields are saved with the preset." />
+                     Title="Auditioning is optional"
+                     Message="Use either configuration as the project voice now, or render one or both samples before deciding." />
 
             <TextBox x:Name="AuditionTextBox" Grid.Row="2" Margin="0,16,0,0"
                      Header="Audition text" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="84"
@@ -86,9 +86,9 @@
                                         AutomationProperties.Name="Render audition A" />
                             </StackPanel>
                         </Border>
-                        <Button x:Name="UseAButton" Content="Use A as project default" Style="{StaticResource QuietButtonStyle}" Tag="A"
+                        <Button x:Name="UseAButton" Content="Use A settings as project voice" Style="{StaticResource QuietButtonStyle}" Tag="A"
                                 Click="UseDefault_Click"
-                                IsEnabled="False" AutomationProperties.Name="Use audition A as project default, unavailable until rendered" />
+                                IsEnabled="False" AutomationProperties.Name="Use A settings as project voice" />
                     </StackPanel>
                 </Border>
 
@@ -122,9 +122,9 @@
                                         AutomationProperties.Name="Render audition B" />
                             </StackPanel>
                         </Border>
-                        <Button x:Name="UseBButton" Content="Use B as project default" Style="{StaticResource QuietButtonStyle}" Tag="B"
+                        <Button x:Name="UseBButton" Content="Use B settings as project voice" Style="{StaticResource QuietButtonStyle}" Tag="B"
                                 Click="UseDefault_Click"
-                                IsEnabled="False" AutomationProperties.Name="Use audition B as project default, unavailable until rendered" />
+                                IsEnabled="False" AutomationProperties.Name="Use B settings as project voice" />
                     </StackPanel>
                 </Border>
             </Grid>

@@ -18,13 +18,35 @@
         </Grid.RowDefinitions>
 
         <Grid x:Name="WorkbenchHeader" Margin="12,14,12,12">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel Spacing="3">
                 <TextBlock x:Name="ProjectHeaderText" Text="WORKBENCH  /  NO PROJECT" Style="{StaticResource UtilityLabelTextStyle}" />
                 <TextBlock x:Name="ProjectTitleText" Text="Open a project to begin" Style="{StaticResource StudioHeadingTextStyle}" />
             </StackPanel>
-            <StackPanel x:Name="WorkbenchHeaderActions" Grid.Row="1" Margin="0,12,0,0" Orientation="Horizontal" Spacing="8">
+            <Grid x:Name="PanelVisibilityControls" Grid.Row="1" Margin="0,10,0,0" ColumnSpacing="3"
+                  AutomationProperties.Name="Workspace panels">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <ToggleButton x:Name="ChapterRailToggle" IsChecked="True"
+                              Style="{StaticResource PanelToggleButtonStyle}" Click="WorkspacePanelToggle_Click"
+                              ToolTipService.ToolTip="Chapter rail"
+                              AutomationProperties.Name="Show chapter rail">
+                    <SymbolIcon Symbol="Bullets" />
+                </ToggleButton>
+                <ToggleButton x:Name="DirectorToggle" Grid.Column="1" IsChecked="True"
+                              Style="{StaticResource PanelToggleButtonStyle}" Click="WorkspacePanelToggle_Click"
+                              ToolTipService.ToolTip="Writing assistant and voice director"
+                              AutomationProperties.Name="Show writing assistant and voice director">
+                    <SymbolIcon Symbol="Edit" />
+                </ToggleButton>
+                <ToggleButton x:Name="TakeReviewToggle" Grid.Column="2" IsChecked="True"
+                              Style="{StaticResource PanelToggleButtonStyle}" Click="WorkspacePanelToggle_Click"
+                              ToolTipService.ToolTip="Take review"
+                              AutomationProperties.Name="Show take review">
+                    <SymbolIcon Symbol="Audio" />
+                </ToggleButton>
+            </Grid>
+            <StackPanel x:Name="WorkbenchHeaderActions" Grid.Row="2" Margin="0,12,0,0" Orientation="Horizontal" Spacing="8">
                 <Button Content="New chapter" Style="{StaticResource QuietButtonStyle}" Click="NewChapter_Click" />
                 <Button Content="Draft with AI" Style="{StaticResource QuietButtonStyle}" Click="DraftWithAi_Click" />
                 <Button Content="Import scripts" Style="{StaticResource QuietButtonStyle}" Click="ImportScript_Click" />
@@ -36,13 +58,7 @@
         </Grid>
 
         <InfoBar x:Name="WorkbenchInfoBar" Grid.Row="1" Margin="12,0,12,12"
-                 IsOpen="True" IsClosable="True" Severity="Warning"
-                 Title="Choose a project voice"
-                 Message="Complete an A/B audition in Voice Lab before setting the default preset.">
-            <InfoBar.ActionButton>
-                <Button Content="Open Voice Lab" Style="{StaticResource QuietButtonStyle}" Click="OpenVoiceLab_Click" />
-            </InfoBar.ActionButton>
-        </InfoBar>
+                 IsOpen="False" IsClosable="True" Severity="Informational" />
 
         <Border x:Name="CompactPickerPanel" Grid.Row="2" Margin="12,0,12,12"
                 Style="{StaticResource StudioPanelStyle}" Visibility="Collapsed">
@@ -67,9 +83,23 @@
                     AutomationProperties.Name="Chapter and segment take rail">
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                    <StackPanel Margin="16,16,16,8" Spacing="3">
+                    <StackPanel Margin="16,16,16,10" Spacing="8">
                         <TextBlock Text="CHAPTER RAIL" Style="{StaticResource StudioHeadingTextStyle}" />
-                        <TextBlock x:Name="TakeRailSummaryText" Text="0 CHAPTERS  ·  0 SEGMENTS" Style="{StaticResource UtilityLabelTextStyle}" />
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="1">
+                                <TextBlock x:Name="ChapterCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock Text="CHAPTERS" Style="{StaticResource UtilityLabelTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock x:Name="SegmentCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock Text="SEGMENTS" Style="{StaticResource UtilityLabelTextStyle}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="1">
+                                <TextBlock x:Name="ApprovedCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock Text="APPROVED" Style="{StaticResource UtilityLabelTextStyle}" />
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                     <Grid Grid.Row="1" Margin="10,0,10,8" ColumnSpacing="6">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -84,8 +114,13 @@
                                     <MenuFlyoutItem Text="Move up" Tag="-1" Click="MoveSelected_Click" />
                                     <MenuFlyoutItem Text="Move down" Tag="1" Click="MoveSelected_Click" />
                                     <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Open selected" Click="OpenSelected_Click" />
+                                    <MenuFlyoutItem Text="Show in folder" Click="ShowSelectedInFolder_Click" />
+                                    <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="Include / exclude chapter" Click="ToggleChapterInclusion_Click" />
                                     <MenuFlyoutItem Text="Archive chapter" Click="ArchiveChapter_Click" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Delete selected…" Click="DeleteSelected_Click" />
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
@@ -95,12 +130,30 @@
                               AutomationProperties.Name="Ordered chapters and narration segments">
                         <TreeView.ItemTemplate>
                             <DataTemplate>
-                                <Grid MinHeight="44" Padding="4,5" ColumnSpacing="9">
+                                <Grid MinHeight="44" Padding="4,6" ColumnSpacing="9" RightTapped="RailItem_RightTapped">
+                                    <Grid.ContextFlyout>
+                                        <MenuFlyout Opening="RailContextMenu_Opening">
+                                            <MenuFlyoutItem Text="Open" Tag="all" Click="OpenSelected_Click" />
+                                            <MenuFlyoutItem Text="Show in folder" Tag="all" Click="ShowSelectedInFolder_Click" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Add segment" Tag="chapter" Click="NewSegment_Click" />
+                                            <MenuFlyoutItem Text="Rename" Tag="all" Click="RenameSelected_Click" />
+                                            <MenuFlyoutItem Text="Duplicate" Tag="all" Click="DuplicateSelected_Click" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Move up" Tag="-1" Click="MoveSelected_Click" />
+                                            <MenuFlyoutItem Text="Move down" Tag="1" Click="MoveSelected_Click" />
+                                            <MenuFlyoutSeparator Tag="chapter" />
+                                            <MenuFlyoutItem Text="Include / exclude" Tag="chapter" Click="ToggleChapterInclusion_Click" />
+                                            <MenuFlyoutItem Text="Archive chapter" Tag="chapter" Click="ArchiveChapter_Click" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Delete…" Tag="all" Click="DeleteSelected_Click" />
+                                        </MenuFlyout>
+                                    </Grid.ContextFlyout>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="6" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Border Background="{Binding StatusBrush}" CornerRadius="3" />
+                                    <Border Background="{Binding Content.StatusBrush}" CornerRadius="3" />
                                     <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Metadata}" Style="{StaticResource UtilityLabelTextStyle}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Content.Title}" TextWrapping="WrapWholeWords" MaxLines="2" />
+                                        <TextBlock Text="{Binding Content.Metadata}" Style="{StaticResource UtilityLabelTextStyle}" TextWrapping="WrapWholeWords" MaxLines="2" />
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
@@ -195,14 +248,16 @@
                                     <TextBlock Text="VOICE DIRECTOR" Style="{StaticResource StudioHeadingTextStyle}" />
                                     <TextBlock Text="EXACT SETTINGS FOR THIS TAKE" Style="{StaticResource UtilityLabelTextStyle}" />
                                 </StackPanel>
-                                <InfoBar x:Name="VoicePresetInfoBar" IsOpen="True" IsClosable="False" Severity="Warning"
-                                         Title="A/B audition required" Message="No default project voice is selected." />
+                                <InfoBar x:Name="VoicePresetInfoBar" IsOpen="True" IsClosable="False" Severity="Informational"
+                                         Title="Choose any voice" Message="Select a provider, model, and voice. Auditioning is optional." />
                                 <ComboBox x:Name="ProviderComboBox" Header="Provider" SelectionChanged="ProviderComboBox_SelectionChanged">
                                     <ComboBoxItem Content="OpenAI" Tag="openai" />
                                     <ComboBoxItem Content="Google Gemini" Tag="gemini" />
                                 </ComboBox>
                                 <ComboBox x:Name="ModelComboBox" Header="Model" SelectionChanged="ModelComboBox_SelectionChanged" />
                                 <ComboBox x:Name="VoiceComboBox" Header="Voice" />
+                                <Button Content="Use as project voice" Style="{StaticResource QuietButtonStyle}"
+                                        HorizontalAlignment="Stretch" Click="UseProjectVoice_Click" />
                                 <TextBox x:Name="DirectionTextBox" Header="Direction" AcceptsReturn="True" Height="112" PlaceholderText="Calm, measured, technically clear." />
                                 <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0">
                                     <StackPanel Spacing="8">
@@ -242,24 +297,59 @@
             </Border>
         </Grid>
 
-        <Border x:Name="WorkbenchFooter" Grid.Row="4" Margin="12,12,12,14" Style="{StaticResource StudioPanelStyle}"
+        <Border x:Name="WorkbenchFooter" Grid.Row="4" Margin="12,12,12,14" Padding="12"
+                Style="{StaticResource StudioPanelStyle}"
                 AutomationProperties.Name="Take transport and approval controls">
-            <Grid ColumnSpacing="14" RowSpacing="10">
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <StackPanel x:Name="TakeSelectionControls" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button x:Name="PreviousTakeButton" Content="◀" Style="{StaticResource QuietButtonStyle}" Click="PreviousTake_Click" IsEnabled="False" />
-                    <ComboBox x:Name="TakeSelector" SelectedIndex="-1" MinWidth="104" SelectionChanged="TakeSelector_SelectionChanged" />
+            <Grid ColumnSpacing="14" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel x:Name="TakeReviewContext" Grid.ColumnSpan="3" Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="TAKE REVIEW" Style="{StaticResource UtilityLabelTextStyle}" />
+                    <TextBlock x:Name="TakeReviewTitleText" Text="No segment selected"
+                               FontFamily="{StaticResource ReadingFont}" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{ThemeResource ReadingTextBrush}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="TakeReviewStatusText" Text="NO TAKES" Style="{StaticResource UtilityLabelTextStyle}" />
                 </StackPanel>
-                <controls:AudioTransport x:Name="TakeTransport" Grid.Row="1" Grid.ColumnSpan="3" />
-                <StackPanel x:Name="TakeDecisionControls" Grid.Row="2" Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="PickupButton" Content="Pickup" Style="{StaticResource QuietButtonStyle}" Click="Pickup_Click" IsEnabled="False" />
-                    <Button x:Name="ApproveButton" Content="✓ Approve" Style="{StaticResource QuietButtonStyle}" Click="Approve_Click" IsEnabled="False" />
+
+                <Border x:Name="AssemblyHandoff" Grid.Column="3" VerticalAlignment="Center">
+                    <Button Content="Assembly  →" Style="{StaticResource QuietButtonStyle}" Click="OpenAssembly_Click"
+                            AutomationProperties.Name="Open Assembly"
+                            AutomationProperties.AcceleratorKey="Control+M">
+                        <Button.KeyboardAccelerators><KeyboardAccelerator Key="M" Modifiers="Control" /></Button.KeyboardAccelerators>
+                    </Button>
+                </Border>
+
+                <StackPanel x:Name="TakeSelectionControls" Grid.Row="1" Grid.ColumnSpan="4"
+                            Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button x:Name="PreviousTakeButton" Content="←" Style="{StaticResource QuietButtonStyle}"
+                            Click="PreviousTake_Click" IsEnabled="False"
+                            AutomationProperties.Name="Select previous take" ToolTipService.ToolTip="Previous take" />
+                    <ComboBox x:Name="TakeSelector" SelectedIndex="-1" MinWidth="128"
+                              PlaceholderText="No takes" SelectionChanged="TakeSelector_SelectionChanged"
+                              AutomationProperties.Name="Selected narration take" />
                 </StackPanel>
-                <Button Grid.Row="2" Grid.Column="2" Content="Open Assembly" Style="{StaticResource SignalButtonStyle}" Click="OpenAssembly_Click"
-                        AutomationProperties.AcceleratorKey="Control+M">
-                    <Button.KeyboardAccelerators><KeyboardAccelerator Key="M" Modifiers="Control" /></Button.KeyboardAccelerators>
-                </Button>
+
+                <Border x:Name="TakeDecisionGroup" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center">
+                    <StackPanel x:Name="TakeDecisionControls" Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="PickupButton" Content="Request pickup" Style="{StaticResource QuietButtonStyle}"
+                                Foreground="{ThemeResource PickupBrush}" Click="Pickup_Click" IsEnabled="False" />
+                        <Button x:Name="ApproveButton" Content="✓  Approve take" Style="{StaticResource QuietButtonStyle}"
+                                Foreground="{ThemeResource ApprovalBrush}" Click="Approve_Click" IsEnabled="False" />
+                    </StackPanel>
+                </Border>
+
+                <controls:AudioTransport x:Name="TakeTransport" Grid.Row="3" Grid.ColumnSpan="4" />
             </Grid>
         </Border>
 
@@ -291,13 +381,30 @@
                         <Setter Target="DirectorPanel.(Grid.Row)" Value="1" />
                         <Setter Target="DirectorPanel.(Grid.Column)" Value="1" />
                         <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.Margin" Value="12,0,0,0" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Row)" Value="0" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="1" />
+                        <Setter Target="PanelVisibilityControls.Margin" Value="12,0,0,0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="0,12,0,0" />
                         <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
                         <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
                         <Setter Target="WorkbenchHeaderActions.Orientation" Value="Horizontal" />
                         <Setter Target="EmptyActions.Orientation" Value="Horizontal" />
+                        <Setter Target="TakeReviewContext.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeSelectionControls.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeSelectionControls.(Grid.Column)" Value="1" />
+                        <Setter Target="TakeSelectionControls.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeDecisionGroup.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeDecisionGroup.(Grid.Column)" Value="2" />
+                        <Setter Target="TakeDecisionGroup.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeDecisionGroup.BorderBrush" Value="{ThemeResource DividerBrush}" />
+                        <Setter Target="TakeDecisionGroup.BorderThickness" Value="1,0,0,0" />
+                        <Setter Target="TakeDecisionGroup.Padding" Value="14,0,0,0" />
+                        <Setter Target="AssemblyHandoff.BorderBrush" Value="{ThemeResource DividerBrush}" />
+                        <Setter Target="AssemblyHandoff.BorderThickness" Value="1,0,0,0" />
+                        <Setter Target="AssemblyHandoff.Padding" Value="14,0,0,0" />
+                        <Setter Target="TakeTransport.(Grid.Row)" Value="1" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="WideWorkbench">
@@ -311,17 +418,29 @@
                         <Setter Target="DirectorPanel.(Grid.Row)" Value="0" />
                         <Setter Target="DirectorPanel.(Grid.Column)" Value="2" />
                         <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.Margin" Value="12,0,0,0" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Row)" Value="0" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="1" />
+                        <Setter Target="PanelVisibilityControls.Margin" Value="12,0,0,0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="0,12,0,0" />
                         <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
                         <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
                         <Setter Target="WorkbenchFooter.Margin" Value="20,12,20,18" />
-                        <Setter Target="TakeTransport.(Grid.Row)" Value="0" />
-                        <Setter Target="TakeTransport.(Grid.Column)" Value="1" />
-                        <Setter Target="TakeTransport.(Grid.ColumnSpan)" Value="1" />
-                        <Setter Target="TakeDecisionControls.(Grid.Row)" Value="0" />
-                        <Setter Target="TakeDecisionControls.(Grid.Column)" Value="2" />
+                        <Setter Target="TakeReviewContext.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeSelectionControls.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeSelectionControls.(Grid.Column)" Value="1" />
+                        <Setter Target="TakeSelectionControls.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeDecisionGroup.(Grid.Row)" Value="0" />
+                        <Setter Target="TakeDecisionGroup.(Grid.Column)" Value="2" />
+                        <Setter Target="TakeDecisionGroup.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="TakeDecisionGroup.BorderBrush" Value="{ThemeResource DividerBrush}" />
+                        <Setter Target="TakeDecisionGroup.BorderThickness" Value="1,0,0,0" />
+                        <Setter Target="TakeDecisionGroup.Padding" Value="14,0,0,0" />
+                        <Setter Target="AssemblyHandoff.BorderBrush" Value="{ThemeResource DividerBrush}" />
+                        <Setter Target="AssemblyHandoff.BorderThickness" Value="1,0,0,0" />
+                        <Setter Target="AssemblyHandoff.Padding" Value="14,0,0,0" />
+                        <Setter Target="TakeTransport.(Grid.Row)" Value="1" />
                         <Setter Target="WorkbenchHeaderActions.Orientation" Value="Horizontal" />
                         <Setter Target="EmptyActions.Orientation" Value="Horizontal" />
                     </VisualState.Setters>

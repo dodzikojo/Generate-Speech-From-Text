@@ -196,7 +196,7 @@
                 <ComboBox Header="Audio standard" SelectedIndex="0" HorizontalAlignment="Stretch">
                     <ComboBoxItem Content="Mono · 48 kHz · −16 LUFS · −1 dBTP" />
                 </ComboBox>
-                <TextBlock Text="No provider key is needed until you audition a voice."
+                <TextBlock Text="No provider key is needed until you render or audition a voice."
                            Style="{StaticResource UtilityLabelTextStyle}" />
             </StackPanel>
         </ContentDialog>

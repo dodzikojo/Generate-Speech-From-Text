@@ -86,7 +86,7 @@ public sealed class SegmentRenderService
             && !VoicePresetRules.CanSelectAsProjectDefault(preset))
         {
             throw new InvalidOperationException(
-                $"Voice preset '{preset.Name}' requires two distinct audition renders before it can be the project default.");
+                $"Voice preset '{preset.Name}' must specify an exact provider, model, and voice.");
         }
 
         var provider = _providers.GetRequired(preset.ProviderId);

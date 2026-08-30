@@ -109,6 +109,72 @@
         <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ReadingTextBrush}" />
     </Style>
 
+    <Style x:Key="PanelToggleButtonStyle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinWidth" Value="34" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource MutedTextBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource StudioCornerRadius}" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ActiveSignalBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ReadingTextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Grid>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="ToggleSurface.Background" Value="{ThemeResource PanelRaisedBrush}" />
+                                        <Setter Target="ToggleIcon.Foreground" Value="{ThemeResource ReadingTextBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="ToggleSurface.Background" Value="{ThemeResource DividerBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="ToggleSurface.Opacity" Value="0.35" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="CheckStates">
+                                <VisualState x:Name="Unchecked" />
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="ToggleSurface.Background" Value="{ThemeResource PanelRaisedBrush}" />
+                                        <Setter Target="ToggleSurface.BorderBrush" Value="{ThemeResource DividerBrush}" />
+                                        <Setter Target="ToggleIcon.Foreground" Value="{ThemeResource ActiveSignalBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Indeterminate" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Border x:Name="ToggleSurface"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}">
+                            <ContentPresenter x:Name="ToggleIcon"
+                                              Content="{TemplateBinding Content}"
+                                              Foreground="{TemplateBinding Foreground}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style TargetType="TextBox">
         <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />

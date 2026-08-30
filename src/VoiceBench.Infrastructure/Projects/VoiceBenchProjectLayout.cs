@@ -7,6 +7,7 @@ public static class VoiceBenchProjectLayout
     public const string SourceReferencesDirectory = "01-source/references";
     public const string ScriptsDirectory = "02-scripts";
     public const string ScriptRevisionsDirectory = "02-scripts/.revisions";
+    public const string ScriptTrashDirectory = "02-scripts/.trash";
     public const string RenderCopiesDirectory = "03-render-copies";
     public const string GeneratedAudioDirectory = "04-generated-audio";
     public const string AuditionsDirectory = "04-generated-audio/auditions";
@@ -22,6 +23,7 @@ public static class VoiceBenchProjectLayout
         SourceReferencesDirectory,
         ScriptsDirectory,
         ScriptRevisionsDirectory,
+        ScriptTrashDirectory,
         RenderCopiesDirectory,
         AuditionsDirectory,
         SegmentsDirectory,

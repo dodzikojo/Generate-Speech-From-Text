@@ -135,7 +135,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void Voice_lab_requires_an_explicit_ab_choice()
+    public void Voice_lab_keeps_audition_optional_and_allows_direct_voice_selection()
     {
         var path = RepositoryPaths.App("Views/VoiceLabView.xaml");
         var source = File.ReadAllText(path);
@@ -143,10 +143,17 @@ public sealed class XamlContractTests
 
         Assert.Contains("AUDITION A", source, StringComparison.Ordinal);
         Assert.Contains("AUDITION B", source, StringComparison.Ordinal);
-        Assert.Contains("No audition has been completed", source, StringComparison.Ordinal);
+        Assert.Contains("Auditioning is optional", source, StringComparison.Ordinal);
         Assert.Contains("never substitutes another voice silently", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Use A as project default", source, StringComparison.Ordinal);
-        Assert.Contains("Use B as project default", source, StringComparison.Ordinal);
+        Assert.Contains("Use A settings as project voice", source, StringComparison.Ordinal);
+        Assert.Contains("Use B settings as project voice", source, StringComparison.Ordinal);
+
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string workbenchCode = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        Assert.Contains("Use as project voice", workbench, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateSelectedVoicePreset", workbenchCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("A/B audition required", workbench, StringComparison.Ordinal);
+        Assert.DoesNotContain("has not completed the project A/B audition", workbenchCode, StringComparison.Ordinal);
 
         XElement auditionBColumn = Assert.Single(document.Descendants(), element =>
             string.Equals((string?)element.Attribute(XamlNamespace + "Name"), "AuditionBColumn", StringComparison.Ordinal));
@@ -201,6 +208,52 @@ public sealed class XamlContractTests
         Assert.Contains("AuditionATransport", voiceLab, StringComparison.Ordinal);
         Assert.Contains("AuditionBTransport", voiceLab, StringComparison.Ordinal);
         Assert.Contains("TakeTransport", workbench, StringComparison.Ordinal);
+        Assert.Contains("TakeReviewContext", workbench, StringComparison.Ordinal);
+        Assert.Contains("TakeDecisionGroup", workbench, StringComparison.Ordinal);
+        Assert.Contains("AssemblyHandoff", workbench, StringComparison.Ordinal);
+        Assert.Contains("Request pickup", workbench, StringComparison.Ordinal);
+        Assert.Contains("Approve take", workbench, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chapter_rail_templates_bind_through_tree_view_node_content()
+    {
+        var workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+
+        Assert.Contains("{Binding Content.Title}", workbench, StringComparison.Ordinal);
+        Assert.Contains("{Binding Content.Metadata}", workbench, StringComparison.Ordinal);
+        Assert.Contains("{Binding Content.StatusBrush}", workbench, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workbench_panels_are_collapsible_and_rail_actions_are_contextual()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("ChapterRailToggle", workbench, StringComparison.Ordinal);
+        Assert.Contains("DirectorToggle", workbench, StringComparison.Ordinal);
+        Assert.Contains("TakeReviewToggle", workbench, StringComparison.Ordinal);
+        Assert.Contains("PanelToggleButtonStyle", workbench, StringComparison.Ordinal);
+        Assert.Contains("Symbol=\"Bullets\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Symbol=\"Edit\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Symbol=\"Audio\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("ToolTipService.ToolTip=\"Chapter rail\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("RailItem_RightTapped", workbench, StringComparison.Ordinal);
+        Assert.Contains("Delete selected…", workbench, StringComparison.Ordinal);
+        Assert.Contains("Open selected", workbench, StringComparison.Ordinal);
+        Assert.Contains("Show in folder", workbench, StringComparison.Ordinal);
+        Assert.Contains("TextWrapping=\"WrapWholeWords\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("ApplyWorkspacePanelLayout", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("LoadWorkspacePanelPreferences", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("SaveWorkspacePanelPreferences", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplicationData.Current.LocalSettings.Values", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DeleteSelected_Click", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptFileMonitor_ScriptChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("HandleExternalScriptChangeAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("await App.Services.Session.SaveAsync(project)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Launcher.LaunchFileAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("02-scripts/.trash", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]

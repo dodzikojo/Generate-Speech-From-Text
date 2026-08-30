@@ -1,7 +1,8 @@
 # VoiceBench
 
 VoiceBench is a Windows 11 narration workstation for turning folder-based scripts into
-auditioned, approved, mastered audio. Projects contain ordered chapters and render-sized
+directly selected or auditioned voices, approved takes, and mastered audio. Projects contain
+ordered chapters and render-sized
 segments. VoiceBench keeps the clean transcript separate from the exact provider submission,
 preserves every raw take, and makes narration status visible in a chapter/segment rail.
 

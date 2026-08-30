@@ -110,7 +110,9 @@ public static class SegmentStateRules
 public static class VoicePresetRules
 {
     public static bool CanSelectAsProjectDefault(VoicePreset preset) =>
-        preset.AuditionRenderIds.Distinct().Take(2).Count() >= 2;
+        !string.IsNullOrWhiteSpace(preset.ProviderId)
+        && !string.IsNullOrWhiteSpace(preset.ModelId)
+        && !string.IsNullOrWhiteSpace(preset.Voice);
 }
 
 public sealed record MasterEligibility(bool CanBuild, IReadOnlyList<ProjectValidationIssue> Issues);

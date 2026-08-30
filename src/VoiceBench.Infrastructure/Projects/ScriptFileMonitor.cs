@@ -10,7 +10,7 @@ public sealed class ScriptFileMonitor : IDisposable
         Directory.CreateDirectory(scriptsPath);
         _watcher = new FileSystemWatcher(scriptsPath)
         {
-            IncludeSubdirectories = false,
+            IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
             Filter = "*.*",
             EnableRaisingEvents = true,

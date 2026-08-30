@@ -80,6 +80,60 @@ public sealed class ChapterAuthoringServiceTests
     }
 
     [Fact]
+    public async Task DeleteSegmentAndChapterAsync_RemoveManifestEntriesAndKeepScriptsRecoverable()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        await repository.CreateAsync(directory.Root, "Course");
+        Queue<string> ids = new(["chapter01", "segment01", "segment02"]);
+        ChapterAuthoringService service = new(repository, ids.Dequeue);
+        VoiceBenchProjectDocument project = await service.CreateChapterFromDraftAsync(
+            directory.Root,
+            new ChapterDraft(
+                "Welcome",
+                [new ChapterDraftSegment("Opening", "Hello"), new ChapterDraftSegment("Next", "Continue")],
+                ""),
+            null,
+            []);
+
+        project = await service.DeleteSegmentAsync(directory.Root, "segment01");
+
+        Assert.DoesNotContain(project.Segments, item => item.SegmentId == "segment01");
+        Assert.Equal(["segment02"], project.Chapters.Single().SegmentOrder);
+        Assert.Single(Directory.EnumerateFiles(
+            VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, VoiceBenchProjectLayout.ScriptTrashDirectory)));
+
+        project = await service.DeleteChapterAsync(directory.Root, "chapter01");
+
+        Assert.Empty(project.Chapters);
+        Assert.Empty(project.ChapterOrder);
+        Assert.Empty(project.Segments);
+        Assert.Equal(2, Directory.EnumerateFiles(
+            VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, VoiceBenchProjectLayout.ScriptTrashDirectory)).Count());
+    }
+
+    [Fact]
+    public async Task DeleteSegmentAsync_SaveFailureRestoresCanonicalScript()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        await repository.CreateAsync(directory.Root, "Course");
+        Queue<string> ids = new(["chapter01", "segment01"]);
+        ChapterAuthoringService setup = new(repository, ids.Dequeue);
+        VoiceBenchProjectDocument project = await setup.CreateBlankChapterAsync(directory.Root, "Welcome");
+        SegmentDocument segment = project.Segments.Single();
+        string scriptPath = VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, segment.ScriptRelativePath);
+        ChapterAuthoringService failing = new(new SaveFailingRepository(repository));
+
+        await Assert.ThrowsAsync<IOException>(() => failing.DeleteSegmentAsync(directory.Root, segment.SegmentId));
+
+        Assert.True(File.Exists(scriptPath));
+        Assert.Contains((await repository.LoadAsync(directory.Root)).Segments, item => item.SegmentId == segment.SegmentId);
+        Assert.Empty(Directory.EnumerateFiles(
+            VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, VoiceBenchProjectLayout.ScriptTrashDirectory)));
+    }
+
+    [Fact]
     public async Task ApplyWritingProposalAsync_SavesRevisionAndInvalidatesApprovedTake()
     {
         using TemporaryDirectory directory = new();

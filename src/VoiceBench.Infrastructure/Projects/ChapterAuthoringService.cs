@@ -198,6 +198,71 @@ public sealed class ChapterAuthoringService(
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<VoiceBenchProjectDocument> DeleteSegmentAsync(
+        string projectRoot,
+        string segmentId,
+        CancellationToken cancellationToken = default)
+    {
+        VoiceBenchProjectDocument project = await repository.LoadAsync(projectRoot, cancellationToken).ConfigureAwait(false);
+        SegmentDocument segment = project.Segments.SingleOrDefault(item => item.SegmentId == segmentId)
+            ?? throw new InvalidOperationException($"Segment '{segmentId}' does not exist.");
+        int chapterIndex = project.Chapters.FindIndex(item => item.ChapterId == segment.ChapterId);
+        if (chapterIndex < 0) throw new InvalidOperationException($"Chapter '{segment.ChapterId}' does not exist.");
+        ChapterDocument chapter = project.Chapters[chapterIndex];
+        List<ChapterDocument> chapters = [.. project.Chapters];
+        chapters[chapterIndex] = chapter with
+        {
+            SegmentOrder = chapter.SegmentOrder.Where(id => id != segmentId).ToList(),
+        };
+        VoiceBenchProjectDocument updated = project with
+        {
+            Chapters = chapters,
+            Segments = project.Segments.Where(item => item.SegmentId != segmentId).ToList(),
+        };
+        List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, [segment]);
+        try
+        {
+            await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
+            return updated;
+        }
+        catch
+        {
+            RestoreTrashedScripts(moved);
+            throw;
+        }
+    }
+
+    public async Task<VoiceBenchProjectDocument> DeleteChapterAsync(
+        string projectRoot,
+        string chapterId,
+        CancellationToken cancellationToken = default)
+    {
+        VoiceBenchProjectDocument project = await repository.LoadAsync(projectRoot, cancellationToken).ConfigureAwait(false);
+        ChapterDocument chapter = project.Chapters.SingleOrDefault(item => item.ChapterId == chapterId)
+            ?? throw new InvalidOperationException($"Chapter '{chapterId}' does not exist.");
+        HashSet<string> segmentIds = chapter.SegmentOrder.ToHashSet(StringComparer.Ordinal);
+        List<SegmentDocument> removedSegments = project.Segments
+            .Where(item => segmentIds.Contains(item.SegmentId) || item.ChapterId == chapterId)
+            .ToList();
+        VoiceBenchProjectDocument updated = project with
+        {
+            ChapterOrder = project.ChapterOrder.Where(id => id != chapterId).ToList(),
+            Chapters = project.Chapters.Where(item => item.ChapterId != chapterId).ToList(),
+            Segments = project.Segments.Where(item => item.ChapterId != chapterId && !segmentIds.Contains(item.SegmentId)).ToList(),
+        };
+        List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, removedSegments);
+        try
+        {
+            await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
+            return updated;
+        }
+        catch
+        {
+            RestoreTrashedScripts(moved);
+            throw;
+        }
+    }
+
     public async Task<VoiceBenchProjectDocument> SplitSegmentAsync(
         string projectRoot,
         string segmentId,
@@ -514,4 +579,49 @@ public sealed class ChapterAuthoringService(
         order.RemoveAt(current);
         order.Insert(target, id);
     }
+
+    private List<TrashedScript> MoveScriptsToTrash(string projectRoot, IEnumerable<SegmentDocument> segments)
+    {
+        string trashDirectory = VoiceBenchProjectLayout.ResolveRelativePath(
+            projectRoot,
+            VoiceBenchProjectLayout.ScriptTrashDirectory);
+        Directory.CreateDirectory(trashDirectory);
+        string stamp = _timeProvider.GetUtcNow().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        List<TrashedScript> moved = [];
+        try
+        {
+            foreach (SegmentDocument segment in segments)
+            {
+                string source = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, segment.ScriptRelativePath);
+                if (!File.Exists(source)) continue;
+                string destination = Path.Combine(
+                    trashDirectory,
+                    $"{stamp}--{segment.SegmentId}--{Path.GetFileName(source)}");
+                if (File.Exists(destination)) destination = Path.Combine(
+                    trashDirectory,
+                    $"{stamp}--{segment.SegmentId}--{Guid.NewGuid():N}--{Path.GetFileName(source)}");
+                File.Move(source, destination);
+                moved.Add(new TrashedScript(source, destination));
+            }
+
+            return moved;
+        }
+        catch
+        {
+            RestoreTrashedScripts(moved);
+            throw;
+        }
+    }
+
+    private static void RestoreTrashedScripts(IEnumerable<TrashedScript> moved)
+    {
+        foreach (TrashedScript item in moved.Reverse())
+        {
+            if (!File.Exists(item.TrashPath)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(item.OriginalPath)!);
+            File.Move(item.TrashPath, item.OriginalPath, overwrite: true);
+        }
+    }
+
+    private sealed record TrashedScript(string OriginalPath, string TrashPath);
 }

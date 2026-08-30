@@ -7,7 +7,8 @@ Owner: Dodzi / IssueLab
 ## Product intent
 
 VoiceBench replaces the dormant single-file Python generator with a local Windows narration
-workstation. The operating loop is script → audition → render → review/pickup → approval →
+workstation. The operating loop is script → voice selection (with optional audition) → render →
+review/pickup → approval →
 master. The product stays generic and folder-first so training-video narration can travel with
 the work without coupling this repository to ClashWise.
 
@@ -27,9 +28,10 @@ workflow model. Every segment shows Draft, Ready, Rendering, Rendered, Approved,
 Pickup Required, plus take count and duration. The selected segment feeds the script editor,
 voice director, and transport without opening modal screens.
 
-Self-critique: the three-column workbench can become cramped at 100% scaling. The right voice
-director therefore collapses below 1,180 effective pixels and the take rail becomes a narrow
-status strip below 860. Color never carries status alone; iconography and labels remain.
+Self-critique: the three-column workbench can become cramped at 100% scaling. The chapter rail,
+right-side writing/voice director, and take review can each be collapsed manually; responsive
+breakpoints also move the director below the editor and replace the rail with a compact picker.
+Color never carries status alone; iconography and labels remain.
 Animation is limited to progress feedback and respects reduced-motion settings.
 
 ## Project contract
@@ -41,6 +43,7 @@ Creating a project produces:
   voicebench.project.json
   01-source/
   02-scripts/
+    .trash/
   03-render-copies/
   04-generated-audio/auditions/
   04-generated-audio/segments/
@@ -65,8 +68,8 @@ the new source is rendered or explicitly re-approved.
 
 `ISpeechProvider` exposes capabilities and one synthesis operation. Initial models are
 `gemini-3.1-flash-tts-preview`, `gemini-2.5-flash-preview-tts`,
-`gemini-2.5-pro-preview-tts`, and `gpt-4o-mini-tts`. A project default requires a completed A/B
-audition. VoiceBench never silently switches provider, model, or voice.
+`gemini-2.5-pro-preview-tts`, and `gpt-4o-mini-tts`. A project default can be selected directly;
+A/B auditioning is optional. VoiceBench never silently switches provider, model, or voice.
 
 The canonical transcript remains clean. Render copies contain directions, deterministic
 lexicon substitutions, and the exact submitted text. Segments estimated above four minutes

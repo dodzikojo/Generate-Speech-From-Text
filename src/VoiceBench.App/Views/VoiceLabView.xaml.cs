@@ -141,8 +141,8 @@ public sealed partial class VoiceLabView : UserControl
         VoicePreset? presetA = project.VoicePresets.FirstOrDefault(item => item.PresetId == "voice-lab-a");
         VoicePreset? presetB = project.VoicePresets.FirstOrDefault(item => item.PresetId == "voice-lab-b");
         bool savedAudition = presetA is not null && presetB is not null
-            && VoicePresetRules.CanSelectAsProjectDefault(presetA)
-            && VoicePresetRules.CanSelectAsProjectDefault(presetB);
+            && presetA.AuditionRenderIds.Distinct().Take(2).Count() >= 2
+            && presetB.AuditionRenderIds.Distinct().Take(2).Count() >= 2;
         if (savedAudition)
         {
             _auditionA ??= TryRestoreAudition(presetA!, "A");
@@ -152,17 +152,17 @@ public sealed partial class VoiceLabView : UserControl
         }
 
         bool complete = savedAudition && _auditionA is not null && _auditionB is not null;
-        UseAButton.IsEnabled = complete && !_busy;
-        UseBButton.IsEnabled = complete && !_busy;
+        UseAButton.IsEnabled = !_busy;
+        UseBButton.IsEnabled = !_busy;
         if (complete)
         {
             AuditionAStatusText.Text = "Audition A rendered";
             AuditionBStatusText.Text = "Audition B rendered";
-            ShowStatus(InfoBarSeverity.Success, "A/B audition complete", "Listen to the immutable samples, then explicitly choose A or B as the project default.");
+            ShowStatus(InfoBarSeverity.Success, "A/B audition complete", "Listen to the immutable samples, or choose either configuration directly as the project voice.");
         }
         else
         {
-            ShowStatus(InfoBarSeverity.Informational, $"Auditioning for {project.Name}", "Render both exact configurations before choosing the default project voice.");
+            ShowStatus(InfoBarSeverity.Informational, $"Voice choices for {project.Name}", "Choose either configuration now. Render one or both only when you want to compare the audio first.");
         }
     }
 
@@ -197,7 +197,7 @@ public sealed partial class VoiceLabView : UserControl
             if (_auditionA is not null && _auditionB is not null)
                 await SaveCompletedAuditionAsync();
             else
-                ShowStatus(InfoBarSeverity.Informational, $"Audition {slot} rendered", "Render the other exact configuration before either can become the project default.");
+                ShowStatus(InfoBarSeverity.Informational, $"Audition {slot} rendered", "You can use these settings now or render the other configuration for comparison.");
         }
         catch (Exception exception)
         {
@@ -287,7 +287,7 @@ public sealed partial class VoiceLabView : UserControl
         await App.Services.Session.SaveAsync(project with { VoicePresets = presets });
         UseAButton.IsEnabled = true;
         UseBButton.IsEnabled = true;
-        ShowStatus(InfoBarSeverity.Success, "A/B audition complete", "Both immutable samples are saved. Choose the project default explicitly.");
+        ShowStatus(InfoBarSeverity.Success, "A/B audition complete", "Both immutable samples are saved. Choose either configuration when ready.");
     }
 
     private async void UseDefault_Click(object sender, RoutedEventArgs e)
@@ -296,12 +296,24 @@ public sealed partial class VoiceLabView : UserControl
         try
         {
             VoiceBenchProjectDocument project = App.Services.Session.RequireProject();
+            bool isA = slot == "A";
             string presetId = slot == "A" ? "voice-lab-a" : "voice-lab-b";
-            VoicePreset preset = project.VoicePresets.Single(item => item.PresetId == presetId);
-            if (!VoicePresetRules.CanSelectAsProjectDefault(preset))
-                throw new InvalidOperationException("Render both A and B before selecting a project default.");
-            await App.Services.Session.SaveAsync(project with { DefaultVoicePresetId = presetId });
-            ShowStatus(InfoBarSeverity.Success, $"Audition {slot} is the project default", $"{preset.ProviderId} / {preset.ModelId} / {preset.Voice} will be used unless a segment explicitly selects another auditioned preset.");
+            Guid[] renderedIds = new[] { _auditionA?.RenderId, _auditionB?.RenderId }
+                .Where(item => item.HasValue)
+                .Select(item => item!.Value)
+                .ToArray();
+            VoicePreset preset = CreatePreset(
+                presetId,
+                $"Voice Lab {slot}",
+                isA ? "openai" : "gemini",
+                isA ? ModelAComboBox : ModelBComboBox,
+                isA ? VoiceAComboBox : VoiceBComboBox,
+                isA ? DirectionATextBox : DirectionBTextBox,
+                renderedIds);
+            List<VoicePreset> presets = project.VoicePresets.Where(item => item.PresetId != presetId).ToList();
+            presets.Add(preset);
+            await App.Services.Session.SaveAsync(project with { VoicePresets = presets, DefaultVoicePresetId = presetId });
+            ShowStatus(InfoBarSeverity.Success, $"Voice {slot} selected", $"{preset.ProviderId} / {preset.ModelId} / {preset.Voice} is now the project voice. No audition was required.");
         }
         catch (Exception exception)
         {
@@ -331,8 +343,8 @@ public sealed partial class VoiceLabView : UserControl
     {
         _busy = busy;
         RenderBothButton.IsEnabled = !busy;
-        UseAButton.IsEnabled = !busy && _auditionA is not null && _auditionB is not null;
-        UseBButton.IsEnabled = UseAButton.IsEnabled;
+        UseAButton.IsEnabled = !busy && App.Services.Session.HasProject;
+        UseBButton.IsEnabled = !busy && App.Services.Session.HasProject;
     }
 
     private static string GetSelectedContent(ComboBox box) =>

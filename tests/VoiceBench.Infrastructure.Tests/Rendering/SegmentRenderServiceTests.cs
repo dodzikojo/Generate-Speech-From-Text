@@ -20,8 +20,6 @@ public sealed class SegmentRenderServiceTests
         await File.WriteAllTextAsync(
             Path.Combine(directory.Root, scriptRelativePath),
             "ClashWise keeps BIM coordination clear.");
-        var auditionOne = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-        var auditionTwo = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
         var segment = new SegmentDocument
         {
             SegmentId = "introduction",
@@ -40,7 +38,6 @@ public sealed class SegmentRenderServiceTests
             ModelId = "gpt-4o-mini-tts",
             Voice = "marin",
             Directions = "Read with calm authority.",
-            AuditionRenderIds = [auditionOne, auditionTwo],
         };
         project = project with
         {

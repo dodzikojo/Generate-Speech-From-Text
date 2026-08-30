@@ -88,14 +88,17 @@ public sealed class ProjectRulesTests
     }
 
     [Fact]
-    public void Default_preset_requires_two_distinct_auditions()
+    public void Default_preset_requires_complete_voice_settings_not_auditions()
     {
-        var audition = Guid.NewGuid();
-
-        Assert.False(VoicePresetRules.CanSelectAsProjectDefault(
-            new VoicePreset { AuditionRenderIds = [audition, audition] }));
         Assert.True(VoicePresetRules.CanSelectAsProjectDefault(
-            new VoicePreset { AuditionRenderIds = [audition, Guid.NewGuid()] }));
+            new VoicePreset
+            {
+                ProviderId = "openai",
+                ModelId = "gpt-4o-mini-tts",
+                Voice = "marin",
+            }));
+        Assert.False(VoicePresetRules.CanSelectAsProjectDefault(
+            new VoicePreset { ProviderId = "openai", ModelId = "gpt-4o-mini-tts" }));
     }
 
     private static SegmentDocument CreateApprovedSegment(string hash)

@@ -1,16 +1,24 @@
+using System.Diagnostics;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.System;
 
 namespace IssueLab.VoiceBench.App.Views;
 
 public sealed partial class WorkbenchView : UserControl
 {
+    private const string ChapterRailVisibilitySetting = "Workbench.ShowChapterRail";
+    private const string DirectorVisibilitySetting = "Workbench.ShowDirector";
+    private const string TakeReviewVisibilitySetting = "Workbench.ShowTakeReview";
+
     private VoiceBenchProjectDocument? _project;
     private SegmentDocument? _segment;
     private string _loadedText = string.Empty;
@@ -25,6 +33,9 @@ public sealed partial class WorkbenchView : UserControl
     private string? _pendingWritingModelId;
     private string? _pendingWritingSourceHash;
     private bool _ignoreCompactPicker;
+    private ScriptFileMonitor? _scriptFileMonitor;
+    private string? _monitoredProjectRoot;
+    private int _scriptChangeVersion;
 
     private sealed record RailItem(
         string Title,
@@ -38,18 +49,70 @@ public sealed partial class WorkbenchView : UserControl
     public WorkbenchView()
     {
         InitializeComponent();
+        LoadWorkspacePanelPreferences();
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
         PopulateWritingProviders();
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         Loaded += WorkbenchView_Loaded;
+        Unloaded += WorkbenchView_Unloaded;
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
     }
 
-    private void ApplyResponsiveState(double width) => VisualStateManager.GoToState(
-        this,
-        width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
-        false);
+    private void ApplyResponsiveState(double width)
+    {
+        VisualStateManager.GoToState(
+            this,
+            width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
+            false);
+        ApplyWorkspacePanelLayout(width);
+    }
+
+    private void WorkspacePanelToggle_Click(object sender, RoutedEventArgs e)
+    {
+        SaveWorkspacePanelPreferences();
+        ApplyWorkspacePanelLayout(ActualWidth);
+    }
+
+    private void LoadWorkspacePanelPreferences()
+    {
+        var values = ApplicationData.Current.LocalSettings.Values;
+        ChapterRailToggle.IsChecked = ReadWorkspacePanelPreference(values[ChapterRailVisibilitySetting]);
+        DirectorToggle.IsChecked = ReadWorkspacePanelPreference(values[DirectorVisibilitySetting]);
+        TakeReviewToggle.IsChecked = ReadWorkspacePanelPreference(values[TakeReviewVisibilitySetting]);
+    }
+
+    private void SaveWorkspacePanelPreferences()
+    {
+        var values = ApplicationData.Current.LocalSettings.Values;
+        values[ChapterRailVisibilitySetting] = ChapterRailToggle.IsChecked == true;
+        values[DirectorVisibilitySetting] = DirectorToggle.IsChecked == true;
+        values[TakeReviewVisibilitySetting] = TakeReviewToggle.IsChecked == true;
+    }
+
+    private static bool ReadWorkspacePanelPreference(object? storedValue) =>
+        storedValue is not bool value || value;
+
+    private void ApplyWorkspacePanelLayout(double width)
+    {
+        if (TakeRailPanel is null) return;
+        bool narrow = width < 860;
+        bool wide = width >= 1180;
+        bool showRail = !narrow && ChapterRailToggle.IsChecked == true;
+        bool showDirector = DirectorToggle.IsChecked == true;
+
+        TakeRailPanel.Visibility = showRail ? Visibility.Visible : Visibility.Collapsed;
+        TakeRailColumn.Width = showRail ? new GridLength(wide ? 300 : 270) : new GridLength(0);
+        CompactPickerPanel.Visibility = narrow || !showRail ? Visibility.Visible : Visibility.Collapsed;
+
+        DirectorPanel.Visibility = showDirector ? Visibility.Visible : Visibility.Collapsed;
+        DirectorColumn.Width = wide && showDirector ? new GridLength(350) : new GridLength(0);
+        DirectorRow.Height = !wide && showDirector ? new GridLength(narrow ? 380 : 360) : new GridLength(0);
+        DirectorPanel.SetValue(Grid.RowProperty, wide ? 0 : 1);
+        DirectorPanel.SetValue(Grid.ColumnProperty, wide ? 2 : 1);
+
+        WorkbenchFooter.Visibility = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -136,6 +199,16 @@ public sealed partial class WorkbenchView : UserControl
 
     private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
 
+    private void WorkbenchView_Unloaded(object sender, RoutedEventArgs e)
+        => DisposeScriptFileMonitor();
+
+    private void DisposeScriptFileMonitor()
+    {
+        _scriptFileMonitor?.Dispose();
+        _scriptFileMonitor = null;
+        _monitoredProjectRoot = null;
+    }
+
     private void Session_ProjectChanged(object? sender, EventArgs e) =>
         _ = DispatcherQueue.TryEnqueue(async () => await LoadProjectAsync(_segment?.SegmentId));
 
@@ -143,11 +216,13 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (!App.Services.Session.HasProject)
         {
+            DisposeScriptFileMonitor();
             _project = null;
             _segment = null;
             ChapterTree.RootNodes.Clear();
             CompactSegmentPicker.Items.Clear();
             TakeTransport.ClearAudio();
+            ResetTakeReviewContext();
             SetEditorText(string.Empty);
             EmptyAuthoringState.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
@@ -155,10 +230,13 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         _project = App.Services.Session.RequireProject();
+        EnsureScriptFileMonitor(App.Services.Session.RequireProjectRoot());
         ProjectHeaderText.Text = $"WORKBENCH  /  {_project.Name.ToUpperInvariant()}";
         ProjectTitleText.Text = _project.Name;
         int approved = _project.Segments.Count(item => item.Status == SegmentStatus.Approved);
-        TakeRailSummaryText.Text = $"{_project.Chapters.Count(item => item.Status == ChapterStatus.Active)} CHAPTERS  ·  {_project.Segments.Count} SEGMENTS  ·  {approved} APPROVED";
+        ChapterCountText.Text = _project.Chapters.Count(item => item.Status == ChapterStatus.Active).ToString();
+        SegmentCountText.Text = _project.Segments.Count.ToString();
+        ApprovedCountText.Text = approved.ToString();
         PopulateChapterTree(_project);
         PopulateWritingReferences(_project);
         LoadDefaultPreset(_project);
@@ -174,6 +252,7 @@ public sealed partial class WorkbenchView : UserControl
         {
             _segment = null;
             TakeTransport.ClearAudio();
+            ResetTakeReviewContext();
             SetEditorText(string.Empty);
             SegmentTitleText.Text = "NO SEGMENTS";
             SegmentStatsText.Text = "CREATE, DRAFT, OR IMPORT A CHAPTER TO BEGIN";
@@ -185,14 +264,7 @@ public sealed partial class WorkbenchView : UserControl
         EmptyAuthoringState.Visibility = Visibility.Collapsed;
         SelectTakeRailItem(segmentId);
         await LoadSegmentAsync(segmentId);
-        if (_project.DefaultVoicePresetId is null)
-        {
-            ShowStatus(InfoBarSeverity.Warning, "Choose a project voice", "Complete an A/B audition in Voice Lab before rendering a segment.");
-        }
-        else
-        {
-            WorkbenchInfoBar.IsOpen = false;
-        }
+        WorkbenchInfoBar.IsOpen = false;
     }
 
     private void PopulateChapterTree(VoiceBenchProjectDocument project)
@@ -284,6 +356,156 @@ public sealed partial class WorkbenchView : UserControl
         await LoadSegmentAsync(segmentId);
     }
 
+    private void RailItem_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TreeViewNode node })
+        {
+            ChapterTree.SelectedNode = node;
+        }
+    }
+
+    private void RailContextMenu_Opening(object sender, object e)
+    {
+        if (sender is not MenuFlyout flyout) return;
+        bool chapterSelected = GetSelectedRailItem()?.SegmentId is null;
+        foreach (MenuFlyoutItemBase item in flyout.Items)
+        {
+            if (string.Equals(item.Tag as string, "chapter", StringComparison.Ordinal))
+            {
+                item.Visibility = chapterSelected ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private async void OpenSelected_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        if (_project is null || selected is null) return;
+        try
+        {
+            if (selected.SegmentId is string segmentId)
+            {
+                SegmentDocument segment = _project.Segments.Single(item => item.SegmentId == segmentId);
+                string path = App.Services.Session.ResolveProjectPath(segment.ScriptRelativePath);
+                StorageFile file = await StorageFile.GetFileFromPathAsync(path);
+                if (!await Launcher.LaunchFileAsync(file))
+                    throw new InvalidOperationException("Windows could not find an application associated with this script file.");
+            }
+            else
+            {
+                string folderPath = ResolveChapterFolder(selected.ChapterId);
+                StorageFolder folder = await StorageFolder.GetFolderFromPathAsync(folderPath);
+                if (!await Launcher.LaunchFolderAsync(folder))
+                    throw new InvalidOperationException("Windows could not open the chapter folder.");
+            }
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Location could not be opened", exception.Message);
+        }
+    }
+
+    private async void ShowSelectedInFolder_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        if (_project is null || selected is null) return;
+        try
+        {
+            if (selected.SegmentId is string segmentId)
+            {
+                SegmentDocument segment = _project.Segments.Single(item => item.SegmentId == segmentId);
+                string path = App.Services.Session.ResolveProjectPath(segment.ScriptRelativePath);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select,\"{path}\"",
+                    UseShellExecute = true,
+                });
+            }
+            else
+            {
+                StorageFolder folder = await StorageFolder.GetFolderFromPathAsync(ResolveChapterFolder(selected.ChapterId));
+                if (!await Launcher.LaunchFolderAsync(folder))
+                    throw new InvalidOperationException("Windows could not open the chapter folder.");
+            }
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Location could not be shown", exception.Message);
+        }
+    }
+
+    private string ResolveChapterFolder(string chapterId)
+    {
+        SegmentDocument? firstSegment = _project?.Segments.FirstOrDefault(item => item.ChapterId == chapterId);
+        if (firstSegment is null)
+        {
+            return App.Services.Session.ResolveProjectPath(VoiceBenchProjectLayout.ScriptsDirectory);
+        }
+
+        string scriptPath = App.Services.Session.ResolveProjectPath(firstSegment.ScriptRelativePath);
+        return Path.GetDirectoryName(scriptPath)
+            ?? App.Services.Session.ResolveProjectPath(VoiceBenchProjectLayout.ScriptsDirectory);
+    }
+
+    private void EnsureScriptFileMonitor(string projectRoot)
+    {
+        string normalizedRoot = Path.GetFullPath(projectRoot);
+        if (_scriptFileMonitor is not null && string.Equals(
+                _monitoredProjectRoot,
+                normalizedRoot,
+                StringComparison.OrdinalIgnoreCase)) return;
+        _scriptFileMonitor?.Dispose();
+        _scriptFileMonitor = new ScriptFileMonitor(normalizedRoot);
+        _scriptFileMonitor.ScriptChanged += ScriptFileMonitor_ScriptChanged;
+        _monitoredProjectRoot = normalizedRoot;
+    }
+
+    private void ScriptFileMonitor_ScriptChanged(object? sender, string changedPath)
+    {
+        int version = Interlocked.Increment(ref _scriptChangeVersion);
+        _ = DispatcherQueue.TryEnqueue(async () =>
+        {
+            await Task.Delay(180);
+            if (version != _scriptChangeVersion || _segment is null) return;
+            string currentPath = App.Services.Session.ResolveProjectPath(_segment.ScriptRelativePath);
+            if (!string.Equals(Path.GetFullPath(changedPath), Path.GetFullPath(currentPath), StringComparison.OrdinalIgnoreCase)) return;
+            await HandleExternalScriptChangeAsync(currentPath);
+        });
+    }
+
+    private async Task HandleExternalScriptChangeAsync(string path)
+    {
+        if (_segment is null || !File.Exists(path)) return;
+        string diskText;
+        try
+        {
+            diskText = await File.ReadAllTextAsync(path);
+        }
+        catch (IOException)
+        {
+            await Task.Delay(120);
+            if (!File.Exists(path)) return;
+            diskText = await File.ReadAllTextAsync(path);
+        }
+
+        string diskHash = SourceTextHasher.Compute(diskText);
+        if (string.Equals(diskHash, _loadedDiskHash, StringComparison.OrdinalIgnoreCase)) return;
+        if (_isDirty)
+        {
+            ExternalEditBar.IsOpen = true;
+            ShowStatus(
+                InfoBarSeverity.Warning,
+                "The script changed outside VoiceBench",
+                "Reload, keep the current editor text, or compare both versions. Nothing will be overwritten automatically.");
+            return;
+        }
+
+        string segmentId = _segment.SegmentId;
+        await LoadSegmentAsync(segmentId);
+        ShowStatus(InfoBarSeverity.Success, "External edit loaded", "The clean editor and source status now match the canonical file on disk.");
+    }
+
     private async void CompactSegmentPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_ignoreCompactPicker || CompactSegmentPicker.SelectedItem is not ComboBoxItem { Tag: string segmentId } ||
@@ -312,8 +534,9 @@ public sealed partial class WorkbenchView : UserControl
             List<SegmentDocument> segments = [.. project.Segments];
             segments[index] = current;
             project = project with { Segments = segments };
-            await App.Services.Projects.SaveAsync(App.Services.Session.RequireProjectRoot(), project);
-            _project = project;
+            await App.Services.Session.SaveAsync(project);
+            _project = App.Services.Session.RequireProject();
+            project = _project;
         }
 
         _segment = current;
@@ -326,6 +549,8 @@ public sealed partial class WorkbenchView : UserControl
         int chapterPosition = Math.Max(0, project.ChapterOrder.IndexOf(current.ChapterId)) + 1;
         int segmentPosition = Math.Max(0, chapter?.SegmentOrder.IndexOf(current.SegmentId) ?? 0) + 1;
         SegmentTitleText.Text = $"{chapterPosition:00}.{segmentPosition:000}  /  {current.Title.ToUpperInvariant()}";
+        TakeReviewTitleText.Text = current.Title;
+        TakeReviewStatusText.Text = $"{FormatStatus(current.Status)}  ·  {current.RenderHistory.Count} {(current.RenderHistory.Count == 1 ? "TAKE" : "TAKES")}";
         ScriptPathText.Text = current.ScriptRelativePath.Replace('/', '\\');
         SelectTakeRailItem(current.SegmentId);
         UpdateEditorStats();
@@ -615,6 +840,56 @@ public sealed partial class WorkbenchView : UserControl
             includedInCompilation: false,
             status: ChapterStatus.Archived);
         await App.Services.Session.RefreshAsync();
+    }
+
+    private async void DeleteSelected_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        if (_project is null || selected is null) return;
+        if (_isDirty && !await SaveCurrentScriptAsync()) return;
+        bool isChapter = selected.SegmentId is null;
+        string name = isChapter
+            ? _project.Chapters.Single(item => item.ChapterId == selected.ChapterId).Title
+            : _project.Segments.Single(item => item.SegmentId == selected.SegmentId).Title;
+        int segmentCount = isChapter
+            ? _project.Chapters.Single(item => item.ChapterId == selected.ChapterId).SegmentOrder.Count
+            : 1;
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Delete {(isChapter ? "chapter" : "segment")} ‘{name}’?",
+            Content = isChapter
+                ? $"This removes the chapter and its {segmentCount} segment{(segmentCount == 1 ? "" : "s")} from VoiceBench. Canonical scripts move to 02-scripts/.trash; generated audio stays untouched."
+                : "This removes the segment from its chapter. Its canonical script moves to 02-scripts/.trash; generated audio stays untouched.",
+            PrimaryButtonText = "Move to trash",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        try
+        {
+            if (isChapter)
+            {
+                await App.Services.ChapterAuthoring.DeleteChapterAsync(
+                    App.Services.Session.RequireProjectRoot(), selected.ChapterId);
+            }
+            else
+            {
+                await App.Services.ChapterAuthoring.DeleteSegmentAsync(
+                    App.Services.Session.RequireProjectRoot(), selected.SegmentId!);
+            }
+
+            await App.Services.Session.RefreshAsync();
+            ShowStatus(
+                InfoBarSeverity.Success,
+                isChapter ? "Chapter moved to trash" : "Segment moved to trash",
+                "The canonical script can be recovered from 02-scripts/.trash. Generated audio was preserved.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Nothing was deleted", exception.Message);
+        }
     }
 
     private async void DraftWithAi_Click(object sender, RoutedEventArgs e)
@@ -1154,17 +1429,18 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             if (!await SaveCurrentScriptAsync()) return;
-            string providerId = GetSelectedProviderId();
-            string modelId = GetSelectedContent(ModelComboBox);
-            string voice = GetSelectedContent(VoiceComboBox);
-            VoicePreset preset = _project.VoicePresets.SingleOrDefault(item =>
-                item.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase) && item.ModelId == modelId && item.Voice.Equals(voice, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException("That exact provider, model, and voice has not completed the project A/B audition. Choose an auditioned preset in Voice Lab.");
-            int index = _project.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
-            List<SegmentDocument> segments = [.. _project.Segments];
+            VoicePreset preset = GetOrCreateSelectedVoicePreset(
+                _project,
+                setAsProjectDefault: _project.DefaultVoicePresetId is null,
+                out VoiceBenchProjectDocument projectWithPreset);
+            int index = projectWithPreset.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
+            List<SegmentDocument> segments = [.. projectWithPreset.Segments];
             segments[index] = _segment with { VoicePresetId = preset.PresetId, Directions = DirectionTextBox.Text.Trim(), Status = SegmentStatus.Ready };
-            await App.Services.Session.SaveAsync(_project with { Segments = segments });
-            ShowStatus(InfoBarSeverity.Informational, "Rendering segment", "VoiceBench is submitting the exact auditioned settings.");
+            VoiceBenchProjectDocument renderProject = projectWithPreset with { Segments = segments };
+            _project = renderProject;
+            _segment = segments[index];
+            await App.Services.Session.SaveAsync(renderProject);
+            ShowStatus(InfoBarSeverity.Informational, "Rendering segment", "VoiceBench is submitting the exact provider, model, voice, and direction you selected.");
             _renderCancellation = new CancellationTokenSource();
             SetRenderQueueBusy(true);
             SegmentRenderResult result = await App.Services.RenderSegmentAsync(_segment.SegmentId, _renderCancellation.Token);
@@ -1234,15 +1510,85 @@ public sealed partial class WorkbenchView : UserControl
         }
     }
 
-    private void OpenVoiceLab_Click(object sender, RoutedEventArgs e) => App.MainWindow?.NavigateTo("voice-lab");
-
     private void OpenAssembly_Click(object sender, RoutedEventArgs e) => App.MainWindow?.NavigateTo("assembly");
+
+    private async void UseProjectVoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Open a project first", "Project voice settings are stored in the active project folder.");
+            return;
+        }
+
+        try
+        {
+            VoicePreset preset = GetOrCreateSelectedVoicePreset(_project, true, out VoiceBenchProjectDocument updated);
+            _project = updated;
+            await App.Services.Session.SaveAsync(updated);
+            VoicePresetInfoBar.Severity = InfoBarSeverity.Success;
+            VoicePresetInfoBar.Title = "Project voice selected";
+            VoicePresetInfoBar.Message = $"{preset.ProviderId} / {preset.ModelId} / {preset.Voice}. You can render immediately; auditioning remains optional.";
+            VoicePresetInfoBar.IsOpen = true;
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Project voice was not changed", exception.Message);
+        }
+    }
+
+    private VoicePreset GetOrCreateSelectedVoicePreset(
+        VoiceBenchProjectDocument project,
+        bool setAsProjectDefault,
+        out VoiceBenchProjectDocument updated)
+    {
+        string providerId = GetSelectedProviderId();
+        string modelId = GetSelectedContent(ModelComboBox);
+        string voice = GetSelectedContent(VoiceComboBox);
+        VoicePreset? preset = project.VoicePresets.FirstOrDefault(item =>
+            item.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)
+            && item.ModelId.Equals(modelId, StringComparison.Ordinal)
+            && item.Voice.Equals(voice, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(item.Directions));
+        List<VoicePreset> presets = [.. project.VoicePresets];
+        if (preset is null)
+        {
+            SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
+                item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
+            preset = new VoicePreset
+            {
+                PresetId = $"direct-{Guid.NewGuid():N}",
+                Name = $"{provider.DisplayName} · {voice}",
+                ProviderId = providerId,
+                ModelId = modelId,
+                Voice = voice,
+            };
+            presets.Add(preset);
+        }
+
+        updated = project with
+        {
+            VoicePresets = presets,
+            DefaultVoicePresetId = setAsProjectDefault ? preset.PresetId : project.DefaultVoicePresetId,
+        };
+        return preset;
+    }
 
     private void LoadDefaultPreset(VoiceBenchProjectDocument project)
     {
         VoicePreset? preset = project.DefaultVoicePresetId is null ? null : project.VoicePresets.SingleOrDefault(item => item.PresetId == project.DefaultVoicePresetId);
-        VoicePresetInfoBar.IsOpen = preset is null;
-        if (preset is not null) SetPresetControls(preset);
+        VoicePresetInfoBar.IsOpen = true;
+        if (preset is null)
+        {
+            VoicePresetInfoBar.Severity = InfoBarSeverity.Informational;
+            VoicePresetInfoBar.Title = "Choose any voice";
+            VoicePresetInfoBar.Message = "Select a provider, model, and voice. Auditioning is optional.";
+            return;
+        }
+
+        SetPresetControls(preset);
+        VoicePresetInfoBar.Severity = InfoBarSeverity.Success;
+        VoicePresetInfoBar.Title = "Project voice selected";
+        VoicePresetInfoBar.Message = $"{preset.ProviderId} / {preset.ModelId} / {preset.Voice}";
     }
 
     private void LoadSegmentPreset(VoiceBenchProjectDocument project, SegmentDocument segment)
@@ -1268,6 +1614,17 @@ public sealed partial class WorkbenchView : UserControl
             TakeSelector.Items.Add(new ComboBoxItem { Content = $"Take {render.TakeNumber:00}", Tag = render.RenderId });
         TakeSelector.SelectedIndex = TakeSelector.Items.Count > 0 ? 0 : -1;
         UpdateTransport();
+    }
+
+    private void ResetTakeReviewContext()
+    {
+        TakeReviewTitleText.Text = "No segment selected";
+        TakeReviewStatusText.Text = "NO TAKES";
+        TakeSelector.Items.Clear();
+        TakeSelector.SelectedIndex = -1;
+        PreviousTakeButton.IsEnabled = false;
+        PickupButton.IsEnabled = false;
+        ApproveButton.IsEnabled = false;
     }
 
     private void TakeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateTransport();
