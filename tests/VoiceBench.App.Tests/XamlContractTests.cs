@@ -142,6 +142,12 @@ public sealed class XamlContractTests
         Assert.Contains("_cueFormattingUnavailable", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextGetOptions.None", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextSetOptions.None", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("bool wasEnabled = ScriptTextBox.IsEnabled", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("bool wasReadOnly = ScriptTextBox.IsReadOnly", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = true", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = false", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = wasReadOnly", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = wasEnabled", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
     }
 

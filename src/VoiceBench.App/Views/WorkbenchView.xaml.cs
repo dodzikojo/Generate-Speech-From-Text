@@ -2022,9 +2022,25 @@ public sealed partial class WorkbenchView : UserControl
 
     private void SetEditorText(string text)
     {
+        bool wasEnabled = ScriptTextBox.IsEnabled;
+        bool wasReadOnly = ScriptTextBox.IsReadOnly;
         _ignoreTextChanges = true;
-        ScriptTextBox.Document.SetText(TextSetOptions.None, text);
-        _ignoreTextChanges = false;
+        try
+        {
+            // RichEdit's text document rejects SetText with E_ACCESSDENIED while its
+            // owning control is disabled or read-only. Empty-project presentation
+            // uses both states, so briefly unlock only the programmatic document load.
+            ScriptTextBox.IsEnabled = true;
+            ScriptTextBox.IsReadOnly = false;
+            ScriptTextBox.Document.SetText(TextSetOptions.None, text);
+        }
+        finally
+        {
+            ScriptTextBox.IsReadOnly = wasReadOnly;
+            ScriptTextBox.IsEnabled = wasEnabled;
+            _ignoreTextChanges = false;
+        }
+
         _isDirty = false;
         QueueCueFormatting();
     }
