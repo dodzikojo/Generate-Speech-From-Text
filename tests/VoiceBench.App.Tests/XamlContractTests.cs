@@ -54,6 +54,44 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Studio_density_is_compact_and_cue_colors_survive_editor_visual_states()
+    {
+        string themePath = RepositoryPaths.App("Styles/VoiceBenchTheme.xaml");
+        XDocument theme = XDocument.Load(themePath);
+        string shell = File.ReadAllText(RepositoryPaths.App("MainWindow.xaml"));
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        string FontSizeFor(string styleKey)
+        {
+            XElement style = theme.Descendants().Single(element =>
+                element.Name.LocalName == "Style" &&
+                string.Equals((string?)element.Attribute(XamlNamespace + "Key"), styleKey, StringComparison.Ordinal));
+            return (string?)style.Elements().Single(element =>
+                element.Name.LocalName == "Setter" &&
+                string.Equals((string?)element.Attribute("Property"), "FontSize", StringComparison.Ordinal)).Attribute("Value")
+                ?? throw new InvalidOperationException($"{styleKey} has no FontSize setter.");
+        }
+
+        Assert.Equal("24", FontSizeFor("PageTitleTextStyle"));
+        Assert.Equal("14", FontSizeFor("StudioHeadingTextStyle"));
+        Assert.Equal("14", FontSizeFor("ReadingTextStyle"));
+        Assert.Equal("10", FontSizeFor("UtilityLabelTextStyle"));
+        Assert.Equal("13", FontSizeFor("SignalButtonStyle"));
+        Assert.Equal("13", FontSizeFor("QuietButtonStyle"));
+        Assert.Contains("FontSize=\"15\"", workbench, StringComparison.Ordinal);
+        Assert.DoesNotContain("FontSize=\"18\"", workbench, StringComparison.Ordinal);
+
+        Assert.Contains("PointerEntered=\"ScriptTextBox_PointerStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("PointerExited=\"ScriptTextBox_PointerStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("GotFocus=\"ScriptTextBox_FocusStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("LostFocus=\"ScriptTextBox_FocusStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("private void ScriptTextBox_PointerStateChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("private void ScriptTextBox_FocusStateChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("IsPaneOpen=\"False\"", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Main_window_exposes_all_five_studio_sections()
     {
         var document = XDocument.Load(RepositoryPaths.App("MainWindow.xaml"));

@@ -1294,6 +1294,12 @@ public sealed partial class WorkbenchView : UserControl
         QueueCueFormatting();
     }
 
+    private void ScriptTextBox_PointerStateChanged(object sender, PointerRoutedEventArgs e) =>
+        QueueCueFormatting();
+
+    private void ScriptTextBox_FocusStateChanged(object sender, RoutedEventArgs e) =>
+        QueueCueFormatting();
+
     private async void Save_Click(object sender, RoutedEventArgs e)
     {
         if (await SaveCurrentScriptAsync())

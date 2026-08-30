@@ -45,6 +45,7 @@
         <NavigationView x:Name="ShellNavigation"
                         Grid.Row="1"
                         PaneDisplayMode="Auto"
+                        IsPaneOpen="False"
                         CompactPaneLength="52"
                         OpenPaneLength="220"
                         CompactModeThresholdWidth="720"

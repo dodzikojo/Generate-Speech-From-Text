@@ -88,15 +88,15 @@
                         <Grid ColumnSpacing="16">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <StackPanel Spacing="1">
-                                <TextBlock x:Name="ChapterCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock x:Name="ChapterCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="16" />
                                 <TextBlock Text="CHAPTERS" Style="{StaticResource UtilityLabelTextStyle}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Spacing="1">
-                                <TextBlock x:Name="SegmentCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock x:Name="SegmentCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="16" />
                                 <TextBlock Text="SEGMENTS" Style="{StaticResource UtilityLabelTextStyle}" />
                             </StackPanel>
                             <StackPanel Grid.Column="2" Spacing="1">
-                                <TextBlock x:Name="ApprovedCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="18" />
+                                <TextBlock x:Name="ApprovedCountText" Text="0" FontFamily="{StaticResource UtilityFont}" FontSize="16" />
                                 <TextBlock Text="APPROVED" Style="{StaticResource UtilityLabelTextStyle}" />
                             </StackPanel>
                         </Grid>
@@ -215,8 +215,10 @@
                         </InfoBar.Content>
                     </InfoBar>
                     <RichEditBox x:Name="ScriptTextBox" Grid.Row="2" Margin="0,8" TextWrapping="Wrap"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="18"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="15"
                                  FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
+                                 PointerEntered="ScriptTextBox_PointerStateChanged" PointerExited="ScriptTextBox_PointerStateChanged"
+                                 GotFocus="ScriptTextBox_FocusStateChanged" LostFocus="ScriptTextBox_FocusStateChanged"
                                  Background="{ThemeResource BaseBrush}" Foreground="{ThemeResource ReadingTextBrush}"
                                  BorderBrush="{ThemeResource DividerBrush}"
                                  ClipboardCopyFormat="PlainText" IsSpellCheckEnabled="True"
