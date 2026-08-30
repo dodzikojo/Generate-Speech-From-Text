@@ -10,7 +10,11 @@ public sealed class FileProjectRepository(
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly ProjectDocumentMigrator _migrator = new(
-        [new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
+        [
+            new OneToTwoProjectDocumentMigration(),
+            new TwoToThreeProjectDocumentMigration(),
+            new ThreeToFourProjectDocumentMigration(),
+        ]);
     private readonly IAtomicFileCommitter _committer = committer ?? new AtomicFileCommitter();
 
     public async Task<VoiceBenchProjectDocument> CreateAsync(
@@ -346,6 +350,20 @@ public sealed class FileProjectRepository(
                 if (!string.IsNullOrWhiteSpace(render.SubmittedTextRelativePath))
                 {
                     ValidateProjectPath(render.SubmittedTextRelativePath, $"Render '{render.RenderId}' submitted text");
+                }
+
+                if (!string.IsNullOrWhiteSpace(render.SubmittedTextMapRelativePath))
+                {
+                    ValidateProjectPath(render.SubmittedTextMapRelativePath, $"Render '{render.RenderId}' submitted map");
+                }
+
+                foreach (WordAlignmentRecord alignment in render.AlignmentHistory)
+                {
+                    ValidateProjectPath(alignment.AudioRelativePath, $"Alignment '{alignment.AlignmentId}' audio");
+                    if (!string.IsNullOrWhiteSpace(alignment.ArtifactRelativePath))
+                    {
+                        ValidateProjectPath(alignment.ArtifactRelativePath, $"Alignment '{alignment.AlignmentId}' artifact");
+                    }
                 }
             }
         }

@@ -186,8 +186,8 @@ public sealed class XamlContractTests
         Assert.Contains("ProductionScriptParser", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ApplyCueFormatting", codeBehind, StringComparison.Ordinal);
         Assert.Contains("text.Length == 0", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("catch (UnauthorizedAccessException)", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("_cueFormattingUnavailable", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("exception is UnauthorizedAccessException or COMException", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormattingRetryCount", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextGetOptions.None", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextSetOptions.None", codeBehind, StringComparison.Ordinal);
         Assert.Contains("bool wasEnabled = ScriptTextBox.IsEnabled", codeBehind, StringComparison.Ordinal);
@@ -406,6 +406,35 @@ public sealed class XamlContractTests
         Assert.Contains("AssemblyHandoff", workbench, StringComparison.Ordinal);
         Assert.Contains("Request pickup", workbench, StringComparison.Ordinal);
         Assert.Contains("Approve take", workbench, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Take_review_exposes_persisted_non_destructive_word_follow_controls()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string transport = File.ReadAllText(RepositoryPaths.App("Controls/AudioTransport.xaml.cs"));
+
+        Assert.Contains("x:Name=\"AlignmentStatusText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"AlignmentProgressRing\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"AlignWordsButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FollowScriptToggle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("PanelToggleButtonStyle", xaml, StringComparison.Ordinal);
+        Assert.Contains("FollowScriptSetting", workbench, StringComparison.Ordinal);
+        Assert.Contains("ApplicationData.Current.LocalSettings.Values[FollowScriptSetting]", workbench, StringComparison.Ordinal);
+        Assert.Contains("WordFollowPlaybackRules.FindActiveWord", workbench, StringComparison.Ordinal);
+        Assert.Contains("word.AuthoringStart", workbench, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = true", workbench, StringComparison.Ordinal);
+        Assert.Contains("EndFollowSession", workbench, StringComparison.Ordinal);
+        Assert.Contains("_updatingPlaybackSelection", workbench, StringComparison.Ordinal);
+        int positionHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
+        int stateHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackStateChanged", StringComparison.Ordinal);
+        Assert.True(positionHandlerStart >= 0 && stateHandlerStart > positionHandlerStart);
+        Assert.DoesNotContain("QueueCueFormatting", workbench[positionHandlerStart..stateHandlerStart], StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromMilliseconds(50)", transport, StringComparison.Ordinal);
+        Assert.Contains("PlaybackPositionChanged", transport, StringComparison.Ordinal);
+        Assert.Contains("PlaybackStateChanged", transport, StringComparison.Ordinal);
+        Assert.Contains("UpdatePositionUi(requested)", transport, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -694,6 +723,47 @@ public sealed class XamlContractTests
         Assert.DoesNotContain("GenerateAppxPackageOnBuild", propertyNames);
         Assert.DoesNotContain("Configuration", propertyNames);
         Assert.Contains("PublishDir", propertyNames);
+    }
+
+    [Fact]
+    public void Workbench_voice_selection_never_uses_a_control_type_name_as_a_voice()
+    {
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.DoesNotContain("VoiceComboBox.SelectedItem?.ToString()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("GetSelectedContentOrNull(VoiceComboBox)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("new ComboBoxItem { Content = content, Tag = content }", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chapter_rail_stretches_across_the_editor_and_director_rows()
+    {
+        var document = XDocument.Load(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        XElement rail = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "Border" &&
+            string.Equals((string?)element.Attribute(XamlNamespace + "Name"), "TakeRailPanel", StringComparison.Ordinal));
+
+        Assert.Equal("2", (string?)rail.Attribute("Grid.RowSpan"));
+        Assert.Equal("Stretch", (string?)rail.Attribute("VerticalAlignment"));
+    }
+
+    [Fact]
+    public void Cue_formatting_retries_after_editor_load_and_status_messages_wrap()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("Loaded=\"ScriptTextBox_Loaded\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WorkbenchInfoBarMessage\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextWrapping=\"Wrap\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MaxCueFormattingRetries", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("QueueCueFormatting(resetFailures: false)", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("_cueFormattingUnavailable = true", codeBehind, StringComparison.Ordinal);
+
+        int followStart = codeBehind.IndexOf("private void BeginFollowSession", StringComparison.Ordinal);
+        int positionStart = codeBehind.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
+        Assert.True(followStart >= 0 && positionStart > followStart);
+        Assert.Contains("ScriptTextBox.Focus(FocusState.Programmatic)", codeBehind[followStart..positionStart], StringComparison.Ordinal);
     }
 
 }

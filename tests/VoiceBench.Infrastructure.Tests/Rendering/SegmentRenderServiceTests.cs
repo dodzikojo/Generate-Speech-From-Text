@@ -72,6 +72,7 @@ public sealed class SegmentRenderServiceTests
             Path.Combine(directory.Root, "07-reports", "render-queue.json"),
             new FixedTimeProvider(),
             () => Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
+        var alignments = new RecordingWordAlignmentService();
         var service = new SegmentRenderService(
             repository,
             new SpeechProviderRegistry([provider]),
@@ -79,7 +80,8 @@ public sealed class SegmentRenderServiceTests
             queue,
             new ImmutableRenderStore(),
             new FixedTimeProvider(),
-            () => Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"));
+            () => Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            alignments);
 
         var result = await service.RenderAsync(directory.Root, segment.SegmentId);
 
@@ -96,6 +98,9 @@ public sealed class SegmentRenderServiceTests
         Assert.Equal(result.RenderCopyRelativePath, result.Render.SubmittedTextRelativePath);
         Assert.NotNull(result.Render.CleanSourceRelativePath);
         Assert.NotNull(result.Render.AuthoringSourceRelativePath);
+        Assert.NotNull(result.Render.SubmittedTextMapRelativePath);
+        Assert.StartsWith("04-generated-audio/segments/introduction/", result.Render.SubmittedTextMapRelativePath, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(directory.Root, result.Render.SubmittedTextMapRelativePath!)));
         Assert.Equal(
             "ClashWise keeps BIM coordination clear.",
             await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.CleanSourceRelativePath!)));
@@ -111,6 +116,9 @@ public sealed class SegmentRenderServiceTests
         Assert.Equal(RenderStatus.Generated, Assert.Single(rendered.RenderHistory).Status);
         Assert.Equal("dddddddd-dddd-dddd-dddd-dddddddddddd", result.Render.RenderId.ToString());
         Assert.Equal(RenderJobStatus.Completed, Assert.Single(await queue.GetJobsAsync()).Status);
+        Assert.Equal(segment.SegmentId, alignments.Call?.SegmentId);
+        Assert.Equal(result.Render.RenderId, alignments.Call?.RenderId);
+        Assert.Equal(WordAlignmentStatus.Partial, result.Alignment?.Status);
     }
 
     [Fact]
@@ -279,5 +287,28 @@ public sealed class SegmentRenderServiceTests
 
         public Task DeleteAsync(string providerId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class RecordingWordAlignmentService : IWordAlignmentService
+    {
+        public (string SegmentId, Guid RenderId)? Call { get; private set; }
+
+        public Task<WordAlignmentRecord> AlignAsync(
+            string projectRoot,
+            string segmentId,
+            Guid renderId,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.True(Directory.EnumerateFiles(projectRoot, "*.wav", SearchOption.AllDirectories).Any());
+            Call = (segmentId, renderId);
+            return Task.FromResult(new WordAlignmentRecord
+            {
+                Status = WordAlignmentStatus.Partial,
+                Coverage = 0.5,
+            });
+        }
+
+        public Task<int> RecoverInterruptedAsync(string projectRoot, CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 }

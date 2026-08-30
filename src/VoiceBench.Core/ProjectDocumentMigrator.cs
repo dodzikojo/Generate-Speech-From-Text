@@ -164,6 +164,30 @@ public sealed class TwoToThreeProjectDocumentMigration : IProjectDocumentMigrati
     }
 }
 
+public sealed class ThreeToFourProjectDocumentMigration : IProjectDocumentMigration
+{
+    public int FromSchemaVersion => 3;
+
+    public int ToSchemaVersion => 4;
+
+    public JsonObject Migrate(JsonObject source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        JsonObject result = (JsonObject)source.DeepClone();
+        JsonArray segments = result["segments"] as JsonArray ?? [];
+        foreach (JsonObject segment in segments.OfType<JsonObject>())
+        {
+            JsonArray renders = segment["renderHistory"] as JsonArray ?? [];
+            foreach (JsonObject render in renders.OfType<JsonObject>())
+            {
+                render["alignmentHistory"] ??= new JsonArray();
+            }
+        }
+
+        return result;
+    }
+}
+
 public static class ProjectJson
 {
     public static JsonSerializerOptions SerializerOptions { get; } = CreateOptions();

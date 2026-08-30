@@ -39,7 +39,8 @@ public sealed record ParsedScriptDocument(
     string NarrationText,
     IReadOnlyList<ProductionCue> Cues,
     IReadOnlyList<ScriptDocumentDiagnostic> Diagnostics,
-    int NarrationWordCount)
+    int NarrationWordCount,
+    IReadOnlyList<NarrationWord> NarrationWords)
 {
     public bool HasErrors => Diagnostics.Any(item => item.Severity == ScriptDocumentDiagnosticSeverity.Error);
 }
@@ -50,24 +51,26 @@ public sealed partial class ProductionScriptParser
     {
         ArgumentNullException.ThrowIfNull(authoringText);
 
-        string normalized = authoringText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        string[] lines = normalized.Split('\n');
-        List<string> narrationLines = [];
+        IReadOnlyList<SourceLine> lines = ReadLines(authoringText);
+        List<NarrationSourceLine> narrationLines = [];
         List<ProductionCue> cues = [];
         List<ScriptDocumentDiagnostic> diagnostics = [];
-        int sourceStart = 0;
         int narrationWords = 0;
 
-        for (int index = 0; index < lines.Length; index++)
+        for (int index = 0; index < lines.Count; index++)
         {
-            string line = lines[index];
+            SourceLine sourceLine = lines[index];
+            string line = sourceLine.Text;
             string trimmed = line.TrimStart();
             int lineNumber = index + 1;
 
             if (trimmed.StartsWith("\\@", StringComparison.Ordinal))
             {
                 string narrationLine = line.Remove(line.Length - trimmed.Length, 1);
-                narrationLines.Add(narrationLine);
+                narrationLines.Add(new NarrationSourceLine(
+                    narrationLine,
+                    sourceLine.Start,
+                    line.Length - trimmed.Length));
                 narrationWords += CountWords(narrationLine);
             }
             else if (TryParseCue(line, out string? type, out string? content))
@@ -87,7 +90,7 @@ public sealed partial class ProductionScriptParser
                         type,
                         content.Trim(),
                         lineNumber,
-                        sourceStart,
+                        sourceLine.Start,
                         line.Length,
                         narrationWords));
                 }
@@ -98,20 +101,20 @@ public sealed partial class ProductionScriptParser
             }
             else
             {
-                narrationLines.Add(line);
+                narrationLines.Add(new NarrationSourceLine(line, sourceLine.Start, null));
                 narrationWords += CountWords(line);
             }
 
-            sourceStart += line.Length + 1;
         }
 
-        string narration = NormalizeNarration(narrationLines);
+        (string narration, IReadOnlyList<NarrationWord> words) = NormalizeNarration(narrationLines);
         return new ParsedScriptDocument(
             authoringText,
             narration,
             cues,
             diagnostics,
-            CountWords(narration));
+            words.Count,
+            words);
     }
 
     public static bool IsCueLine(string line) =>
@@ -181,26 +184,73 @@ public sealed partial class ProductionScriptParser
         _ => ProductionCueKind.Custom,
     };
 
-    private static string NormalizeNarration(IEnumerable<string> lines)
+    private static (string Text, IReadOnlyList<NarrationWord> Words) NormalizeNarration(
+        IEnumerable<NarrationSourceLine> lines)
     {
-        List<string> normalized = [];
+        StringBuilder normalized = new();
+        List<NarrationWord> words = [];
         bool pendingBlank = false;
-        foreach (string line in lines)
+        bool hasLine = false;
+        foreach (NarrationSourceLine sourceLine in lines)
         {
-            string trimmedEnd = line.TrimEnd();
+            string trimmedEnd = sourceLine.Text.TrimEnd();
             if (string.IsNullOrWhiteSpace(trimmedEnd))
             {
-                if (normalized.Count > 0) pendingBlank = true;
+                if (hasLine) pendingBlank = true;
                 continue;
             }
 
-            if (pendingBlank && normalized.Count > 0) normalized.Add(string.Empty);
-            normalized.Add(trimmedEnd);
+            if (hasLine)
+            {
+                normalized.Append(pendingBlank ? "\n\n" : "\n");
+            }
+
+            int narrationLineStart = normalized.Length;
+            normalized.Append(trimmedEnd);
+            foreach (Match match in WordPattern().Matches(trimmedEnd))
+            {
+                int authoringStart = sourceLine.SourceStart + match.Index;
+                if (sourceLine.EscapeMarkerIndex is int markerIndex && match.Index >= markerIndex)
+                {
+                    authoringStart++;
+                }
+
+                words.Add(new NarrationWord(
+                    words.Count,
+                    match.Value,
+                    WordTextNormalizer.Normalize(match.Value),
+                    narrationLineStart + match.Index,
+                    match.Length,
+                    authoringStart,
+                    match.Length));
+            }
+
+            hasLine = true;
             pendingBlank = false;
         }
 
-        return string.Join('\n', normalized);
+        return (normalized.ToString(), words);
     }
+
+    private static IReadOnlyList<SourceLine> ReadLines(string source)
+    {
+        List<SourceLine> lines = [];
+        int start = 0;
+        for (int index = 0; index < source.Length; index++)
+        {
+            if (source[index] is not ('\r' or '\n')) continue;
+            lines.Add(new SourceLine(source[start..index], start));
+            if (source[index] == '\r' && index + 1 < source.Length && source[index + 1] == '\n') index++;
+            start = index + 1;
+        }
+
+        lines.Add(new SourceLine(source[start..], start));
+        return lines;
+    }
+
+    private sealed record SourceLine(string Text, int Start);
+
+    private sealed record NarrationSourceLine(string Text, int SourceStart, int? EscapeMarkerIndex);
 
     [GeneratedRegex(@"^\s*@(?<type>[a-z][a-z0-9]*(?:-[a-z0-9]+)*):[ \t]*(?<content>.*)$", RegexOptions.CultureInvariant)]
     private static partial Regex CuePattern();
@@ -214,6 +264,6 @@ public sealed partial class ProductionScriptParser
     [GeneratedRegex(@"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant)]
     private static partial Regex ValidTypePattern();
 
-    [GeneratedRegex(@"\b[\p{L}\p{N}_]+(?:[’'-][\p{L}\p{N}_]+)*\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\p{L}\p{N}_])(?:\p{N}+(?:[.,]\p{N}+)*|[\p{L}\p{N}_]+(?:[’'-][\p{L}\p{N}_]+)*)(?![\p{L}\p{N}_])", RegexOptions.CultureInvariant)]
     private static partial Regex WordPattern();
 }

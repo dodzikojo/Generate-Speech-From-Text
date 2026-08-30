@@ -95,4 +95,41 @@ public sealed class ProductionScriptParserTests
         Assert.Equal("First paragraph.\n\nSecond paragraph.", parsed.NarrationText);
         Assert.Equal(2, parsed.Cues.Count);
     }
+
+    [Fact]
+    public void Parse_maps_narration_words_to_authoring_ranges_while_skipping_cues()
+    {
+        const string source = "@visual: Show the panel.\r\nHello, world.\r\n@note: Pause here.\r\nNext line.";
+
+        ParsedScriptDocument parsed = parser.Parse(source);
+
+        Assert.Equal(["Hello", "world", "Next", "line"], parsed.NarrationWords.Select(word => word.Text));
+        foreach (NarrationWord word in parsed.NarrationWords)
+        {
+            Assert.Equal(word.Text, source.Substring(word.AuthoringStart, word.AuthoringLength));
+            Assert.Equal(word.Text, parsed.NarrationText.Substring(word.NarrationStart, word.NarrationLength));
+        }
+    }
+
+    [Fact]
+    public void Parse_maps_escaped_literal_after_the_escape_marker()
+    {
+        const string source = "  \\@visual: Say this.";
+
+        ParsedScriptDocument parsed = parser.Parse(source);
+
+        NarrationWord visual = parsed.NarrationWords[0];
+        Assert.Equal("visual", visual.Text);
+        Assert.Equal("visual", source.Substring(visual.AuthoringStart, visual.AuthoringLength));
+        Assert.Equal(source.IndexOf("visual", StringComparison.Ordinal), visual.AuthoringStart);
+    }
+
+    [Fact]
+    public void Parse_keeps_grouped_and_decimal_numbers_as_single_narration_words()
+    {
+        ParsedScriptDocument parsed = parser.Parse("Review 1,000 items at 3.5 metres.");
+
+        Assert.Contains(parsed.NarrationWords, word => word.Text == "1,000" && word.Normalized == "1000");
+        Assert.Contains(parsed.NarrationWords, word => word.Text == "3.5" && word.Normalized == "3.5");
+    }
 }

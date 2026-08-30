@@ -2,7 +2,7 @@ namespace IssueLab.VoiceBench.Core;
 
 public sealed record VoiceBenchProjectDocument
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -132,6 +132,10 @@ public sealed record RenderRecord
     public string? AuthoringSourceRelativePath { get; init; }
 
     public string? SubmittedTextRelativePath { get; init; }
+
+    public string? SubmittedTextMapRelativePath { get; init; }
+
+    public List<WordAlignmentRecord> AlignmentHistory { get; init; } = [];
 }
 
 public sealed record VoicePreset

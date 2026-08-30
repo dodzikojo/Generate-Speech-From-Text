@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using IssueLab.VoiceBench.App.Controls;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
@@ -24,6 +26,8 @@ public sealed partial class WorkbenchView : UserControl
     private const string ChapterRailVisibilitySetting = "Workbench.ShowChapterRail";
     private const string DirectorVisibilitySetting = "Workbench.ShowDirector";
     private const string TakeReviewVisibilitySetting = "Workbench.ShowTakeReview";
+    private const string FollowScriptSetting = "Workbench.FollowScript";
+    private const int MaxCueFormattingRetries = 4;
 
     private VoiceBenchProjectDocument? _project;
     private SegmentDocument? _segment;
@@ -34,6 +38,7 @@ public sealed partial class WorkbenchView : UserControl
     private bool _isDirty;
     private bool _externalOverwriteApproved;
     private CancellationTokenSource? _renderCancellation;
+    private CancellationTokenSource? _alignmentCancellation;
     private WritingProposal? _pendingWritingProposal;
     private WritingAction _pendingWritingAction;
     private string? _pendingWritingProviderId;
@@ -44,14 +49,25 @@ public sealed partial class WorkbenchView : UserControl
     private string? _monitoredProjectRoot;
     private int _scriptChangeVersion;
     private int _projectChangeVersion;
+    private int _transportLoadVersion;
     private bool _suppressProjectChangedReload;
     private string _lastEditorText = string.Empty;
     private DispatcherQueueTimer? _cueFormatTimer;
     private DispatcherQueueTimer? _editorHistoryTimer;
     private bool _ignoreCueToggle;
-    private bool _cueFormattingUnavailable;
+    private int _cueFormattingRetryCount;
     private bool _writingActionInProgress;
     private bool _authoringHistoryOperationInProgress;
+    private bool _updatingPlaybackSelection;
+    private bool _followSessionActive;
+    private int _activeFollowWordOrdinal = -1;
+    private string? _alignmentRecoveryRoot;
+    private WordAlignmentDocument? _activeWordAlignment;
+    private WordAlignmentRecord? _activeAlignmentRecord;
+    private RenderRecord? _activeAlignmentRender;
+    private FollowEditorSnapshot? _followEditorSnapshot;
+    private IReadOnlyList<NarrationWord>? _followNarrationWords;
+    private int _followEditorTextLength;
     private readonly List<EditorHistorySnapshot> _editorUndoHistory = [];
     private readonly List<EditorHistorySnapshot> _editorRedoHistory = [];
     private EditorHistorySnapshot? _pendingEditorUndo;
@@ -74,6 +90,12 @@ public sealed partial class WorkbenchView : UserControl
 
     private sealed record EditorHistorySnapshot(string Text, int SelectionStart, int SelectionEnd);
 
+    private sealed record FollowEditorSnapshot(
+        int SelectionStart,
+        int SelectionEnd,
+        bool WasReadOnly,
+        bool WasFocused);
+
     public WorkbenchView()
     {
         InitializeComponent();
@@ -88,7 +110,11 @@ public sealed partial class WorkbenchView : UserControl
         ScriptTextBox.Document.UndoLimit = 0;
         LoadWorkspacePanelPreferences();
         LoadEditorFontSizePreference();
+        LoadFollowScriptPreference();
         EditorFontSizeSlider.ValueChanged += EditorFontSizeSlider_ValueChanged;
+        TakeTransport.PlaybackStarted += (_, _) => BeginFollowSession();
+        TakeTransport.PlaybackPositionChanged += TakeTransport_PlaybackPositionChanged;
+        TakeTransport.PlaybackStateChanged += TakeTransport_PlaybackStateChanged;
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
         PopulateWritingProviders();
@@ -104,7 +130,7 @@ public sealed partial class WorkbenchView : UserControl
             this,
             width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
             false);
-        WorkbenchInfoBar.Width = Math.Max(280, Math.Min(720, width - (width >= 860 ? 40 : 24)));
+        WorkbenchInfoBar.Width = Math.Max(280, Math.Min(560, width - (width >= 860 ? 40 : 24)));
         WorkbenchInfoBar.Margin = width >= 860
             ? new Thickness(20, 76, 20, 0)
             : new Thickness(12, 118, 12, 0);
@@ -161,6 +187,12 @@ public sealed partial class WorkbenchView : UserControl
         if (persist)
             ApplicationData.Current.LocalSettings.Values[EditorFontSizeSetting] = fontSize;
         QueueCueFormatting();
+    }
+
+    private void LoadFollowScriptPreference()
+    {
+        object? value = ApplicationData.Current.LocalSettings.Values[FollowScriptSetting];
+        FollowScriptToggle.IsChecked = value is not bool enabled || enabled;
     }
 
     private void ApplyWorkspacePanelLayout(double width, double height)
@@ -226,15 +258,17 @@ public sealed partial class WorkbenchView : UserControl
         SpeechProviderDescriptor provider = App.Services.SpeechProviders.Single(item =>
             item.Descriptor.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase)).Descriptor;
         SpeechModelDescriptor model = provider.Models.Single(item => item.ModelId == modelId);
-        string? currentVoice = preferredVoice ??
-            ((VoiceComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? VoiceComboBox.SelectedItem?.ToString());
+        string? currentVoice = preferredVoice ?? GetSelectedContentOrNull(VoiceComboBox);
         VoiceComboBox.Items.Clear();
         foreach (string voice in model.Voices)
         {
             VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice, Tag = voice });
         }
 
-        SetSelectedContent(VoiceComboBox, currentVoice ?? model.Voices[0]);
+        string selectedVoice = currentVoice is not null && model.Voices.Contains(currentVoice, StringComparer.OrdinalIgnoreCase)
+            ? currentVoice
+            : model.Voices[0];
+        SetSelectedContent(VoiceComboBox, selectedVoice);
     }
 
     private void PopulateWritingProviders()
@@ -276,6 +310,10 @@ public sealed partial class WorkbenchView : UserControl
 
     private void WorkbenchView_Unloaded(object sender, RoutedEventArgs e)
     {
+        EndFollowSession();
+        _alignmentCancellation?.Cancel();
+        _alignmentCancellation?.Dispose();
+        _alignmentCancellation = null;
         _cueFormatTimer?.Stop();
         _editorHistoryTimer?.Stop();
         DisposeScriptFileMonitor();
@@ -304,6 +342,8 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (!App.Services.Session.HasProject)
         {
+            _alignmentRecoveryRoot = null;
+            EndFollowSession();
             DisposeScriptFileMonitor();
             _project = null;
             _segment = null;
@@ -317,6 +357,13 @@ public sealed partial class WorkbenchView : UserControl
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
             await RefreshAuthoringHistoryAsync();
             return;
+        }
+
+        string projectRoot = App.Services.Session.RequireProjectRoot();
+        if (!string.Equals(_alignmentRecoveryRoot, projectRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            _alignmentRecoveryRoot = projectRoot;
+            await App.Services.RecoverWordAlignmentsAsync();
         }
 
         _project = App.Services.Session.RequireProject();
@@ -635,6 +682,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private async Task LoadSegmentAsync(string segmentId)
     {
+        EndFollowSession();
         VoiceBenchProjectDocument project = _project ?? App.Services.Session.RequireProject();
         int index = project.Segments.FindIndex(item => item.SegmentId == segmentId);
         if (index < 0) return;
@@ -2049,14 +2097,15 @@ public sealed partial class WorkbenchView : UserControl
         _lastEditorText = currentText;
         CaptureEditorSelection();
         _isDirty = !string.Equals(currentText, _loadedText, StringComparison.Ordinal);
-        UpdateEditorStats();
+        ParsedScriptDocument parsed = UpdateEditorStats();
         UpdateUndoRedoState();
         QueueCueFormatting();
+        UpdateFollowEligibility(parsed);
     }
 
     private void ScriptTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
-        if (!_ignoreTextChanges) CaptureEditorSelection();
+        if (!_ignoreTextChanges && !_updatingPlaybackSelection) CaptureEditorSelection();
     }
 
     private void CaptureEditorSelection()
@@ -2132,6 +2181,9 @@ public sealed partial class WorkbenchView : UserControl
         QueueCueFormatting();
 
     private void ScriptTextBox_FocusStateChanged(object sender, RoutedEventArgs e) =>
+        QueueCueFormatting();
+
+    private void ScriptTextBox_Loaded(object sender, RoutedEventArgs e) =>
         QueueCueFormatting();
 
     private async void Save_Click(object sender, RoutedEventArgs e)
@@ -2570,12 +2622,26 @@ public sealed partial class WorkbenchView : UserControl
             _project = renderProject;
             _segment = segments[index];
             await App.Services.Session.SaveAsync(renderProject);
-            ShowStatus(InfoBarSeverity.Informational, "Rendering segment", "VoiceBench is submitting the exact provider, model, voice, and direction you selected.");
+            ShowStatus(
+                InfoBarSeverity.Informational,
+                "Rendering audio, then aligning words",
+                "VoiceBench will save the take first, then request word timestamps from the same provider. Alignment cannot invalidate the audio.");
             _renderCancellation = new CancellationTokenSource();
             SetRenderQueueBusy(true);
             SegmentRenderResult result = await App.Services.RenderSegmentAsync(_segment.SegmentId, _renderCancellation.Token);
             string guidance = result.ExceedsFourMinuteGuidance ? " The estimated duration exceeds four minutes; split it before the next take." : string.Empty;
-            ShowStatus(InfoBarSeverity.Success, $"Take {result.Render.TakeNumber:00} rendered", $"Immutable raw audio was saved at {result.Render.RawAudioRelativePath}.{guidance}");
+            string alignment = result.Alignment switch
+            {
+                { Status: WordAlignmentStatus.Aligned } complete => $" Word follow is ready ({complete.Coverage:P0}).",
+                { Status: WordAlignmentStatus.Partial } partial => $" Partial word follow is ready ({partial.Coverage:P0}).",
+                { Status: WordAlignmentStatus.Failed or WordAlignmentStatus.Interrupted } => " Audio is ready; word alignment can be retried from Take Review.",
+                { Status: WordAlignmentStatus.Unsupported } => " Audio is ready; this provider does not support word alignment.",
+                _ => string.Empty,
+            };
+            ShowStatus(
+                InfoBarSeverity.Success,
+                $"Take {result.Render.TakeNumber:00} rendered",
+                $"Immutable raw audio was saved at {result.Render.RawAudioRelativePath}.{alignment}{guidance}");
         }
         catch (OperationCanceledException)
         {
@@ -2743,7 +2809,7 @@ public sealed partial class WorkbenchView : UserControl
         foreach (RenderRecord render in segment.RenderHistory.OrderByDescending(item => item.TakeNumber))
             TakeSelector.Items.Add(new ComboBoxItem { Content = $"Take {render.TakeNumber:00}", Tag = render.RenderId });
         TakeSelector.SelectedIndex = TakeSelector.Items.Count > 0 ? 0 : -1;
-        UpdateTransport();
+        _ = UpdateTransportAsync();
     }
 
     private void ResetTakeReviewContext()
@@ -2755,24 +2821,128 @@ public sealed partial class WorkbenchView : UserControl
         PreviousTakeButton.IsEnabled = false;
         PickupButton.IsEnabled = false;
         ApproveButton.IsEnabled = false;
+        AlignmentProgressRing.IsActive = false;
+        AlignmentProgressRing.Visibility = Visibility.Collapsed;
+        AlignmentStatusText.Text = "WORDS NOT ALIGNED";
+        AlignWordsButton.Visibility = Visibility.Collapsed;
+        AlignWordsButton.IsEnabled = false;
+        FollowScriptToggle.IsEnabled = false;
+        _activeWordAlignment = null;
+        _activeAlignmentRecord = null;
+        _activeAlignmentRender = null;
     }
 
-    private void TakeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateTransport();
-
-    private void UpdateTransport()
+    private async void TakeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        EndFollowSession();
+        await UpdateTransportAsync();
+    }
+
+    private async Task UpdateTransportAsync()
+    {
+        EndFollowSession();
+        int loadVersion = Interlocked.Increment(ref _transportLoadVersion);
+        _activeWordAlignment = null;
+        _activeAlignmentRecord = null;
+        _activeAlignmentRender = null;
         RenderRecord? render = GetSelectedRender();
         bool hasTake = render is not null;
         PreviousTakeButton.IsEnabled = TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1;
         PickupButton.IsEnabled = hasTake;
         ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated;
+        AlignmentProgressRing.IsActive = false;
+        AlignmentProgressRing.Visibility = Visibility.Collapsed;
+        AlignWordsButton.IsEnabled = hasTake;
+        FollowScriptToggle.IsEnabled = false;
         if (render is null)
         {
+            AlignmentStatusText.Text = "WORDS NOT ALIGNED";
+            AlignWordsButton.Visibility = Visibility.Collapsed;
             TakeTransport.ClearAudio("NO TAKE SELECTED");
             return;
         }
 
-        string relativePath = render.ProcessedAudioRelativePath ?? render.RawAudioRelativePath;
+        WordAlignmentRecord? latestAttempt = render.AlignmentHistory.LastOrDefault();
+        WordAlignmentRecord? activeAttempt = render.AlignmentHistory.LastOrDefault(item =>
+            item.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial
+            && !string.IsNullOrWhiteSpace(item.ArtifactRelativePath));
+        if (activeAttempt is not null)
+        {
+            try
+            {
+                WordAlignmentDocument alignment = await App.Services.LoadWordAlignmentAsync(activeAttempt);
+                if (loadVersion != _transportLoadVersion) return;
+                if (alignment.RenderId != render.RenderId
+                    || !string.Equals(alignment.AudioSha256, activeAttempt.AudioSha256, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(alignment.SourceSha256, render.SourceSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("The word-alignment artifact does not match this take.");
+                }
+
+                _activeWordAlignment = alignment;
+                _activeAlignmentRecord = activeAttempt;
+                _activeAlignmentRender = render;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+            {
+                if (loadVersion != _transportLoadVersion) return;
+                AlignmentStatusText.Text = "ALIGNMENT FILE UNAVAILABLE";
+                AlignWordsButton.Content = "Retry alignment";
+                AlignWordsButton.Visibility = Visibility.Visible;
+            }
+        }
+
+        if (_activeWordAlignment is not null && _activeAlignmentRecord is not null)
+        {
+            AlignmentStatusText.Text = _activeAlignmentRecord.Status == WordAlignmentStatus.Aligned
+                ? $"WORD FOLLOW READY  ·  {_activeAlignmentRecord.Coverage:P0}"
+                : $"PARTIAL WORD FOLLOW  ·  {_activeAlignmentRecord.Coverage:P0}";
+            AlignWordsButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            switch (latestAttempt?.Status)
+            {
+                case WordAlignmentStatus.Pending:
+                    AlignmentStatusText.Text = "ALIGNING WORDS";
+                    AlignmentProgressRing.Visibility = Visibility.Visible;
+                    AlignmentProgressRing.IsActive = true;
+                    AlignWordsButton.Visibility = Visibility.Collapsed;
+                    break;
+                case WordAlignmentStatus.Failed:
+                    AlignmentStatusText.Text = latestAttempt.FailureCode == "alignment_cancelled"
+                        ? "ALIGNMENT CANCELLED"
+                        : "ALIGNMENT FAILED";
+                    AlignWordsButton.Content = "Retry alignment";
+                    AlignWordsButton.Visibility = Visibility.Visible;
+                    break;
+                case WordAlignmentStatus.Interrupted:
+                    AlignmentStatusText.Text = "ALIGNMENT INTERRUPTED";
+                    AlignWordsButton.Content = "Retry alignment";
+                    AlignWordsButton.Visibility = Visibility.Visible;
+                    break;
+                case WordAlignmentStatus.Unsupported:
+                    AlignmentStatusText.Text = "WORD FOLLOW UNSUPPORTED";
+                    AlignWordsButton.Visibility = Visibility.Collapsed;
+                    break;
+                case WordAlignmentStatus.Aligned:
+                case WordAlignmentStatus.Partial:
+                    AlignmentStatusText.Text = "ALIGNMENT FILE UNAVAILABLE";
+                    AlignWordsButton.Content = "Retry alignment";
+                    AlignWordsButton.Visibility = Visibility.Visible;
+                    break;
+                default:
+                    AlignmentStatusText.Text = "WORDS NOT ALIGNED";
+                    AlignWordsButton.Content = "Align words";
+                    AlignWordsButton.Visibility = Visibility.Visible;
+                    break;
+            }
+        }
+
+        UpdateFollowEligibility();
+        string relativePath = _activeAlignmentRecord?.AudioRelativePath
+            ?? render.ProcessedAudioRelativePath
+            ?? render.RawAudioRelativePath;
         string path = App.Services.Session.ResolveProjectPath(relativePath);
         if (File.Exists(path))
         {
@@ -2781,6 +2951,243 @@ public sealed partial class WorkbenchView : UserControl
         else
         {
             TakeTransport.ClearAudio("TAKE AUDIO MISSING");
+        }
+    }
+
+    private async void AlignWords_Click(object sender, RoutedEventArgs e)
+    {
+        if (_alignmentCancellation is not null)
+        {
+            _alignmentCancellation.Cancel();
+            AlignmentStatusText.Text = "CANCELLING ALIGNMENT";
+            AlignWordsButton.IsEnabled = false;
+            return;
+        }
+
+        if (_segment is null || GetSelectedRender() is not RenderRecord render) return;
+        string segmentId = _segment.SegmentId;
+
+        try
+        {
+            EndFollowSession();
+            _alignmentCancellation = new CancellationTokenSource();
+            AlignWordsButton.Content = "Cancel alignment";
+            AlignWordsButton.IsEnabled = true;
+            AlignmentProgressRing.Visibility = Visibility.Visible;
+            AlignmentProgressRing.IsActive = true;
+            AlignmentStatusText.Text = "ALIGNING WORDS";
+            ShowStatus(
+                InfoBarSeverity.Informational,
+                "Aligning spoken words",
+                $"VoiceBench is transcribing Take {render.TakeNumber:00} with its original provider. The take remains playable if alignment fails.");
+
+            WordAlignmentRecord result = await App.Services.AlignTakeAsync(
+                segmentId,
+                render.RenderId,
+                _alignmentCancellation.Token);
+            string message = result.Status switch
+            {
+                WordAlignmentStatus.Aligned => $"Word follow is ready for {result.MatchedWordCount} of {result.TotalWordCount} words ({result.Coverage:P0}).",
+                WordAlignmentStatus.Partial => $"Partial word follow mapped {result.MatchedWordCount} of {result.TotalWordCount} words ({result.Coverage:P0}); uncertain gaps remain unselected.",
+                WordAlignmentStatus.Unsupported => "This take's provider does not support word alignment. The audio is unchanged.",
+                WordAlignmentStatus.Failed when result.FailureCode == "provider_credentials" => "The take is unchanged. Open Settings, add the original provider key, and retry alignment.",
+                WordAlignmentStatus.Failed when result.FailureCode == "provider_authentication" => "The original provider rejected its saved key. Replace it in Settings and retry alignment.",
+                WordAlignmentStatus.Failed when result.FailureCode == "provider_ratelimited" => "The original provider rate-limited transcription after bounded retries. Try again later.",
+                WordAlignmentStatus.Failed when result.FailureCode == "provider_policy" => "The original provider rejected transcription under its content policy. The take is unchanged.",
+                WordAlignmentStatus.Failed when result.FailureCode == "alignment_no_matches" => "No words could be matched reliably. Play the take to verify it, then retry or rerender it.",
+                _ => "The audio is ready, but word alignment did not produce a usable map. You can retry without rerendering.",
+            };
+            ShowStatus(
+                result.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial
+                    ? InfoBarSeverity.Success
+                    : InfoBarSeverity.Warning,
+                result.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial
+                    ? "Word alignment complete"
+                    : "Word alignment unavailable",
+                message);
+        }
+        catch (OperationCanceledException)
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Word alignment cancelled", "The take is still playable. Retry alignment whenever you are ready.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Words could not be aligned", Actionable(exception));
+        }
+        finally
+        {
+            _alignmentCancellation?.Dispose();
+            _alignmentCancellation = null;
+            AlignmentProgressRing.IsActive = false;
+            AlignmentProgressRing.Visibility = Visibility.Collapsed;
+            if (App.Services.Session.HasProject && string.Equals(_segment?.SegmentId, segmentId, StringComparison.Ordinal))
+            {
+                _project = App.Services.Session.RequireProject();
+                _segment = _project.Segments.SingleOrDefault(item => item.SegmentId == segmentId);
+                if (_segment is not null)
+                {
+                    Guid renderId = render.RenderId;
+                    PopulateTakeSelector(_segment);
+                    TakeSelector.SelectedItem = TakeSelector.Items.OfType<ComboBoxItem>()
+                        .FirstOrDefault(item => item.Tag is Guid id && id == renderId);
+                }
+            }
+        }
+    }
+
+    private void FollowScriptToggle_Click(object sender, RoutedEventArgs e)
+    {
+        bool enabled = FollowScriptToggle.IsChecked == true;
+        ApplicationData.Current.LocalSettings.Values[FollowScriptSetting] = enabled;
+        if (!enabled)
+        {
+            EndFollowSession();
+        }
+        else
+        {
+            UpdateFollowEligibility();
+        }
+    }
+
+    private void UpdateFollowEligibility(ParsedScriptDocument? parsed = null)
+    {
+        if (_activeWordAlignment is null || _activeAlignmentRender is null)
+        {
+            FollowScriptToggle.IsEnabled = false;
+            return;
+        }
+
+        ParsedScriptDocument current = parsed ?? new ProductionScriptParser().Parse(GetEditorText());
+        bool narrationCurrent = WordFollowPlaybackRules.IsNarrationCurrent(
+            _activeAlignmentRender.SourceSha256,
+            current.NarrationText);
+        FollowScriptToggle.IsEnabled = narrationCurrent;
+        if (!narrationCurrent)
+        {
+            EndFollowSession();
+            AlignmentStatusText.Text = "SCRIPT CHANGED  ·  PLAYBACK ONLY";
+            ToolTipService.SetToolTip(FollowScriptToggle, "Script changed—rerender to follow");
+        }
+        else
+        {
+            AlignmentStatusText.Text = _activeAlignmentRecord?.Status == WordAlignmentStatus.Partial
+                ? $"PARTIAL WORD FOLLOW  ·  {_activeAlignmentRecord.Coverage:P0}"
+                : $"WORD FOLLOW READY  ·  {_activeAlignmentRecord?.Coverage ?? 0:P0}";
+            ToolTipService.SetToolTip(FollowScriptToggle, "Follow spoken words in the script editor");
+        }
+    }
+
+    private void BeginFollowSession()
+    {
+        string editorText = GetEditorText();
+        ParsedScriptDocument current = new ProductionScriptParser().Parse(editorText);
+        UpdateFollowEligibility(current);
+        if (FollowScriptToggle.IsChecked != true
+            || !FollowScriptToggle.IsEnabled
+            || _activeWordAlignment is null
+            || _activeAlignmentRender is null)
+        {
+            return;
+        }
+
+        if (_followSessionActive) return;
+        ITextSelection selection = ScriptTextBox.Document.Selection;
+        _followEditorSnapshot = new FollowEditorSnapshot(
+            selection.StartPosition,
+            selection.EndPosition,
+            ScriptTextBox.IsReadOnly,
+            ScriptTextBox.FocusState != FocusState.Unfocused);
+        ScriptTextBox.IsReadOnly = true;
+        ScriptTextBox.Focus(FocusState.Programmatic);
+        _followNarrationWords = current.NarrationWords;
+        _followEditorTextLength = editorText.Length;
+        _activeFollowWordOrdinal = -1;
+        _followSessionActive = true;
+    }
+
+    private void TakeTransport_PlaybackPositionChanged(object? sender, AudioPositionChangedEventArgs e)
+    {
+        if (!_followSessionActive || _activeWordAlignment is null || _followNarrationWords is null) return;
+        WordTiming? timing = WordFollowPlaybackRules.FindActiveWord(_activeWordAlignment.Words, e.Position);
+        int ordinal = timing?.NarrationWordOrdinal ?? -1;
+        if (ordinal == _activeFollowWordOrdinal) return;
+        _activeFollowWordOrdinal = ordinal;
+
+        try
+        {
+            _updatingPlaybackSelection = true;
+            if (ordinal < 0 || ordinal >= _followNarrationWords.Count)
+            {
+                int caret = Math.Clamp(_followEditorSnapshot?.SelectionStart ?? 0, 0, _followEditorTextLength);
+                ScriptTextBox.Document.Selection.SetRange(caret, caret);
+                return;
+            }
+
+            NarrationWord word = _followNarrationWords[ordinal];
+            ScriptTextBox.Document.Selection.SetRange(
+                word.AuthoringStart,
+                word.AuthoringStart + word.AuthoringLength);
+            ScriptTextBox.Document.Selection.ScrollIntoView(PointOptions.Start);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or COMException or ArgumentException)
+        {
+            EndFollowSession();
+            ShowStatus(
+                InfoBarSeverity.Warning,
+                "Word follow paused",
+                "Playback is continuing, but the editor could not show the synchronized word. The script was not changed.");
+        }
+        finally
+        {
+            _updatingPlaybackSelection = false;
+        }
+    }
+
+    private void TakeTransport_PlaybackStateChanged(object? sender, AudioTransportStateChangedEventArgs e)
+    {
+        if (e.State is AudioTransportState.Paused or AudioTransportState.Ended
+            or AudioTransportState.Failed or AudioTransportState.Cleared)
+        {
+            EndFollowSession();
+        }
+    }
+
+    private void EndFollowSession()
+    {
+        if (!_followSessionActive)
+        {
+            _followEditorSnapshot = null;
+            _followNarrationWords = null;
+            _followEditorTextLength = 0;
+            _activeFollowWordOrdinal = -1;
+            return;
+        }
+
+        FollowEditorSnapshot? snapshot = _followEditorSnapshot;
+        _followSessionActive = false;
+        _followEditorSnapshot = null;
+        _followNarrationWords = null;
+        _followEditorTextLength = 0;
+        _activeFollowWordOrdinal = -1;
+        if (snapshot is null) return;
+
+        try
+        {
+            _updatingPlaybackSelection = true;
+            int textLength = GetEditorText().Length;
+            ScriptTextBox.Document.Selection.SetRange(
+                Math.Clamp(snapshot.SelectionStart, 0, textLength),
+                Math.Clamp(snapshot.SelectionEnd, 0, textLength));
+            ScriptTextBox.IsReadOnly = snapshot.WasReadOnly;
+            if (snapshot.WasFocused) ScriptTextBox.Focus(FocusState.Programmatic);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or COMException)
+        {
+            ScriptTextBox.IsReadOnly = snapshot.WasReadOnly;
+        }
+        finally
+        {
+            _updatingPlaybackSelection = false;
         }
     }
 
@@ -2796,7 +3203,7 @@ public sealed partial class WorkbenchView : UserControl
             TakeSelector.SelectedIndex++;
     }
 
-    private void UpdateEditorStats()
+    private ParsedScriptDocument UpdateEditorStats()
     {
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(GetEditorText());
         TimeSpan estimate = SegmentRenderService.EstimateDuration(parsed.NarrationText);
@@ -2818,6 +3225,7 @@ public sealed partial class WorkbenchView : UserControl
 
         string diagnostics = parsed.HasErrors ? $"  ·  {parsed.Diagnostics.Count} ISSUE{(parsed.Diagnostics.Count == 1 ? "" : "S")}" : string.Empty;
         SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  {timing}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}{diagnostics}";
+        return parsed;
     }
 
     private bool ValidateScriptForRender()
@@ -2862,24 +3270,32 @@ public sealed partial class WorkbenchView : UserControl
         return (start, Math.Max(0, end - start), selected);
     }
 
-    private void QueueCueFormatting()
+    private void QueueCueFormatting(bool resetFailures = true)
     {
         if (_cueFormatTimer is null) return;
+        if (resetFailures) _cueFormattingRetryCount = 0;
         _cueFormatTimer.Stop();
+        _cueFormatTimer.Interval = resetFailures
+            ? TimeSpan.FromMilliseconds(150)
+            : TimeSpan.FromMilliseconds(250 * Math.Max(1, _cueFormattingRetryCount));
         _cueFormatTimer.Start();
     }
 
     private void ApplyCueFormatting()
     {
-        if (_ignoreTextChanges || _cueFormattingUnavailable) return;
+        if (_ignoreTextChanges || _followSessionActive || !ScriptTextBox.IsLoaded || !ScriptTextBox.IsEnabled) return;
         string text = GetEditorText();
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
         ITextSelection selection = ScriptTextBox.Document.Selection;
         int selectionStart = selection.StartPosition;
         int selectionEnd = selection.EndPosition;
+        bool wasReadOnly = ScriptTextBox.IsReadOnly;
         _ignoreTextChanges = true;
         try
         {
+            // The WinUI text object model rejects display-format mutations while the
+            // RichEditBox is read-only. Unlock only for this non-content operation.
+            ScriptTextBox.IsReadOnly = false;
             ApplyEditorDefaultCharacterFormat();
             if (text.Length == 0) return;
 
@@ -2906,20 +3322,35 @@ public sealed partial class WorkbenchView : UserControl
                 format.Bold = FormatEffect.On;
                 range.CharacterFormat = format;
             }
+
+            _cueFormattingRetryCount = 0;
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception exception) when (exception is UnauthorizedAccessException or COMException)
         {
-            // Some RichEdit hosts reject TOM color mutations while the document is initializing.
-            // Highlighting is decorative; keep the plain-text editor usable and stop retrying.
-            _cueFormattingUnavailable = true;
-            ShowStatus(
-                InfoBarSeverity.Informational,
-                "Cue highlighting unavailable",
-                "Cue labels and production behavior are still active; this editor session will use plain-text styling.");
+            _cueFormattingRetryCount++;
+            if (_cueFormattingRetryCount <= MaxCueFormattingRetries)
+            {
+                QueueCueFormatting(resetFailures: false);
+            }
+            else
+            {
+                ShowStatus(
+                    InfoBarSeverity.Informational,
+                    "Cue colors unavailable",
+                    "Editing and production cues still work. Switch segments or reopen the project to retry the colors.");
+            }
         }
         finally
         {
-            ScriptTextBox.Document.Selection.SetRange(selectionStart, selectionEnd);
+            ScriptTextBox.IsReadOnly = wasReadOnly;
+            try
+            {
+                ScriptTextBox.Document.Selection.SetRange(selectionStart, selectionEnd);
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or COMException)
+            {
+                // Selection restoration is cosmetic and must never block editing.
+            }
             _ignoreTextChanges = false;
         }
     }
@@ -2995,6 +3426,15 @@ public sealed partial class WorkbenchView : UserControl
                 ?? throw new InvalidOperationException("The selected option has no identifier.")
             : throw new InvalidOperationException($"Choose {comboBox.Header?.ToString()?.ToLowerInvariant() ?? "a value"}.");
 
+    private static string? GetSelectedContentOrNull(ComboBox comboBox) =>
+        comboBox.SelectedItem switch
+        {
+            ComboBoxItem { Tag: string tag } => tag,
+            ComboBoxItem { Content: string content } => content,
+            string content => content,
+            _ => null,
+        };
+
     private static void SetSelectedContent(ComboBox comboBox, string content)
     {
         ComboBoxItem? item = comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(candidate =>
@@ -3002,7 +3442,7 @@ public sealed partial class WorkbenchView : UserControl
             string.Equals(candidate.Content?.ToString(), content, StringComparison.OrdinalIgnoreCase));
         if (item is null)
         {
-            item = new ComboBoxItem { Content = content };
+            item = new ComboBoxItem { Content = content, Tag = content };
             comboBox.Items.Add(item);
         }
         comboBox.SelectedItem = item;
@@ -3026,7 +3466,8 @@ public sealed partial class WorkbenchView : UserControl
     {
         WorkbenchInfoBar.Severity = severity;
         WorkbenchInfoBar.Title = title;
-        WorkbenchInfoBar.Message = message;
+        WorkbenchInfoBar.Message = string.Empty;
+        WorkbenchInfoBarMessage.Text = message;
         WorkbenchInfoBar.IsOpen = true;
     }
 }

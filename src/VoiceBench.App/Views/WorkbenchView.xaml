@@ -91,7 +91,8 @@
                 <ColumnDefinition x:Name="DirectorColumn" Width="350" />
             </Grid.ColumnDefinitions>
 
-            <Border x:Name="TakeRailPanel" Style="{StaticResource StudioPanelStyle}" Padding="0"
+            <Border x:Name="TakeRailPanel" Grid.RowSpan="2" Style="{StaticResource StudioPanelStyle}" Padding="0"
+                    VerticalAlignment="Stretch"
                     AutomationProperties.Name="Chapter and segment take rail">
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
@@ -272,6 +273,7 @@
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="15"
                                  FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
                                  SelectionChanged="ScriptTextBox_SelectionChanged"
+                                 Loaded="ScriptTextBox_Loaded"
                                  PointerEntered="ScriptTextBox_PointerStateChanged" PointerExited="ScriptTextBox_PointerStateChanged"
                                  GotFocus="ScriptTextBox_FocusStateChanged" LostFocus="ScriptTextBox_FocusStateChanged"
                                  Background="{ThemeResource BaseBrush}" Foreground="{ThemeResource ReadingTextBrush}"
@@ -478,6 +480,31 @@
                                FontFamily="{StaticResource ReadingFont}" FontSize="14" FontWeight="SemiBold"
                                Foreground="{ThemeResource ReadingTextBrush}" TextTrimming="CharacterEllipsis" />
                     <TextBlock x:Name="TakeReviewStatusText" Text="NO TAKES" Style="{StaticResource UtilityLabelTextStyle}" />
+                    <Grid Margin="0,4,0,0" ColumnSpacing="7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ProgressRing x:Name="AlignmentProgressRing" Width="14" Height="14"
+                                      IsActive="False" Visibility="Collapsed"
+                                      Foreground="{ThemeResource ActiveSignalBrush}" />
+                        <TextBlock x:Name="AlignmentStatusText" Grid.Column="1" Text="WORDS NOT ALIGNED"
+                                   Style="{StaticResource UtilityLabelTextStyle}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.LiveSetting="Polite" />
+                        <Button x:Name="AlignWordsButton" Grid.Column="2" Content="Align words"
+                                Style="{StaticResource QuietButtonStyle}" Padding="8,4" FontSize="12"
+                                Click="AlignWords_Click" Visibility="Collapsed"
+                                AutomationProperties.Name="Align spoken words with this take" />
+                        <ToggleButton x:Name="FollowScriptToggle" Grid.Column="3" IsChecked="True"
+                                      Style="{StaticResource PanelToggleButtonStyle}" Click="FollowScriptToggle_Click"
+                                      ToolTipService.ToolTip="Follow spoken words in the script editor"
+                                      AutomationProperties.Name="Follow script during playback">
+                            <FontIcon Glyph="&#xE8D4;" FontSize="14" />
+                        </ToggleButton>
+                    </Grid>
                 </StackPanel>
 
                 <Border x:Name="AssemblyHandoff" Grid.Column="3" VerticalAlignment="Center">
@@ -517,9 +544,14 @@
 
         <InfoBar x:Name="WorkbenchInfoBar"
                  HorizontalAlignment="Right" VerticalAlignment="Top"
-                 Width="720" MaxWidth="720" Margin="20,76,20,0"
+                 Width="560" MaxWidth="560" Margin="20,76,20,0"
                  Canvas.ZIndex="20" IsOpen="False" IsClosable="True"
-                 Severity="Informational" AutomationProperties.LiveSetting="Polite" />
+                 Severity="Informational" AutomationProperties.LiveSetting="Polite">
+            <InfoBar.Content>
+                <TextBlock x:Name="WorkbenchInfoBarMessage" MaxWidth="460"
+                           TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+            </InfoBar.Content>
+        </InfoBar>
 
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WorkbenchWidthStates">

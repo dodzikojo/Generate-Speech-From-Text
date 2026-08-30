@@ -7,11 +7,11 @@ namespace IssueLab.VoiceBench.Core.Tests;
 public sealed class ProjectDocumentTests
 {
     [Fact]
-    public void New_document_uses_schema_three_and_narration_audio_standard()
+    public void New_document_uses_schema_four_and_narration_audio_standard()
     {
         var document = new VoiceBenchProjectDocument();
 
-        Assert.Equal(3, document.SchemaVersion);
+        Assert.Equal(4, document.SchemaVersion);
         Assert.Equal(48_000, document.AudioStandard.SampleRate);
         Assert.Equal(1, document.AudioStandard.Channels);
         Assert.Equal(-16, document.AudioStandard.IntegratedLufs);
@@ -48,11 +48,16 @@ public sealed class ProjectDocumentTests
             }
             """)!.AsObject();
         var migrator = new ProjectDocumentMigrator(
-            [new ZeroToOneMigration(), new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
+            [
+                new ZeroToOneMigration(),
+                new OneToTwoProjectDocumentMigration(),
+                new TwoToThreeProjectDocumentMigration(),
+                new ThreeToFourProjectDocumentMigration(),
+            ]);
 
         var document = migrator.Deserialize(source);
 
-        Assert.Equal(3, document.SchemaVersion);
+        Assert.Equal(4, document.SchemaVersion);
         Assert.Equal("Training narration", document.Name);
         Assert.Equal(750, document.AudioStandard.PauseMilliseconds);
         Assert.Equal(0, source["schemaVersion"]!.GetValue<int>());
@@ -88,7 +93,11 @@ public sealed class ProjectDocumentTests
               }]
             }
             """)!.AsObject();
-        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
+        ProjectDocumentMigrator migrator = new([
+            new OneToTwoProjectDocumentMigration(),
+            new TwoToThreeProjectDocumentMigration(),
+            new ThreeToFourProjectDocumentMigration(),
+        ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
 
@@ -108,7 +117,11 @@ public sealed class ProjectDocumentTests
     {
         JsonObject source = JsonNode.Parse(
             """{"schemaVersion":1,"name":"Empty","segmentOrder":[],"segments":[]}""")!.AsObject();
-        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
+        ProjectDocumentMigrator migrator = new([
+            new OneToTwoProjectDocumentMigration(),
+            new TwoToThreeProjectDocumentMigration(),
+            new ThreeToFourProjectDocumentMigration(),
+        ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
 
@@ -147,7 +160,10 @@ public sealed class ProjectDocumentTests
               }]
             }
             """)!.AsObject();
-        ProjectDocumentMigrator migrator = new([new TwoToThreeProjectDocumentMigration()]);
+        ProjectDocumentMigrator migrator = new([
+            new TwoToThreeProjectDocumentMigration(),
+            new ThreeToFourProjectDocumentMigration(),
+        ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
 
@@ -157,6 +173,30 @@ public sealed class ProjectDocumentTests
         Assert.Equal("narration-hash", render.AuthoringSourceSha256);
         Assert.Equal(render.CleanSourceRelativePath, render.AuthoringSourceRelativePath);
         Assert.False(document.WritingProfile.GenerateProductionCues);
+    }
+
+    [Fact]
+    public void Schema_three_migration_initializes_empty_alignment_history_without_network_state()
+    {
+        JsonObject source = JsonNode.Parse(
+            """
+            {
+              "schemaVersion": 3,
+              "segments": [{
+                "segmentId": "intro",
+                "renderHistory": [{
+                  "renderId": "c01bfa56-135f-42c5-84c9-6b796ad0fb82",
+                  "rawAudioRelativePath": "04-generated-audio/segments/intro.raw.wav"
+                }]
+              }]
+            }
+            """)!.AsObject();
+
+        VoiceBenchProjectDocument document = new ProjectDocumentMigrator(
+            [new ThreeToFourProjectDocumentMigration()]).Deserialize(source);
+
+        Assert.Equal(4, document.SchemaVersion);
+        Assert.Empty(Assert.Single(Assert.Single(document.Segments).RenderHistory).AlignmentHistory);
     }
 
     [Fact]
