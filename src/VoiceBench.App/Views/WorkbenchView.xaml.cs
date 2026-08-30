@@ -12,6 +12,7 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace IssueLab.VoiceBench.App.Views;
 
@@ -38,7 +39,8 @@ public sealed partial class WorkbenchView : UserControl
     private ScriptFileMonitor? _scriptFileMonitor;
     private string? _monitoredProjectRoot;
     private int _scriptChangeVersion;
-    private int _cueFormatVersion;
+    private string _lastEditorText = string.Empty;
+    private DispatcherQueueTimer? _cueFormatTimer;
     private bool _ignoreCueToggle;
     private bool _cueFormattingUnavailable;
 
@@ -54,6 +56,10 @@ public sealed partial class WorkbenchView : UserControl
     public WorkbenchView()
     {
         InitializeComponent();
+        _cueFormatTimer = DispatcherQueue.CreateTimer();
+        _cueFormatTimer.Interval = TimeSpan.FromMilliseconds(150);
+        _cueFormatTimer.IsRepeating = false;
+        _cueFormatTimer.Tick += (_, _) => ApplyCueFormatting();
         LoadWorkspacePanelPreferences();
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
@@ -205,7 +211,10 @@ public sealed partial class WorkbenchView : UserControl
     private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
 
     private void WorkbenchView_Unloaded(object sender, RoutedEventArgs e)
-        => DisposeScriptFileMonitor();
+    {
+        _cueFormatTimer?.Stop();
+        DisposeScriptFileMonitor();
+    }
 
     private void DisposeScriptFileMonitor()
     {
@@ -1263,7 +1272,13 @@ public sealed partial class WorkbenchView : UserControl
     private void ScriptTextBox_TextChanged(object sender, RoutedEventArgs e)
     {
         if (_ignoreTextChanges) return;
-        _isDirty = !string.Equals(GetEditorText(), _loadedText, StringComparison.Ordinal);
+        string currentText = GetEditorText();
+        if (string.Equals(currentText, _lastEditorText, StringComparison.Ordinal)) return;
+
+        // RichEditBox also raises TextChanged for character-format changes. Remembering
+        // the plain text prevents cue highlighting from scheduling itself forever.
+        _lastEditorText = currentText;
+        _isDirty = !string.Equals(currentText, _loadedText, StringComparison.Ordinal);
         UpdateEditorStats();
         QueueCueFormatting();
     }
@@ -1954,11 +1969,9 @@ public sealed partial class WorkbenchView : UserControl
 
     private void QueueCueFormatting()
     {
-        int version = Interlocked.Increment(ref _cueFormatVersion);
-        _ = DispatcherQueue.TryEnqueue(() =>
-        {
-            if (version == _cueFormatVersion) ApplyCueFormatting();
-        });
+        if (_cueFormatTimer is null) return;
+        _cueFormatTimer.Stop();
+        _cueFormatTimer.Start();
     }
 
     private void ApplyCueFormatting()
@@ -2033,6 +2046,7 @@ public sealed partial class WorkbenchView : UserControl
             ScriptTextBox.IsEnabled = true;
             ScriptTextBox.IsReadOnly = false;
             ScriptTextBox.Document.SetText(TextSetOptions.None, text);
+            _lastEditorText = GetEditorText();
         }
         finally
         {

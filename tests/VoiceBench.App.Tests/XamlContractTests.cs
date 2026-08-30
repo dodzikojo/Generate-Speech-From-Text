@@ -148,6 +148,12 @@ public sealed class XamlContractTests
         Assert.Contains("ScriptTextBox.IsReadOnly = false", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ScriptTextBox.IsReadOnly = wasReadOnly", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ScriptTextBox.IsEnabled = wasEnabled", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(currentText, _lastEditorText", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DispatcherQueue.CreateTimer()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromMilliseconds(150)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.IsRepeating = false", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.Stop()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.Start()", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
     }
 
