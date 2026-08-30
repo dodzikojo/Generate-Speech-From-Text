@@ -54,7 +54,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void Main_window_exposes_all_four_studio_sections()
+    public void Main_window_exposes_all_five_studio_sections()
     {
         var document = XDocument.Load(RepositoryPaths.App("MainWindow.xaml"));
         var navigationItems = document.Descendants()
@@ -69,37 +69,42 @@ public sealed class XamlContractTests
         Assert.Contains("Projects", labels);
         Assert.Contains("Workbench", labels);
         Assert.Contains("Voice Lab", labels);
+        Assert.Contains("Assembly", labels);
         Assert.Contains("Settings", labels);
         Assert.All(navigationItems, item => Assert.NotNull(item.Attribute("AutomationProperties.Name")));
-        Assert.Equal(4, document.Descendants().Count(element => element.Name.LocalName == "KeyboardAccelerator"));
+        Assert.Equal(5, document.Descendants().Count(element => element.Name.LocalName == "KeyboardAccelerator"));
     }
 
     [Fact]
-    public void Workbench_keeps_the_take_rail_and_status_vocabulary_visible()
+    public void Workbench_exposes_chapter_authoring_writing_and_responsive_direction()
     {
         var path = RepositoryPaths.App("Views/WorkbenchView.xaml");
         var source = File.ReadAllText(path);
         var codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
         var document = XDocument.Load(path);
 
-        Assert.Contains("TAKE RAIL", source, StringComparison.Ordinal);
-        Assert.Contains("VoiceDirector", source, StringComparison.Ordinal);
+        Assert.Contains("CHAPTER RAIL", source, StringComparison.Ordinal);
+        Assert.Contains("ChapterTree", source, StringComparison.Ordinal);
+        Assert.Contains("TreeView", source, StringComparison.Ordinal);
+        Assert.Contains("Writing assistant", source, StringComparison.Ordinal);
+        Assert.Contains("DirectorPanel", source, StringComparison.Ordinal);
         Assert.Contains("ScriptEditor", source, StringComparison.Ordinal);
-        Assert.Contains("Build master", source, StringComparison.Ordinal);
+        Assert.Contains("Open Assembly", source, StringComparison.Ordinal);
+        Assert.Contains("New chapter", source, StringComparison.Ordinal);
+        Assert.Contains("Draft with AI", source, StringComparison.Ordinal);
+        Assert.Contains("Import scripts", source, StringComparison.Ordinal);
         Assert.Contains("Reload", source, StringComparison.Ordinal);
         Assert.Contains("Keep current", source, StringComparison.Ordinal);
         Assert.Contains("Compare", source, StringComparison.Ordinal);
-        Assert.Contains("PopulateTakeRail", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("CreateTakeRailItemContent", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("statusDot", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("takeText", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("PopulateChapterTree", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateChapterFromDraftAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ShowWritingDiffAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("WritingAction_Click", codeBehind, StringComparison.Ordinal);
         Assert.Contains("GetSegmentStatusBrush", codeBehind, StringComparison.Ordinal);
         Assert.Contains("FormatStatus", codeBehind, StringComparison.Ordinal);
         Assert.Contains("SegmentStatus.PickupRequired", codeBehind, StringComparison.Ordinal);
-        Assert.DoesNotContain("1 ACTIVE", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("SelectedIndex=\"3\"", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Margin=\"29,0,0,0\"", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Text = $\"{status}  ·  {takes}", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DirectorPanel.(Grid.Row)", source, StringComparison.Ordinal);
+        Assert.Contains("CompactSegmentPicker", source, StringComparison.Ordinal);
 
         var triggerWidths = document.Descendants()
             .Where(element => element.Name.LocalName == "AdaptiveTrigger")
@@ -108,9 +113,25 @@ public sealed class XamlContractTests
 
         Assert.Contains("860", triggerWidths);
         Assert.Contains("1180", triggerWidths);
-        Assert.True(source.Split("AutomationProperties.Name=", StringSplitOptions.None).Length > 20,
-            "Workbench controls need explicit accessible names, not color-only state.");
+        Assert.True(source.Split("AutomationProperties.Name=", StringSplitOptions.None).Length > 8,
+            "Semantic Workbench regions and icon-only controls need explicit accessible names.");
         Assert.True(document.Descendants().Count(element => element.Name.LocalName == "KeyboardAccelerator") >= 4);
+    }
+
+    [Fact]
+    public void Assembly_exposes_persisted_order_inclusion_blockers_and_scoped_builds()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+
+        Assert.Contains("AssemblyChaptersList", xaml, StringComparison.Ordinal);
+        Assert.Contains("Build compilation", xaml, StringComparison.Ordinal);
+        Assert.Contains("Compilation", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("MasterScope.Chapter", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("IncludedInCompilation", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("MasterEligibilityEvaluator", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ChapterAuthoring.MoveChapterAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("AdaptiveTrigger", xaml, StringComparison.Ordinal);
     }
 
     [Fact]

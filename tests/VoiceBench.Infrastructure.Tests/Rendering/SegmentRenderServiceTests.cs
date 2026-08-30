@@ -25,6 +25,7 @@ public sealed class SegmentRenderServiceTests
         var segment = new SegmentDocument
         {
             SegmentId = "introduction",
+            ChapterId = "chapter",
             Title = "Introduction",
             ScriptRelativePath = scriptRelativePath,
             Status = SegmentStatus.Ready,
@@ -43,7 +44,8 @@ public sealed class SegmentRenderServiceTests
         };
         project = project with
         {
-            SegmentOrder = [segment.SegmentId],
+            ChapterOrder = ["chapter"],
+            Chapters = [new ChapterDocument { ChapterId = "chapter", Title = "Chapter", SegmentOrder = [segment.SegmentId] }],
             Segments = [segment],
             VoicePresets = [preset],
             DefaultVoicePresetId = preset.PresetId,
@@ -92,6 +94,11 @@ public sealed class SegmentRenderServiceTests
         Assert.Contains("Clash Wise keeps B I M coordination clear.", renderCopy, StringComparison.Ordinal);
         Assert.Contains("gpt-4o-mini-tts", renderCopy, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(directory.Root, result.Render.RawAudioRelativePath)));
+        Assert.Equal(result.RenderCopyRelativePath, result.Render.SubmittedTextRelativePath);
+        Assert.NotNull(result.Render.CleanSourceRelativePath);
+        Assert.Equal(
+            "ClashWise keeps BIM coordination clear.",
+            await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.CleanSourceRelativePath!)));
 
         var reloaded = await repository.LoadAsync(directory.Root);
         var rendered = Assert.Single(reloaded.Segments);
@@ -116,12 +123,14 @@ public sealed class SegmentRenderServiceTests
                 new SegmentDocument
                 {
                     SegmentId = "segment",
+                    ChapterId = "chapter",
                     ScriptRelativePath = scriptRelativePath,
                     SourceSha256 = SourceTextHasher.Compute("Narration."),
                     VoicePresetId = "missing-provider",
                 },
             ],
-            SegmentOrder = ["segment"],
+            ChapterOrder = ["chapter"],
+            Chapters = [new ChapterDocument { ChapterId = "chapter", Title = "Chapter", SegmentOrder = ["segment"] }],
             VoicePresets =
             [
                 new VoicePreset
@@ -165,13 +174,15 @@ public sealed class SegmentRenderServiceTests
                 new SegmentDocument
                 {
                     SegmentId = "segment",
+                    ChapterId = "chapter",
                     ScriptRelativePath = scriptRelativePath,
                     SourceSha256 = SourceTextHasher.Compute("Narration."),
                     VoicePresetId = "preset",
                     Status = SegmentStatus.Ready,
                 },
             ],
-            SegmentOrder = ["segment"],
+            ChapterOrder = ["chapter"],
+            Chapters = [new ChapterDocument { ChapterId = "chapter", Title = "Chapter", SegmentOrder = ["segment"] }],
             VoicePresets =
             [
                 new VoicePreset

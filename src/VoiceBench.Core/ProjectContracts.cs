@@ -2,7 +2,7 @@ namespace IssueLab.VoiceBench.Core;
 
 public sealed record VoiceBenchProjectDocument
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -16,7 +16,9 @@ public sealed record VoiceBenchProjectDocument
 
     public AudioStandard AudioStandard { get; init; } = AudioStandard.NarrationDefault;
 
-    public List<string> SegmentOrder { get; init; } = [];
+    public List<string> ChapterOrder { get; init; } = [];
+
+    public List<ChapterDocument> Chapters { get; init; } = [];
 
     public List<SegmentDocument> Segments { get; init; } = [];
 
@@ -25,11 +27,34 @@ public sealed record VoiceBenchProjectDocument
     public string? DefaultVoicePresetId { get; init; }
 
     public List<PronunciationEntry> Lexicon { get; init; } = [];
+
+    public WritingProfile WritingProfile { get; init; } = new();
+
+    public List<SourceReferenceDocument> SourceReferences { get; init; } = [];
+}
+
+public sealed record ChapterDocument
+{
+    public string ChapterId { get; init; } = string.Empty;
+
+    public string Title { get; init; } = string.Empty;
+
+    public ChapterStatus Status { get; init; } = ChapterStatus.Active;
+
+    public bool IncludedInCompilation { get; init; } = true;
+
+    public string? Brief { get; init; }
+
+    public List<string> ReferenceIds { get; init; } = [];
+
+    public List<string> SegmentOrder { get; init; } = [];
 }
 
 public sealed record SegmentDocument
 {
     public string SegmentId { get; init; } = string.Empty;
+
+    public string ChapterId { get; init; } = string.Empty;
 
     public string Title { get; init; } = string.Empty;
 
@@ -46,6 +71,8 @@ public sealed record SegmentDocument
     public Guid? ApprovedRenderId { get; init; }
 
     public List<RenderRecord> RenderHistory { get; init; } = [];
+
+    public List<WritingRevisionRecord> WritingRevisions { get; init; } = [];
 }
 
 public sealed record RenderRecord
@@ -95,6 +122,10 @@ public sealed record RenderRecord
     public string AudioSha256 { get; init; } = string.Empty;
 
     public string? ProviderResponseId { get; init; }
+
+    public string? CleanSourceRelativePath { get; init; }
+
+    public string? SubmittedTextRelativePath { get; init; }
 }
 
 public sealed record VoicePreset
@@ -129,6 +160,55 @@ public sealed record AudioStandard
     public double TruePeakDbtp { get; init; } = -1;
 
     public int PauseMilliseconds { get; init; } = 500;
+
+    public int ChapterPauseMilliseconds { get; init; } = 1_000;
+}
+
+public sealed record WritingProfile
+{
+    public string Purpose { get; init; } = string.Empty;
+
+    public string Audience { get; init; } = string.Empty;
+
+    public string Tone { get; init; } = "Clear, confident, and conversational";
+
+    public string StyleNotes { get; init; } = string.Empty;
+
+    public string DefaultProviderId { get; init; } = "openai";
+
+    public string DefaultModelId { get; init; } = "gpt-5.6-terra";
+}
+
+public sealed record SourceReferenceDocument
+{
+    public string ReferenceId { get; init; } = string.Empty;
+
+    public string Name { get; init; } = string.Empty;
+
+    public string RelativePath { get; init; } = string.Empty;
+
+    public string Sha256 { get; init; } = string.Empty;
+}
+
+public sealed record WritingRevisionRecord
+{
+    public Guid RevisionId { get; init; } = Guid.NewGuid();
+
+    public WritingAction Action { get; init; }
+
+    public string ProviderId { get; init; } = string.Empty;
+
+    public string ModelId { get; init; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; init; }
+
+    public string PreviousTextRelativePath { get; init; } = string.Empty;
+
+    public string AcceptedTextRelativePath { get; init; } = string.Empty;
+
+    public string PreviousSha256 { get; init; } = string.Empty;
+
+    public string AcceptedSha256 { get; init; } = string.Empty;
 }
 
 public sealed record PronunciationEntry
@@ -151,6 +231,12 @@ public enum SegmentStatus
     Approved,
     Stale,
     PickupRequired,
+}
+
+public enum ChapterStatus
+{
+    Active,
+    Archived,
 }
 
 public enum RenderStatus

@@ -9,7 +9,7 @@ public sealed class FileProjectRepository(
     IAtomicFileCommitter? committer = null) : IProjectRepository
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
-    private readonly ProjectDocumentMigrator _migrator = new();
+    private readonly ProjectDocumentMigrator _migrator = new([new OneToTwoProjectDocumentMigration()]);
     private readonly IAtomicFileCommitter _committer = committer ?? new AtomicFileCommitter();
 
     public async Task<VoiceBenchProjectDocument> CreateAsync(
@@ -45,21 +45,35 @@ public sealed class FileProjectRepository(
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
-        string manifestPath = Path.Combine(Path.GetFullPath(projectRoot), VoiceBenchProjectLayout.ManifestFileName);
-        await using FileStream stream = new(
+        string root = Path.GetFullPath(projectRoot);
+        string manifestPath = Path.Combine(root, VoiceBenchProjectLayout.ManifestFileName);
+        JsonNode? node;
+        await using (FileStream stream = new(
             manifestPath,
             FileMode.Open,
             FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete,
             64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        JsonNode? node = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            node = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
         if (node is not JsonObject jsonObject)
         {
             throw new ProjectSchemaException("The project manifest root must be a JSON object.");
         }
 
-        return _migrator.Deserialize(jsonObject, ProjectJson.SerializerOptions);
+        int? storedVersion = jsonObject["schemaVersion"] is JsonValue value && value.TryGetValue<int>(out int parsed)
+            ? parsed
+            : null;
+        VoiceBenchProjectDocument document = _migrator.Deserialize(jsonObject, ProjectJson.SerializerOptions);
+        if (storedVersion is int version && version < VoiceBenchProjectDocument.CurrentSchemaVersion)
+        {
+            await SaveAsync(root, document, cancellationToken).ConfigureAwait(false);
+        }
+
+        return document;
     }
 
     public async Task SaveAsync(
@@ -124,27 +138,97 @@ public sealed class FileProjectRepository(
                 [new ProjectValidationIssue("project.manifest-invalid", exception.Message)]);
         }
 
-        HashSet<string> ids = new(document.Segments.Select(segment => segment.SegmentId), StringComparer.Ordinal);
-        if (ids.Count != document.Segments.Count)
+        HashSet<string> segmentIds = new(document.Segments.Select(segment => segment.SegmentId), StringComparer.Ordinal);
+        if (segmentIds.Count != document.Segments.Count)
         {
             issues.Add(new ProjectValidationIssue("project.duplicate-segment-id", "Segment IDs must be unique."));
         }
 
-        if (document.SegmentOrder.Count != document.SegmentOrder.Distinct(StringComparer.Ordinal).Count())
+        HashSet<string> chapterIds = new(document.Chapters.Select(chapter => chapter.ChapterId), StringComparer.Ordinal);
+        if (chapterIds.Count != document.Chapters.Count)
         {
-            issues.Add(new ProjectValidationIssue("project.duplicate-order-entry", "Segment order contains duplicates."));
+            issues.Add(new ProjectValidationIssue("project.duplicate-chapter-id", "Chapter IDs must be unique."));
         }
 
-        foreach (string orderedId in document.SegmentOrder.Where(id => !ids.Contains(id)))
+        if (document.ChapterOrder.Count != document.ChapterOrder.Distinct(StringComparer.Ordinal).Count())
+        {
+            issues.Add(new ProjectValidationIssue("project.duplicate-chapter-order-entry", "Chapter order contains duplicates."));
+        }
+
+        foreach (string orderedChapterId in document.ChapterOrder.Where(id => !chapterIds.Contains(id)))
         {
             issues.Add(new ProjectValidationIssue(
-                "project.ordered-segment-missing",
-                $"Ordered segment '{orderedId}' is missing.",
-                orderedId));
+                "project.ordered-chapter-missing",
+                $"Ordered chapter '{orderedChapterId}' is missing."));
+        }
+
+
+        foreach (ChapterDocument unorderedChapter in document.Chapters.Where(
+            chapter => !document.ChapterOrder.Contains(chapter.ChapterId, StringComparer.Ordinal)))
+        {
+            issues.Add(new ProjectValidationIssue(
+                "chapter.not-ordered",
+                $"Chapter '{unorderedChapter.Title}' is not present in chapter order."));
+        }
+
+        HashSet<string> orderedSegmentIds = new(StringComparer.Ordinal);
+        foreach (ChapterDocument chapter in document.Chapters)
+        {
+            if (chapter.SegmentOrder.Count != chapter.SegmentOrder.Distinct(StringComparer.Ordinal).Count())
+            {
+                issues.Add(new ProjectValidationIssue(
+                    "chapter.duplicate-segment-order-entry",
+                    $"Chapter '{chapter.Title}' contains a segment more than once."));
+            }
+
+            foreach (string orderedSegmentId in chapter.SegmentOrder)
+            {
+                if (!segmentIds.Contains(orderedSegmentId))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "chapter.ordered-segment-missing",
+                        $"Ordered segment '{orderedSegmentId}' is missing.",
+                        orderedSegmentId));
+                    continue;
+                }
+
+                if (!orderedSegmentIds.Add(orderedSegmentId))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "chapter.segment-ordered-twice",
+                        $"Segment '{orderedSegmentId}' belongs to more than one chapter.",
+                        orderedSegmentId));
+                }
+
+                SegmentDocument segment = document.Segments.Single(item => item.SegmentId == orderedSegmentId);
+                if (!string.Equals(segment.ChapterId, chapter.ChapterId, StringComparison.Ordinal))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "segment.chapter-mismatch",
+                        $"Segment '{segment.Title}' does not point back to chapter '{chapter.Title}'.",
+                        segment.SegmentId));
+                }
+            }
+        }
+
+        foreach (SegmentDocument unordered in document.Segments.Where(segment => !orderedSegmentIds.Contains(segment.SegmentId)))
+        {
+            issues.Add(new ProjectValidationIssue(
+                "segment.not-ordered",
+                $"Segment '{unordered.Title}' is not ordered inside a chapter.",
+                unordered.SegmentId));
         }
 
         foreach (SegmentDocument segment in document.Segments)
         {
+            if (!chapterIds.Contains(segment.ChapterId))
+            {
+                issues.Add(new ProjectValidationIssue(
+                    "segment.chapter-missing",
+                    $"Segment '{segment.Title}' points to missing chapter '{segment.ChapterId}'.",
+                    segment.SegmentId));
+            }
+
             try
             {
                 string scriptPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, segment.ScriptRelativePath);
@@ -172,17 +256,52 @@ public sealed class FileProjectRepository(
             }
         }
 
+
+        foreach (SourceReferenceDocument reference in document.SourceReferences)
+        {
+            try
+            {
+                string referencePath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, reference.RelativePath);
+                if (!File.Exists(referencePath))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "reference.file-missing",
+                        $"Reference file '{reference.RelativePath}' does not exist."));
+                    continue;
+                }
+
+                string content = await File.ReadAllTextAsync(referencePath, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(SourceTextHasher.Compute(content), reference.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "reference.source-changed",
+                        $"Reference file '{reference.RelativePath}' differs from its recorded hash."));
+                }
+            }
+            catch (InvalidDataException exception)
+            {
+                issues.Add(new ProjectValidationIssue("reference.path-invalid", exception.Message));
+            }
+        }
+
         return new ProjectValidationResult(issues);
     }
 
     private static void ValidateRelativePaths(VoiceBenchProjectDocument document)
     {
+        foreach (SourceReferenceDocument reference in document.SourceReferences)
+        {
+            ValidateProjectPath(reference.RelativePath, $"Reference '{reference.Name}'");
+        }
+
         foreach (SegmentDocument segment in document.Segments)
         {
-            if (Path.IsPathRooted(segment.ScriptRelativePath) ||
-                segment.ScriptRelativePath.Split('/', '\\').Contains("..", StringComparer.Ordinal))
+            ValidateProjectPath(segment.ScriptRelativePath, $"Segment '{segment.SegmentId}'");
+
+            foreach (WritingRevisionRecord revision in segment.WritingRevisions)
             {
-                throw new InvalidDataException($"Segment '{segment.SegmentId}' uses a non-relocatable script path.");
+                ValidateProjectPath(revision.PreviousTextRelativePath, $"Revision '{revision.RevisionId}'");
+                ValidateProjectPath(revision.AcceptedTextRelativePath, $"Revision '{revision.RevisionId}'");
             }
 
             foreach (RenderRecord render in segment.RenderHistory)
@@ -192,7 +311,26 @@ public sealed class FileProjectRepository(
                 {
                     ValidateRenderPath(render.ProcessedAudioRelativePath, segment.SegmentId);
                 }
+
+                if (!string.IsNullOrWhiteSpace(render.CleanSourceRelativePath))
+                {
+                    ValidateProjectPath(render.CleanSourceRelativePath, $"Render '{render.RenderId}' clean source");
+                }
+
+                if (!string.IsNullOrWhiteSpace(render.SubmittedTextRelativePath))
+                {
+                    ValidateProjectPath(render.SubmittedTextRelativePath, $"Render '{render.RenderId}' submitted text");
+                }
             }
+        }
+    }
+
+    private static void ValidateProjectPath(string relativePath, string owner)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) ||
+            relativePath.Split('/', '\\').Contains("..", StringComparer.Ordinal))
+        {
+            throw new InvalidDataException($"{owner} uses a non-relocatable project path.");
         }
     }
 

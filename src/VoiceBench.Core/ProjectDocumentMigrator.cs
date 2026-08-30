@@ -76,6 +76,64 @@ public sealed class ProjectDocumentMigrator
     }
 }
 
+public sealed class OneToTwoProjectDocumentMigration : IProjectDocumentMigration
+{
+    public int FromSchemaVersion => 1;
+
+    public int ToSchemaVersion => 2;
+
+    public JsonObject Migrate(JsonObject source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        JsonObject result = (JsonObject)source.DeepClone();
+        JsonArray segments = result["segments"] as JsonArray ?? [];
+        JsonArray legacyOrder = result["segmentOrder"] as JsonArray ?? [];
+        JsonArray orderedIds = legacyOrder.Count > 0
+            ? new JsonArray(legacyOrder.Select(item => item?.DeepClone()).ToArray())
+            : new JsonArray(segments
+                .OfType<JsonObject>()
+                .Select(item => item["segmentId"]?.DeepClone())
+                .Where(item => item is not null)
+                .ToArray());
+
+        JsonArray chapters = [];
+        JsonArray chapterOrder = [];
+        if (segments.Count > 0)
+        {
+            const string chapterId = "existing-narration";
+            foreach (JsonObject segment in segments.OfType<JsonObject>())
+            {
+                segment["chapterId"] = chapterId;
+            }
+
+            chapters.Add(new JsonObject
+            {
+                ["chapterId"] = chapterId,
+                ["title"] = "Existing narration",
+                ["status"] = "active",
+                ["includedInCompilation"] = true,
+                ["referenceIds"] = new JsonArray(),
+                ["segmentOrder"] = orderedIds,
+            });
+            chapterOrder.Add(chapterId);
+        }
+
+        result.Remove("segmentOrder");
+        result["chapters"] = chapters;
+        result["chapterOrder"] = chapterOrder;
+        result["writingProfile"] = JsonSerializer.SerializeToNode(new WritingProfile(), ProjectJson.SerializerOptions);
+        result["sourceReferences"] = new JsonArray();
+
+        if (result["audioStandard"] is JsonObject audioStandard &&
+            audioStandard["chapterPauseMilliseconds"] is null)
+        {
+            audioStandard["chapterPauseMilliseconds"] = AudioStandard.NarrationDefault.ChapterPauseMilliseconds;
+        }
+
+        return result;
+    }
+}
+
 public static class ProjectJson
 {
     public static JsonSerializerOptions SerializerOptions { get; } = CreateOptions();

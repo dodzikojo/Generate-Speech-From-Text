@@ -81,6 +81,40 @@ public sealed class FfmpegMasteringServiceTests
             ".*-work-*"));
     }
 
+    [Fact]
+    public async Task BuildAsync_UsesChapterPauseAndSupportsChapterScope()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        await CreateApprovedProjectAsync(repository, directory.Root);
+        VoiceBenchProjectDocument project = await repository.LoadAsync(directory.Root);
+        SegmentDocument first = project.Segments[0] with { ChapterId = "chapter-a" };
+        SegmentDocument second = project.Segments[1] with { ChapterId = "chapter-b" };
+        project = project with
+        {
+            Segments = [first, second],
+            ChapterOrder = ["chapter-a", "chapter-b"],
+            Chapters =
+            [
+                new ChapterDocument { ChapterId = "chapter-a", Title = "A", SegmentOrder = [first.SegmentId] },
+                new ChapterDocument { ChapterId = "chapter-b", Title = "B", SegmentOrder = [second.SegmentId] },
+            ],
+        };
+        await repository.SaveAsync(directory.Root, project);
+        RecordingProcessRunner runner = new();
+        FfmpegMasteringService service = new(repository, runner, new ToolchainPaths("ffmpeg.exe", "ffprobe.exe"));
+
+        await service.BuildAsync(new MasteringRequest(directory.Root, "Compilation", MasterScope.Compilation));
+
+        Assert.Contains(runner.Requests, request =>
+            request.Arguments.Contains("anullsrc=r=48000:cl=mono", StringComparer.Ordinal) &&
+            request.Arguments.Contains("1", StringComparer.Ordinal));
+
+        runner.Requests.Clear();
+        await service.BuildAsync(new MasteringRequest(directory.Root, "Chapter A", MasterScope.Chapter, "chapter-a"));
+        Assert.DoesNotContain(runner.Requests, request => request.Arguments.Contains("anullsrc=r=48000:cl=mono", StringComparer.Ordinal));
+    }
+
     private static async Task CreateApprovedProjectAsync(FileProjectRepository repository, string root)
     {
         VoiceBenchProjectDocument project = await repository.CreateAsync(root, "Fixture");
@@ -93,13 +127,20 @@ public sealed class FfmpegMasteringServiceTests
         {
             string scriptRelative = $"02-scripts/{id}.md";
             string processedRelative = $"04-generated-audio/segments/{id}-v001.processed.wav";
+            string cleanRelative = $"03-render-copies/{id}-v001.clean.md";
+            string submittedRelative = $"03-render-copies/{id}-v001.submitted.md";
             await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, scriptRelative), text);
+            await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, cleanRelative), text);
+            await File.WriteAllTextAsync(
+                VoiceBenchProjectLayout.ResolveRelativePath(root, submittedRelative),
+                $"## Directions\n\n(none)\n\n## Exact submitted text\n\n{text}");
             await File.WriteAllBytesAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, processedRelative), [1, 2, 3]);
             string hash = SourceTextHasher.Compute(text);
             Guid renderId = Guid.NewGuid();
             segments.Add(new SegmentDocument
             {
                 SegmentId = id,
+                ChapterId = "chapter",
                 Title = title,
                 ScriptRelativePath = scriptRelative,
                 SourceSha256 = hash,
@@ -112,10 +153,17 @@ public sealed class FfmpegMasteringServiceTests
                         RenderId = renderId,
                         TakeNumber = 1,
                         Status = RenderStatus.Approved,
+                        ProviderId = "openai",
+                        ModelId = "gpt-4o-mini-tts",
+                        Voice = "marin",
                         SourceSha256 = hash,
+                        SubmittedTextSha256 = hash,
+                        DirectionsSha256 = SourceTextHasher.Compute(string.Empty),
                         ApprovalSourceSha256 = hash,
                         RawAudioRelativePath = $"04-generated-audio/segments/{id}-v001.raw.wav",
                         ProcessedAudioRelativePath = processedRelative,
+                        CleanSourceRelativePath = cleanRelative,
+                        SubmittedTextRelativePath = submittedRelative,
                         Duration = TimeSpan.FromSeconds(duration),
                     },
                 ],
@@ -125,7 +173,16 @@ public sealed class FfmpegMasteringServiceTests
         await repository.SaveAsync(root, project with
         {
             Segments = segments,
-            SegmentOrder = segments.Select(segment => segment.SegmentId).ToList(),
+            ChapterOrder = ["chapter"],
+            Chapters =
+            [
+                new ChapterDocument
+                {
+                    ChapterId = "chapter",
+                    Title = "Chapter",
+                    SegmentOrder = segments.Select(segment => segment.SegmentId).ToList(),
+                },
+            ],
         });
     }
 

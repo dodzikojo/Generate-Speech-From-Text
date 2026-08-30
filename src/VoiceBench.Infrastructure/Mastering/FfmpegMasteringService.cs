@@ -16,6 +16,7 @@ public sealed class FfmpegMasteringService(
     TimeProvider? timeProvider = null) : IAudioMasteringService
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly AssemblySnapshotService _snapshots = new(repository);
 
     public async Task<MasteringResult> BuildAsync(
         MasteringRequest request,
@@ -24,7 +25,10 @@ public sealed class FfmpegMasteringService(
         VoiceBenchProjectDocument project = await repository.LoadAsync(
             request.ProjectRoot,
             cancellationToken).ConfigureAwait(false);
-        MasterEligibility eligibility = MasterEligibilityEvaluator.Evaluate(project);
+        MasterEligibility eligibility = MasterEligibilityEvaluator.Evaluate(
+            project,
+            request.Scope,
+            request.ChapterId);
         if (!eligibility.CanBuild)
         {
             throw new InvalidOperationException(string.Join(
@@ -33,6 +37,12 @@ public sealed class FfmpegMasteringService(
         }
 
         string projectRoot = Path.GetFullPath(request.ProjectRoot);
+        (project, IReadOnlyList<AlignedTakeSnapshot> alignedTakes) = await _snapshots.ResolveAsync(
+            projectRoot,
+            project,
+            request.Scope,
+            request.ChapterId,
+            cancellationToken).ConfigureAwait(false);
         string safeName = CreateSafeName(request.Name);
         int version = NextVersion(projectRoot, safeName);
         string stem = $"{safeName}-v{version:000}";
@@ -42,22 +52,19 @@ public sealed class FfmpegMasteringService(
             $".{stem}-work-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workRoot);
 
-        IReadOnlyDictionary<string, SegmentDocument> segments = project.Segments.ToDictionary(
-            segment => segment.SegmentId,
-            StringComparer.Ordinal);
         List<MasteredSegment> masteredSegments = [];
         List<string> concatInputs = [];
         TimeSpan cursor = TimeSpan.Zero;
 
-        foreach ((string segmentId, int index) in project.SegmentOrder.Select((id, index) => (id, index)))
+        foreach ((AlignedTakeSnapshot take, int index) in alignedTakes.Select((take, index) => (take, index)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SegmentDocument segment = segments[segmentId];
-            RenderRecord render = segment.RenderHistory.Single(item => item.RenderId == segment.ApprovedRenderId);
+            SegmentDocument segment = take.Segment;
+            RenderRecord render = take.Render;
             string inputPath = VoiceBenchProjectLayout.ResolveRelativePath(
                 projectRoot,
                 render.ProcessedAudioRelativePath!);
-            string normalizedPath = Path.Combine(workRoot, $"{index + 1:000}-{segmentId}.normalized.wav");
+            string normalizedPath = Path.Combine(workRoot, $"{index + 1:000}-{segment.SegmentId}.normalized.wav");
 
             LoudnessMeasurement measurement = await AnalyzeAsync(
                 inputPath,
@@ -71,21 +78,37 @@ public sealed class FfmpegMasteringService(
                 cancellationToken).ConfigureAwait(false);
 
             masteredSegments.Add(new MasteredSegment(
-                segmentId,
+                take.ChapterId,
+                take.ChapterTitle,
+                segment.SegmentId,
                 segment.Title,
+                render.TakeNumber,
                 cursor,
                 render.Duration,
-                segment.ScriptRelativePath,
-                render.ProcessedAudioRelativePath!));
+                take.CleanSourceRelativePath,
+                take.SubmittedTextRelativePath,
+                render.ProcessedAudioRelativePath!,
+                render.SourceSha256));
             concatInputs.Add(normalizedPath);
             cursor += render.Duration;
 
-            if (index < project.SegmentOrder.Count - 1 && project.AudioStandard.PauseMilliseconds > 0)
+            if (index < alignedTakes.Count - 1)
             {
-                string pausePath = Path.Combine(workRoot, $"{index + 1:000}-pause.wav");
-                await CreatePauseAsync(pausePath, project.AudioStandard, cancellationToken).ConfigureAwait(false);
-                concatInputs.Add(pausePath);
-                cursor += TimeSpan.FromMilliseconds(project.AudioStandard.PauseMilliseconds);
+                AlignedTakeSnapshot next = alignedTakes[index + 1];
+                int pauseMilliseconds = string.Equals(take.ChapterId, next.ChapterId, StringComparison.Ordinal)
+                    ? project.AudioStandard.PauseMilliseconds
+                    : project.AudioStandard.ChapterPauseMilliseconds;
+                if (pauseMilliseconds > 0)
+                {
+                    string pausePath = Path.Combine(workRoot, $"{index + 1:000}-pause.wav");
+                    await CreatePauseAsync(
+                        pausePath,
+                        project.AudioStandard,
+                        pauseMilliseconds,
+                        cancellationToken).ConfigureAwait(false);
+                    concatInputs.Add(pausePath);
+                    cursor += TimeSpan.FromMilliseconds(pauseMilliseconds);
+                }
             }
         }
 
@@ -119,6 +142,8 @@ public sealed class FfmpegMasteringService(
             project.ProjectId,
             project.Name,
             stem,
+            request.Scope,
+            request.ChapterId,
             _timeProvider.GetUtcNow(),
             project.AudioStandard,
             probe,
@@ -129,7 +154,6 @@ public sealed class FfmpegMasteringService(
             projectRoot,
             stem,
             report,
-            segments,
             cancellationToken).ConfigureAwait(false);
 
         Directory.Delete(workRoot, recursive: true);
@@ -185,9 +209,10 @@ public sealed class FfmpegMasteringService(
     private async Task CreatePauseAsync(
         string outputPath,
         AudioStandard standard,
+        int pauseMilliseconds,
         CancellationToken cancellationToken)
     {
-        string seconds = (standard.PauseMilliseconds / 1000d).ToString("0.###", CultureInfo.InvariantCulture);
+        string seconds = (pauseMilliseconds / 1000d).ToString("0.###", CultureInfo.InvariantCulture);
         _ = await RunRequiredAsync(
             toolchain.FfmpegPath,
             [
@@ -263,39 +288,64 @@ public sealed class FfmpegMasteringService(
         string projectRoot,
         string stem,
         MasteringReport report,
-        IReadOnlyDictionary<string, SegmentDocument> segments,
         CancellationToken cancellationToken)
     {
         List<string> transcriptMarkdown = [$"# {report.ProjectName}", ""];
         List<string> transcriptText = [];
-        List<string> cueCsv = ["segment_id,title,start_seconds,duration_seconds,script_path"];
+        List<string> submittedAudit = [$"# {report.ProjectName} submitted-text audit", ""];
+        List<string> cueCsv = ["chapter_id,chapter_title,segment_id,segment_title,take,start_seconds,duration_seconds,source_sha256,clean_source_path,submitted_text_path"];
         List<string> cueMarkdown =
         [
             $"# {report.ProjectName} cue sheet",
             "",
-            "| # | Segment | Start | Duration |",
-            "|---:|---|---:|---:|",
+            "| # | Chapter | Segment | Take | Start | Duration | Source |",
+            "|---:|---|---|---:|---:|---:|---|",
         ];
+        string? currentChapterId = null;
 
         foreach ((MasteredSegment item, int index) in report.Segments.Select((item, index) => (item, index)))
         {
-            string scriptPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, item.ScriptRelativePath);
+            string scriptPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, item.CleanSourceRelativePath);
             string script = await File.ReadAllTextAsync(scriptPath, cancellationToken).ConfigureAwait(false);
-            transcriptMarkdown.Add($"## {item.Title}");
+            string auditPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, item.SubmittedTextRelativePath);
+            string audit = await File.ReadAllTextAsync(auditPath, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(currentChapterId, item.ChapterId, StringComparison.Ordinal))
+            {
+                currentChapterId = item.ChapterId;
+                transcriptMarkdown.Add($"## {item.ChapterTitle}");
+                transcriptMarkdown.Add(string.Empty);
+                transcriptText.Add(item.ChapterTitle);
+                transcriptText.Add(new string('=', item.ChapterTitle.Length));
+                transcriptText.Add(string.Empty);
+                submittedAudit.Add($"## {item.ChapterTitle}");
+                submittedAudit.Add(string.Empty);
+            }
+
+            transcriptMarkdown.Add($"### {item.Title}");
             transcriptMarkdown.Add(string.Empty);
             transcriptMarkdown.Add(script);
             transcriptMarkdown.Add(string.Empty);
             transcriptText.Add(script);
             transcriptText.Add(string.Empty);
+            submittedAudit.Add($"### {item.Title} — take {item.TakeNumber}");
+            submittedAudit.Add(string.Empty);
+            submittedAudit.Add(audit);
+            submittedAudit.Add(string.Empty);
             cueCsv.Add(string.Join(",",
+                Csv(item.ChapterId),
+                Csv(item.ChapterTitle),
                 Csv(item.SegmentId),
                 Csv(item.Title),
+                item.TakeNumber.ToString(CultureInfo.InvariantCulture),
                 item.Start.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture),
                 item.Duration.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture),
-                Csv(item.ScriptRelativePath)));
+                Csv(item.SourceSha256),
+                Csv(item.CleanSourceRelativePath),
+                Csv(item.SubmittedTextRelativePath)));
             cueMarkdown.Add(
-                $"| {index + 1} | {item.Title.Replace("|", "\\|", StringComparison.Ordinal)} | " +
-                $"{FormatTime(item.Start)} | {FormatTime(item.Duration)} |");
+                $"| {index + 1} | {item.ChapterTitle.Replace("|", "\\|", StringComparison.Ordinal)} | " +
+                $"{item.Title.Replace("|", "\\|", StringComparison.Ordinal)} | {item.TakeNumber} | " +
+                $"{FormatTime(item.Start)} | {FormatTime(item.Duration)} | `{item.SourceSha256[..Math.Min(12, item.SourceSha256.Length)]}` |");
         }
 
         await File.WriteAllLinesAsync(
@@ -309,6 +359,12 @@ public sealed class FfmpegMasteringService(
                 projectRoot,
                 $"{VoiceBenchProjectLayout.TranscriptsDirectory}/{stem}.transcript.txt"),
             transcriptText,
+            cancellationToken).ConfigureAwait(false);
+        await File.WriteAllLinesAsync(
+            VoiceBenchProjectLayout.ResolveRelativePath(
+                projectRoot,
+                $"{VoiceBenchProjectLayout.TranscriptsDirectory}/{stem}.submitted-audit.md"),
+            submittedAudit,
             cancellationToken).ConfigureAwait(false);
         await File.WriteAllLinesAsync(
             VoiceBenchProjectLayout.ResolveRelativePath(
@@ -338,6 +394,7 @@ public sealed class FfmpegMasteringService(
             # Mastering report — {report.ProjectName}
 
             - Master: `{report.MasterRelativePath}`
+            - Scope: {report.Scope}{(report.ChapterId is null ? string.Empty : $" ({report.ChapterId})")}
             - Created: {report.CreatedAt:O}
             - Duration: {FormatTime(report.Probe.Duration)}
             - Format: {report.Probe.Channels} channel, {report.Probe.SampleRate} Hz PCM
@@ -458,17 +515,24 @@ public sealed record AudioProbe(int SampleRate, int Channels, TimeSpan Duration)
 }
 
 public sealed record MasteredSegment(
+    string ChapterId,
+    string ChapterTitle,
     string SegmentId,
     string Title,
+    int TakeNumber,
     TimeSpan Start,
     TimeSpan Duration,
-    string ScriptRelativePath,
-    string ProcessedAudioRelativePath);
+    string CleanSourceRelativePath,
+    string SubmittedTextRelativePath,
+    string ProcessedAudioRelativePath,
+    string SourceSha256);
 
 public sealed record MasteringReport(
     Guid ProjectId,
     string ProjectName,
     string MasterName,
+    MasterScope Scope,
+    string? ChapterId,
     DateTimeOffset CreatedAt,
     AudioStandard Standard,
     AudioProbe Probe,

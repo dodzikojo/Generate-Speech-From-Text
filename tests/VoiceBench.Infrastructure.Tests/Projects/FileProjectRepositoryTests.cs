@@ -1,6 +1,7 @@
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Tests.Support;
+using System.Text.Json.Nodes;
 
 namespace IssueLab.VoiceBench.Infrastructure.Tests.Projects;
 
@@ -38,12 +39,14 @@ public sealed class FileProjectRepositoryTests
         await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(firstRoot, relativePath), text);
         project = project with
         {
-            SegmentOrder = [segmentId],
+            ChapterOrder = ["chapter"],
+            Chapters = [new ChapterDocument { ChapterId = "chapter", Title = "Chapter", SegmentOrder = [segmentId] }],
             Segments =
             [
                 new SegmentDocument
                 {
                     SegmentId = segmentId,
+                    ChapterId = "chapter",
                     Title = "Introduction",
                     ScriptRelativePath = relativePath,
                     SourceSha256 = SourceTextHasher.Compute(text),
@@ -92,12 +95,14 @@ public sealed class FileProjectRepositoryTests
         await File.WriteAllTextAsync(fullPath, "Original");
         project = project with
         {
-            SegmentOrder = ["abcdef01"],
+            ChapterOrder = ["chapter"],
+            Chapters = [new ChapterDocument { ChapterId = "chapter", Title = "Chapter", SegmentOrder = ["abcdef01"] }],
             Segments =
             [
                 new SegmentDocument
                 {
                     SegmentId = "abcdef01",
+                    ChapterId = "chapter",
                     Title = "Script",
                     ScriptRelativePath = relativePath,
                     SourceSha256 = SourceTextHasher.Compute("Original"),
@@ -128,6 +133,42 @@ public sealed class FileProjectRepositoryTests
 
         Assert.Equal(originalManifest, await File.ReadAllTextAsync(manifestPath));
         Assert.Empty(Directory.EnumerateFiles(directory.Root, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public async Task LoadAsync_AtomicallyPersistsSchemaOneMigrationWithoutMovingScripts()
+    {
+        using TemporaryDirectory directory = new();
+        VoiceBenchProjectLayout.Ensure(directory.Root);
+        string scriptRelative = "02-scripts/existing.md";
+        await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, scriptRelative), "Existing");
+        await File.WriteAllTextAsync(
+            Path.Combine(directory.Root, VoiceBenchProjectLayout.ManifestFileName),
+            $$"""
+            {
+              "schemaVersion": 1,
+              "projectId": "{{Guid.NewGuid()}}",
+              "name": "Migrated",
+              "segmentOrder": ["segment"],
+              "segments": [{
+                "segmentId": "segment",
+                "title": "Existing",
+                "scriptRelativePath": "{{scriptRelative}}",
+                "sourceSha256": "{{SourceTextHasher.Compute("Existing")}}"
+              }]
+            }
+            """);
+        FileProjectRepository repository = new();
+
+        VoiceBenchProjectDocument project = await repository.LoadAsync(directory.Root);
+
+        Assert.Equal(2, project.SchemaVersion);
+        Assert.Equal(scriptRelative, project.Segments.Single().ScriptRelativePath);
+        Assert.True(File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, scriptRelative)));
+        JsonObject persisted = JsonNode.Parse(await File.ReadAllTextAsync(
+            Path.Combine(directory.Root, VoiceBenchProjectLayout.ManifestFileName)))!.AsObject();
+        Assert.Equal(2, persisted["schemaVersion"]!.GetValue<int>());
+        Assert.Null(persisted["segmentOrder"]);
     }
 
     private sealed class FailingCommitter : IAtomicFileCommitter

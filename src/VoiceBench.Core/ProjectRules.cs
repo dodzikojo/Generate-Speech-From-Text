@@ -117,18 +117,35 @@ public sealed record MasterEligibility(bool CanBuild, IReadOnlyList<ProjectValid
 
 public static class MasterEligibilityEvaluator
 {
-    public static MasterEligibility Evaluate(VoiceBenchProjectDocument project)
+    public static MasterEligibility Evaluate(
+        VoiceBenchProjectDocument project,
+        MasterScope scope = MasterScope.Compilation,
+        string? chapterId = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         var byId = project.Segments.ToDictionary(segment => segment.SegmentId, StringComparer.Ordinal);
         var issues = new List<ProjectValidationIssue>();
-
-        if (project.SegmentOrder.Count == 0)
+        IReadOnlyList<string> orderedSegmentIds;
+        try
         {
-            issues.Add(new ProjectValidationIssue("master.no-segments", "The project has no ordered segments."));
+            orderedSegmentIds = ProjectOrdering.GetOrderedSegmentIds(project, scope, chapterId);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            issues.Add(new ProjectValidationIssue("master.chapter-invalid", exception.Message));
+            return new MasterEligibility(false, issues);
         }
 
-        foreach (var segmentId in project.SegmentOrder)
+        if (orderedSegmentIds.Count == 0)
+        {
+            issues.Add(new ProjectValidationIssue(
+                "master.no-segments",
+                scope == MasterScope.Chapter
+                    ? "The chapter has no ordered segments."
+                    : "The compilation has no included, ordered segments."));
+        }
+
+        foreach (var segmentId in orderedSegmentIds)
         {
             if (!byId.TryGetValue(segmentId, out var segment))
             {
@@ -152,6 +169,7 @@ public static class MasterEligibilityEvaluator
             }
 
             if (approved.Status != RenderStatus.Approved ||
+                !string.Equals(approved.SourceSha256, segment.SourceSha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(
                     approved.ApprovalSourceSha256,
                     segment.SourceSha256,

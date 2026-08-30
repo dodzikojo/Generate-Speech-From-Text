@@ -139,6 +139,7 @@ public sealed class SegmentRenderService
             currentSegment,
             preset,
             directions,
+            canonicalText,
             submittedText,
             sourceHash,
             firstTakeNumber,
@@ -157,6 +158,8 @@ public sealed class SegmentRenderService
             SubmittedTextSha256 = SourceTextHasher.Compute(submittedText),
             DirectionsSha256 = SourceTextHasher.Compute(directions ?? string.Empty),
             CreatedAt = createdAt,
+            CleanSourceRelativePath = renderCopy.CleanSourceRelativePath,
+            SubmittedTextRelativePath = renderCopy.RelativePath,
         };
 
         var queueJob = await _queue.EnqueueAsync(
@@ -345,11 +348,17 @@ public sealed class SegmentRenderService
         return values.Length == 0 ? null : string.Join("\n\n", values);
     }
 
-    private static async Task<(string RelativePath, int TakeNumber)> WriteRenderCopyAsync(
+    private sealed record RenderCopyPaths(
+        string RelativePath,
+        string CleanSourceRelativePath,
+        int TakeNumber);
+
+    private static async Task<RenderCopyPaths> WriteRenderCopyAsync(
         string projectRoot,
         SegmentDocument segment,
         VoicePreset preset,
         string? directions,
+        string canonicalText,
         string submittedText,
         string sourceHash,
         int firstTakeNumber,
@@ -365,6 +374,9 @@ public sealed class SegmentRenderService
             cancellationToken.ThrowIfCancellationRequested();
             var fileName = $"{safeSegmentId}--take-{takeNumber:0000}--{safeProviderId}.md";
             var path = Path.Combine(directory, fileName);
+            var cleanSourcePath = Path.Combine(
+                directory,
+                $"{safeSegmentId}--take-{takeNumber:0000}--{safeProviderId}.clean.md");
             var content = BuildRenderCopy(
                 segment,
                 preset,
@@ -375,26 +387,49 @@ public sealed class SegmentRenderService
 
             try
             {
-                await using var stream = new FileStream(
-                    path,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.Read,
-                    bufferSize: 16 * 1024,
-                    FileOptions.Asynchronous | FileOptions.WriteThrough);
-                await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
-                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
-                stream.Flush(flushToDisk: true);
-                return (VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, path)), takeNumber);
+                await WriteImmutableTextAsync(path, content, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await WriteImmutableTextAsync(cleanSourcePath, canonicalText, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    File.Delete(path);
+                    throw;
+                }
+
+                return new RenderCopyPaths(
+                    VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, path)),
+                    VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, cleanSourcePath)),
+                    takeNumber);
             }
-            catch (IOException) when (File.Exists(path))
+            catch (IOException) when (File.Exists(path) || File.Exists(cleanSourcePath))
             {
                 // Keep every earlier render copy immutable and advance the take number.
             }
         }
 
         throw new IOException($"No render-copy version slot is available for segment '{segment.SegmentId}'.");
+    }
+
+    private static async Task WriteImmutableTextAsync(
+        string path,
+        string content,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream stream = new(
+            path,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.Read,
+            bufferSize: 16 * 1024,
+            FileOptions.Asynchronous | FileOptions.WriteThrough);
+        await using StreamWriter writer = new(
+            stream,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        await writer.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        stream.Flush(flushToDisk: true);
     }
 
     private static string BuildRenderCopy(

@@ -33,6 +33,8 @@ public sealed class AppServices : IDisposable
     private readonly WindowsCredentialStore _credentialStore = new();
     private readonly ProviderCredentialResolver _credentialResolver;
     private readonly SpeechProviderRegistry _providers;
+    private readonly WritingProviderRegistry _writingProviders;
+    private readonly IWritingAssistantService _writingAssistant;
     private readonly ProcessRunner _processRunner = new();
     private readonly FfmpegToolchainManager _toolchainManager;
     private ToolchainPaths? _toolchain;
@@ -48,6 +50,15 @@ public sealed class AppServices : IDisposable
             new OpenAiSpeechProvider(_httpClient),
             new GeminiSpeechProvider(_httpClient),
         ]);
+        _writingProviders = new WritingProviderRegistry(
+        [
+            new OpenAiWritingProvider(_httpClient),
+            new GeminiWritingProvider(_httpClient),
+        ]);
+        _writingAssistant = new WritingAssistantService(_writingProviders, _credentialResolver);
+        ChapterAuthoring = new ChapterAuthoringService(Projects);
+        ScriptImporter = new ProjectImportService(Projects);
+        WritingContexts = new WritingContextLoader(Projects);
         _toolchainManager = new FfmpegToolchainManager(_httpClient);
     }
 
@@ -57,7 +68,17 @@ public sealed class AppServices : IDisposable
 
     public WorkspaceSession Session { get; }
 
+    public ChapterAuthoringService ChapterAuthoring { get; }
+
+    public ProjectImportService ScriptImporter { get; }
+
+    public WritingContextLoader WritingContexts { get; }
+
     public IReadOnlyCollection<ISpeechProvider> SpeechProviders => _providers.Providers;
+
+    public IReadOnlyCollection<WritingProviderDescriptor> WritingProviders => _writingAssistant.Providers;
+
+    public IWritingAssistantService WritingAssistant => _writingAssistant;
 
     public Task<string?> GetCredentialAsync(
         string providerId,
@@ -128,12 +149,14 @@ public sealed class AppServices : IDisposable
 
     public async Task<MasteringResult> BuildMasterAsync(
         string name,
+        MasterScope scope = MasterScope.Compilation,
+        string? chapterId = null,
         CancellationToken cancellationToken = default)
     {
         string root = Session.RequireProjectRoot();
         ToolchainPaths toolchain = await EnsureFfmpegAsync(cancellationToken);
         FfmpegMasteringService mastering = new(Projects, _processRunner, toolchain);
-        return await mastering.BuildAsync(new MasteringRequest(root, name), cancellationToken);
+        return await mastering.BuildAsync(new MasteringRequest(root, name, scope, chapterId), cancellationToken);
     }
 
     public async Task<ToolchainPaths> EnsureFfmpegAsync(CancellationToken cancellationToken = default)

@@ -1,5 +1,4 @@
 using IssueLab.VoiceBench.Core;
-using IssueLab.VoiceBench.Infrastructure.Mastering;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
@@ -20,12 +19,28 @@ public sealed partial class WorkbenchView : UserControl
     private bool _isDirty;
     private bool _externalOverwriteApproved;
     private CancellationTokenSource? _renderCancellation;
+    private WritingProposal? _pendingWritingProposal;
+    private WritingAction _pendingWritingAction;
+    private string? _pendingWritingProviderId;
+    private string? _pendingWritingModelId;
+    private string? _pendingWritingSourceHash;
+    private bool _ignoreCompactPicker;
+
+    private sealed record RailItem(
+        string Title,
+        string Metadata,
+        string ChapterId,
+        string? SegmentId,
+        Brush StatusBrush);
+
+    private sealed record RevisionChoice(Guid RevisionId, bool RestorePreviousText);
 
     public WorkbenchView()
     {
         InitializeComponent();
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
+        PopulateWritingProviders();
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         Loaded += WorkbenchView_Loaded;
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
@@ -84,6 +99,41 @@ public sealed partial class WorkbenchView : UserControl
         SetSelectedContent(VoiceComboBox, currentVoice ?? model.Voices[0]);
     }
 
+    private void PopulateWritingProviders()
+    {
+        WritingProviderComboBox.Items.Clear();
+        foreach (WritingProviderDescriptor provider in App.Services.WritingProviders)
+        {
+            WritingProviderComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = provider.DisplayName,
+                Tag = provider.ProviderId,
+            });
+        }
+
+        SetSelectedContent(WritingProviderComboBox, "openai");
+        PopulateWritingModels("openai", "gpt-5.6-terra");
+    }
+
+    private void WritingProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (WritingModelComboBox is null || WritingProviderComboBox.SelectedItem is null) return;
+        PopulateWritingModels(GetSelectedContent(WritingProviderComboBox), null);
+    }
+
+    private void PopulateWritingModels(string providerId, string? preferredModel)
+    {
+        WritingProviderDescriptor provider = App.Services.WritingProviders.Single(item =>
+            item.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase));
+        WritingModelComboBox.Items.Clear();
+        foreach (WritingModelDescriptor model in provider.Models)
+        {
+            WritingModelComboBox.Items.Add(new ComboBoxItem { Content = model.DisplayName, Tag = model.ModelId });
+        }
+
+        SetSelectedContent(WritingModelComboBox, preferredModel ?? provider.Models[0].ModelId);
+    }
+
     private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
 
     private void Session_ProjectChanged(object? sender, EventArgs e) =>
@@ -95,9 +145,11 @@ public sealed partial class WorkbenchView : UserControl
         {
             _project = null;
             _segment = null;
-            TakeRailList.Items.Clear();
+            ChapterTree.RootNodes.Clear();
+            CompactSegmentPicker.Items.Clear();
             TakeTransport.ClearAudio();
             SetEditorText(string.Empty);
+            EmptyAuthoringState.Visibility = Visibility.Collapsed;
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
             return;
         }
@@ -106,14 +158,16 @@ public sealed partial class WorkbenchView : UserControl
         ProjectHeaderText.Text = $"WORKBENCH  /  {_project.Name.ToUpperInvariant()}";
         ProjectTitleText.Text = _project.Name;
         int approved = _project.Segments.Count(item => item.Status == SegmentStatus.Approved);
-        TakeRailSummaryText.Text = $"{_project.Segments.Count} SEGMENTS  ·  {approved} APPROVED";
-        PopulateTakeRail(_project);
+        TakeRailSummaryText.Text = $"{_project.Chapters.Count(item => item.Status == ChapterStatus.Active)} CHAPTERS  ·  {_project.Segments.Count} SEGMENTS  ·  {approved} APPROVED";
+        PopulateChapterTree(_project);
+        PopulateWritingReferences(_project);
         LoadDefaultPreset(_project);
 
         string? segmentId = preferredSegmentId;
         if (segmentId is null || !_project.Segments.Any(item => item.SegmentId == segmentId))
         {
-            segmentId = _project.SegmentOrder.FirstOrDefault() ?? _project.Segments.FirstOrDefault()?.SegmentId;
+            segmentId = ProjectOrdering.GetPlaybackOrderedSegmentIds(_project).FirstOrDefault()
+                ?? _project.Segments.FirstOrDefault()?.SegmentId;
         }
 
         if (segmentId is null)
@@ -122,11 +176,13 @@ public sealed partial class WorkbenchView : UserControl
             TakeTransport.ClearAudio();
             SetEditorText(string.Empty);
             SegmentTitleText.Text = "NO SEGMENTS";
-            SegmentStatsText.Text = "IMPORT A MARKDOWN OR TEXT SCRIPT TO BEGIN";
-            ShowStatus(InfoBarSeverity.Informational, "This project has no script segments", "Import a script with the CLI, then return to Workbench.");
+            SegmentStatsText.Text = "CREATE, DRAFT, OR IMPORT A CHAPTER TO BEGIN";
+            EmptyAuthoringState.Visibility = Visibility.Visible;
+            ShowStatus(InfoBarSeverity.Informational, "Start your first chapter", "Create a blank chapter, draft one with AI, or import one or more scripts here in VoiceBench.");
             return;
         }
 
+        EmptyAuthoringState.Visibility = Visibility.Collapsed;
         SelectTakeRailItem(segmentId);
         await LoadSegmentAsync(segmentId);
         if (_project.DefaultVoicePresetId is null)
@@ -139,100 +195,62 @@ public sealed partial class WorkbenchView : UserControl
         }
     }
 
-    private void PopulateTakeRail(VoiceBenchProjectDocument project)
+    private void PopulateChapterTree(VoiceBenchProjectDocument project)
     {
-        TakeRailList.Items.Clear();
-        IReadOnlyList<string> order = project.SegmentOrder.Count > 0
-            ? project.SegmentOrder
-            : project.Segments.Select(item => item.SegmentId).ToArray();
-        Dictionary<string, SegmentDocument> segments = project.Segments.ToDictionary(item => item.SegmentId, StringComparer.Ordinal);
-        int number = 0;
-        foreach (string id in order)
+        ChapterTree.RootNodes.Clear();
+        CompactSegmentPicker.Items.Clear();
+        Dictionary<string, SegmentDocument> segments = project.Segments.ToDictionary(
+            item => item.SegmentId,
+            StringComparer.Ordinal);
+        Dictionary<string, ChapterDocument> chapters = project.Chapters.ToDictionary(
+            item => item.ChapterId,
+            StringComparer.Ordinal);
+        int chapterNumber = 0;
+        foreach (string chapterId in project.ChapterOrder)
         {
-            if (!segments.TryGetValue(id, out SegmentDocument? segment)) continue;
-            number++;
-            string status = FormatStatus(segment.Status);
-            string takes = segment.RenderHistory.Count == 0
-                ? "NO TAKES"
-                : $"TAKE {segment.RenderHistory.Max(item => item.TakeNumber):00}";
-            TimeSpan duration = segment.RenderHistory.OrderByDescending(item => item.TakeNumber).Select(item => item.Duration).FirstOrDefault();
-            Grid content = CreateTakeRailItemContent(number, segment, status, takes, duration);
-            ListViewItem item = new()
+            if (!chapters.TryGetValue(chapterId, out ChapterDocument? chapter) || chapter.Status == ChapterStatus.Archived) continue;
+            chapterNumber++;
+            int approved = chapter.SegmentOrder.Count(id =>
+                segments.TryGetValue(id, out SegmentDocument? segment) && segment.Status == SegmentStatus.Approved);
+            TreeViewNode chapterNode = new()
             {
-                Tag = segment.SegmentId,
-                Content = content,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Padding = new Thickness(0),
+                IsExpanded = true,
+                Content = new RailItem(
+                    $"{chapterNumber:00}  {chapter.Title}",
+                    $"{chapter.SegmentOrder.Count} segments  ·  {approved} approved  ·  {(chapter.IncludedInCompilation ? "included" : "excluded")}",
+                    chapter.ChapterId,
+                    null,
+                    (Brush)Application.Current.Resources[chapter.IncludedInCompilation ? "ActiveSignalBrush" : "MutedTextBrush"]),
             };
-            AutomationProperties.SetName(item, $"Segment {number:000}, {segment.Title}, {status}, {segment.RenderHistory.Count} takes");
-            TakeRailList.Items.Add(item);
+            int segmentNumber = 0;
+            foreach (string segmentId in chapter.SegmentOrder)
+            {
+                if (!segments.TryGetValue(segmentId, out SegmentDocument? segment)) continue;
+                segmentNumber++;
+                string takes = segment.RenderHistory.Count == 0
+                    ? "no takes"
+                    : $"take {segment.RenderHistory.Max(item => item.TakeNumber):00}";
+                TimeSpan duration = segment.RenderHistory.OrderByDescending(item => item.TakeNumber)
+                    .Select(item => item.Duration).FirstOrDefault();
+                string durationText = duration > TimeSpan.Zero ? $"  ·  {FormatDuration(duration)}" : string.Empty;
+                chapterNode.Children.Add(new TreeViewNode
+                {
+                    Content = new RailItem(
+                        $"{segmentNumber:000}  {segment.Title}",
+                        $"{FormatStatus(segment.Status)}  ·  {takes}{durationText}",
+                        chapter.ChapterId,
+                        segment.SegmentId,
+                        GetSegmentStatusBrush(segment.Status)),
+                });
+                CompactSegmentPicker.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{chapter.Title}  /  {segment.Title}",
+                    Tag = segment.SegmentId,
+                });
+            }
+
+            ChapterTree.RootNodes.Add(chapterNode);
         }
-    }
-
-    private static Grid CreateTakeRailItemContent(
-        int number,
-        SegmentDocument segment,
-        string status,
-        string takes,
-        TimeSpan duration)
-    {
-        Grid content = new()
-        {
-            ColumnSpacing = 10,
-            Margin = new Thickness(10, 9, 10, 9),
-        };
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        TextBlock numberLabel = new()
-        {
-            Text = number.ToString("000", System.Globalization.CultureInfo.InvariantCulture),
-            Margin = new Thickness(0, 2, 0, 0),
-        };
-        numberLabel.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
-
-        TextBlock title = new()
-        {
-            Text = segment.Title,
-            TextWrapping = TextWrapping.Wrap,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxLines = 2,
-        };
-        title.Style = (Style)Application.Current.Resources["ReadingTextStyle"];
-
-        Brush statusBrush = GetSegmentStatusBrush(segment.Status);
-        Microsoft.UI.Xaml.Shapes.Ellipse statusDot = new()
-        {
-            Width = 6,
-            Height = 6,
-            Fill = statusBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        TextBlock statusText = new() { Text = status, Foreground = statusBrush };
-        statusText.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
-        statusText.Foreground = statusBrush;
-        TextBlock takeText = new()
-        {
-            Text = duration > TimeSpan.Zero ? $"{takes}  {FormatDuration(duration)}" : takes,
-        };
-        takeText.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
-
-        StackPanel metadata = new()
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-        };
-        metadata.Children.Add(statusDot);
-        metadata.Children.Add(statusText);
-        metadata.Children.Add(takeText);
-
-        StackPanel body = new() { Spacing = 5 };
-        body.Children.Add(title);
-        body.Children.Add(metadata);
-        Grid.SetColumn(body, 1);
-        content.Children.Add(numberLabel);
-        content.Children.Add(body);
-        return content;
     }
 
     private static Brush GetSegmentStatusBrush(SegmentStatus status)
@@ -247,9 +265,29 @@ public sealed partial class WorkbenchView : UserControl
         return (Brush)Application.Current.Resources[resourceKey];
     }
 
-    private async void TakeRailList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void ChapterTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
-        if (TakeRailList.SelectedItem is not ListViewItem { Tag: string segmentId } || _segment?.SegmentId == segmentId) return;
+        RailItem? item = args.InvokedItem switch
+        {
+            TreeViewNode node => node.Content as RailItem,
+            RailItem railItem => railItem,
+            _ => null,
+        };
+        if (item?.SegmentId is not string segmentId ||
+            _segment?.SegmentId == segmentId) return;
+        if (_isDirty && !await SaveCurrentScriptAsync())
+        {
+            SelectTakeRailItem(_segment?.SegmentId);
+            return;
+        }
+
+        await LoadSegmentAsync(segmentId);
+    }
+
+    private async void CompactSegmentPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_ignoreCompactPicker || CompactSegmentPicker.SelectedItem is not ComboBoxItem { Tag: string segmentId } ||
+            _segment?.SegmentId == segmentId) return;
         if (_isDirty && !await SaveCurrentScriptAsync())
         {
             SelectTakeRailItem(_segment?.SegmentId);
@@ -284,12 +322,15 @@ public sealed partial class WorkbenchView : UserControl
         _externalOverwriteApproved = false;
         ExternalEditBar.IsOpen = false;
         SetEditorText(text);
-        SegmentTitleText.Text = $"{index + 1:000}  /  {current.Title.ToUpperInvariant()}";
+        ChapterDocument? chapter = project.Chapters.SingleOrDefault(item => item.ChapterId == current.ChapterId);
+        int chapterPosition = Math.Max(0, project.ChapterOrder.IndexOf(current.ChapterId)) + 1;
+        int segmentPosition = Math.Max(0, chapter?.SegmentOrder.IndexOf(current.SegmentId) ?? 0) + 1;
+        SegmentTitleText.Text = $"{chapterPosition:00}.{segmentPosition:000}  /  {current.Title.ToUpperInvariant()}";
         ScriptPathText.Text = current.ScriptRelativePath.Replace('/', '\\');
-        CompactSegmentTitleText.Text = $"{index + 1:000}  {current.Title}";
-        CompactSegmentStatusText.Text = $"{FormatStatus(current.Status)}  ·  {index + 1} OF {project.Segments.Count}";
+        SelectTakeRailItem(current.SegmentId);
         UpdateEditorStats();
         PopulateTakeSelector(current);
+        PopulateWritingRevisions(current);
         LoadSegmentPreset(project, current);
     }
 
@@ -306,22 +347,598 @@ public sealed partial class WorkbenchView : UserControl
         picker.FileTypeFilter.Add(".txt");
         nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
-        Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
-        if (file is null) return;
+        IReadOnlyList<Windows.Storage.StorageFile> files = await picker.PickMultipleFilesAsync();
+        if (files.Count == 0) return;
 
         try
         {
-            ProjectImportService importer = new(App.Services.Projects);
             VoiceBenchProjectDocument before = App.Services.Session.RequireProject();
-            VoiceBenchProjectDocument after = await importer.ImportAsync(App.Services.Session.RequireProjectRoot(), file.Path);
+            VoiceBenchProjectDocument after = await App.Services.ScriptImporter.ImportFilesAsync(
+                App.Services.Session.RequireProjectRoot(),
+                files.Select(file => file.Path).ToArray());
             await App.Services.Session.RefreshAsync();
-            ShowStatus(InfoBarSeverity.Success, "Script imported", $"Created {after.Segments.Count - before.Segments.Count} canonical segment(s) from {file.Name}.");
+            ShowStatus(
+                InfoBarSeverity.Success,
+                files.Count == 1 ? "Script imported" : "Scripts imported",
+                $"Created {after.Chapters.Count - before.Chapters.Count} chapter(s) and {after.Segments.Count - before.Segments.Count} canonical segment(s).");
         }
         catch (Exception exception)
         {
             ShowStatus(InfoBarSeverity.Error, "Script import failed", exception.Message);
         }
     }
+
+    private void PopulateWritingReferences(VoiceBenchProjectDocument project)
+    {
+        HashSet<string> selected = WritingReferencesList.SelectedItems
+            .OfType<ListViewItem>()
+            .Select(item => item.Tag as string)
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        WritingReferencesList.Items.Clear();
+        foreach (SourceReferenceDocument reference in project.SourceReferences)
+        {
+            ListViewItem item = new()
+            {
+                Content = reference.Name,
+                Tag = reference.ReferenceId,
+            };
+            WritingReferencesList.Items.Add(item);
+            if (selected.Contains(reference.ReferenceId)) WritingReferencesList.SelectedItems.Add(item);
+        }
+    }
+
+    private void PopulateWritingRevisions(SegmentDocument segment)
+    {
+        WritingRevisionComboBox.Items.Clear();
+        foreach (WritingRevisionRecord revision in segment.WritingRevisions.OrderByDescending(item => item.CreatedAt))
+        {
+            WritingRevisionComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = $"{revision.CreatedAt.LocalDateTime:g} · accepted {revision.Action}",
+                Tag = new RevisionChoice(revision.RevisionId, false),
+            });
+            WritingRevisionComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = $"{revision.CreatedAt.LocalDateTime:g} · before {revision.Action}",
+                Tag = new RevisionChoice(revision.RevisionId, true),
+            });
+        }
+        WritingRevisionComboBox.SelectedIndex = WritingRevisionComboBox.Items.Count > 0 ? 0 : -1;
+    }
+
+    private async void RestoreRevision_Click(object sender, RoutedEventArgs e)
+    {
+        if (_segment is null || WritingRevisionComboBox.SelectedItem is not ComboBoxItem { Tag: RevisionChoice choice }) return;
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Restore this writing revision?",
+            Content = "The current text remains in revision history. Existing takes become stale if the source changes.",
+            PrimaryButtonText = "Restore",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        try
+        {
+            string segmentId = _segment.SegmentId;
+            await App.Services.ChapterAuthoring.RestoreRevisionAsync(
+                App.Services.Session.RequireProjectRoot(),
+                segmentId,
+                choice.RevisionId,
+                choice.RestorePreviousText);
+            await App.Services.Session.RefreshAsync();
+            await LoadProjectAsync(segmentId);
+            ShowStatus(InfoBarSeverity.Success, "Writing revision restored", "The canonical source and assembly status were updated.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Revision could not be restored", exception.Message);
+        }
+    }
+
+    private async void ImportReference_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureProjectForAuthoring()) return;
+        FileOpenPicker picker = new() { SuggestedStartLocation = PickerLocationId.DocumentsLibrary };
+        picker.FileTypeFilter.Add(".md");
+        picker.FileTypeFilter.Add(".txt");
+        nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
+        IReadOnlyList<Windows.Storage.StorageFile> files = await picker.PickMultipleFilesAsync();
+        if (files.Count == 0) return;
+        try
+        {
+            foreach (Windows.Storage.StorageFile file in files)
+            {
+                await App.Services.ChapterAuthoring.ImportReferenceAsync(
+                    App.Services.Session.RequireProjectRoot(), file.Path);
+            }
+            await App.Services.Session.RefreshAsync();
+            ShowStatus(InfoBarSeverity.Success, "References imported", "References stay local until you explicitly select them for a writing request.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Reference import failed", exception.Message);
+        }
+    }
+
+    private async void NewChapter_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureProjectForAuthoring()) return;
+        (ContentDialogResult result, string title, string brief) = await ShowNameDialogAsync(
+            "New blank chapter",
+            "Chapter title",
+            "Chapter goal or brief (optional)",
+            "Create chapter");
+        if (result != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(title)) return;
+        try
+        {
+            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.CreateBlankChapterAsync(
+                App.Services.Session.RequireProjectRoot(),
+                title,
+                brief);
+            await App.Services.Session.RefreshAsync();
+            string segmentId = updated.Chapters.Single(chapter => chapter.ChapterId == updated.ChapterOrder.Last())
+                .SegmentOrder.Single();
+            await LoadProjectAsync(segmentId);
+            ShowStatus(InfoBarSeverity.Success, "Chapter created", "The blank chapter and its opening segment are ready to edit.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Chapter could not be created", exception.Message);
+        }
+    }
+
+    private async void NewSegment_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureProjectForAuthoring()) return;
+        string? chapterId = GetSelectedRailItem()?.ChapterId ?? _segment?.ChapterId ??
+            _project?.ChapterOrder.FirstOrDefault();
+        if (chapterId is null)
+        {
+            NewChapter_Click(sender, e);
+            return;
+        }
+
+        string? title = await PromptForTextAsync("New segment", "Segment title", "Opening", "Add segment");
+        if (string.IsNullOrWhiteSpace(title)) return;
+        VoiceBenchProjectDocument before = App.Services.Session.RequireProject();
+        try
+        {
+            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.AddSegmentAsync(
+                App.Services.Session.RequireProjectRoot(), chapterId, title);
+            await App.Services.Session.RefreshAsync();
+            string newId = updated.Chapters.Single(chapter => chapter.ChapterId == chapterId).SegmentOrder
+                .Except(before.Chapters.Single(chapter => chapter.ChapterId == chapterId).SegmentOrder)
+                .Single();
+            await LoadProjectAsync(newId);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Segment could not be created", exception.Message);
+        }
+    }
+
+    private async void RenameSelected_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        if (_project is null || selected is null) return;
+        string current = selected.SegmentId is null
+            ? _project.Chapters.Single(chapter => chapter.ChapterId == selected.ChapterId).Title
+            : _project.Segments.Single(segment => segment.SegmentId == selected.SegmentId).Title;
+        string? title = await PromptForTextAsync("Rename", "Name", current, "Rename");
+        if (string.IsNullOrWhiteSpace(title)) return;
+        if (selected.SegmentId is null)
+        {
+            await App.Services.ChapterAuthoring.UpdateChapterAsync(
+                App.Services.Session.RequireProjectRoot(), selected.ChapterId, title);
+        }
+        else
+        {
+            await App.Services.ChapterAuthoring.RenameSegmentAsync(
+                App.Services.Session.RequireProjectRoot(), selected.SegmentId, title);
+        }
+
+        await App.Services.Session.RefreshAsync();
+    }
+
+    private async void DuplicateSelected_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        if (selected is null) return;
+        if (selected.SegmentId is null)
+        {
+            await App.Services.ChapterAuthoring.DuplicateChapterAsync(
+                App.Services.Session.RequireProjectRoot(), selected.ChapterId);
+        }
+        else
+        {
+            await App.Services.ChapterAuthoring.DuplicateSegmentAsync(
+                App.Services.Session.RequireProjectRoot(), selected.SegmentId);
+        }
+
+        await App.Services.Session.RefreshAsync();
+        ShowStatus(InfoBarSeverity.Success, "Duplicate created", "The copy has its own canonical source and stable ID.");
+    }
+
+    private async void MoveSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: string offsetText } ||
+            !int.TryParse(offsetText, out int offset) || GetSelectedRailItem() is not RailItem selected) return;
+        if (selected.SegmentId is null)
+        {
+            await App.Services.ChapterAuthoring.MoveChapterAsync(
+                App.Services.Session.RequireProjectRoot(), selected.ChapterId, offset);
+        }
+        else
+        {
+            await App.Services.ChapterAuthoring.MoveSegmentAsync(
+                App.Services.Session.RequireProjectRoot(), selected.ChapterId, selected.SegmentId, offset);
+        }
+
+        await App.Services.Session.RefreshAsync();
+    }
+
+    private async void ToggleChapterInclusion_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        string? chapterId = selected?.ChapterId ?? _segment?.ChapterId;
+        if (_project is null || chapterId is null) return;
+        ChapterDocument chapter = _project.Chapters.Single(item => item.ChapterId == chapterId);
+        await App.Services.ChapterAuthoring.UpdateChapterAsync(
+            App.Services.Session.RequireProjectRoot(),
+            chapterId,
+            includedInCompilation: !chapter.IncludedInCompilation);
+        await App.Services.Session.RefreshAsync();
+    }
+
+    private async void ArchiveChapter_Click(object sender, RoutedEventArgs e)
+    {
+        RailItem? selected = GetSelectedRailItem();
+        string? chapterId = selected?.ChapterId ?? _segment?.ChapterId;
+        if (chapterId is null) return;
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Archive this chapter?",
+            Content = "Its files and history stay in the project, but it will leave the active rail and compilation.",
+            PrimaryButtonText = "Archive",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        await App.Services.ChapterAuthoring.UpdateChapterAsync(
+            App.Services.Session.RequireProjectRoot(),
+            chapterId,
+            includedInCompilation: false,
+            status: ChapterStatus.Archived);
+        await App.Services.Session.RefreshAsync();
+    }
+
+    private async void DraftWithAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EnsureProjectForAuthoring()) return;
+        VoiceBenchProjectDocument project = App.Services.Session.RequireProject();
+        TextBox titleBox = new() { Header = "Chapter title", PlaceholderText = "Coordinating the first review" };
+        TextBox goalBox = new() { Header = "Goal", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80 };
+        TextBox audienceBox = new() { Header = "Audience", Text = project.WritingProfile.Audience };
+        TextBox toneBox = new() { Header = "Tone", Text = project.WritingProfile.Tone };
+        NumberBox durationBox = new() { Header = "Desired duration (minutes)", Value = 5, Minimum = 1, Maximum = 60, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        ComboBox providerBox = CreateWritingProviderPicker(project.WritingProfile.DefaultProviderId);
+        ComboBox modelBox = new() { Header = "Exact model", HorizontalAlignment = HorizontalAlignment.Stretch };
+        void SetDraftModels()
+        {
+            string providerId = GetSelectedContent(providerBox);
+            WritingProviderDescriptor descriptor = App.Services.WritingProviders.Single(item => item.ProviderId == providerId);
+            modelBox.Items.Clear();
+            foreach (WritingModelDescriptor model in descriptor.Models)
+                modelBox.Items.Add(new ComboBoxItem { Content = model.DisplayName, Tag = model.ModelId });
+            SetSelectedContent(modelBox,
+                descriptor.Models.Any(model => model.ModelId == project.WritingProfile.DefaultModelId)
+                    ? project.WritingProfile.DefaultModelId
+                    : descriptor.Models[0].ModelId);
+        }
+        providerBox.SelectionChanged += (_, _) => SetDraftModels();
+        SetDraftModels();
+        ListView references = CreateReferencePicker(project, []);
+        StackPanel fields = new() { Spacing = 10 };
+        foreach (UIElement item in new UIElement[] { titleBox, goalBox, audienceBox, toneBox, durationBox, providerBox, modelBox,
+            new TextBlock { Text = "Only checked local references are sent", Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"] }, references })
+            fields.Children.Add(item);
+        ContentDialog setup = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Draft a chapter with AI",
+            Content = new ScrollViewer { Content = fields, MaxHeight = 560 },
+            PrimaryButtonText = "Generate outline",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await setup.ShowAsync() != ContentDialogResult.Primary) return;
+        if (string.IsNullOrWhiteSpace(titleBox.Text) || string.IsNullOrWhiteSpace(goalBox.Text))
+        {
+            ShowStatus(InfoBarSeverity.Warning, "Chapter goal required", "Add a title and goal before generating an outline.");
+            return;
+        }
+
+        string providerId = GetSelectedContent(providerBox);
+        string modelId = GetSelectedContent(modelBox);
+        string[] referenceIds = references.SelectedItems.OfType<ListViewItem>()
+            .Select(item => item.Tag as string).OfType<string>().ToArray();
+        WritingProfile profile = project.WritingProfile with
+        {
+            Audience = audienceBox.Text.Trim(),
+            Tone = toneBox.Text.Trim(),
+            DefaultProviderId = providerId,
+            DefaultModelId = modelId,
+        };
+        project = project with { WritingProfile = profile };
+        await App.Services.Session.SaveAsync(project);
+        try
+        {
+            WritingContext context = await App.Services.WritingContexts.LoadAsync(
+                App.Services.Session.RequireProjectRoot(), goalBox.Text.Trim(), referenceIds);
+            int targetSeconds = (int)Math.Round(durationBox.Value * 60);
+            WritingOutlineRequest request = new(
+                modelId,
+                titleBox.Text.Trim(),
+                goalBox.Text.Trim(),
+                targetSeconds,
+                context,
+                EstimateWritingTokens(titleBox.Text, goalBox.Text, context));
+            ShowStatus(InfoBarSeverity.Informational, "Generating outline", $"Sending only the brief and {referenceIds.Length} selected reference(s) to {providerId} / {modelId}.");
+            ChapterOutline outline = await App.Services.WritingAssistant.CreateOutlineAsync(providerId, request);
+            ChapterOutline? editedOutline = await ReviewOutlineAsync(outline);
+            if (editedOutline is null) return;
+            ShowStatus(InfoBarSeverity.Informational, "Writing full chapter", "Generating from the approved outline. No project files exist until you accept the preview.");
+            ChapterDraft draft = await App.Services.WritingAssistant.CreateDraftAsync(
+                providerId,
+                new WritingDraftRequest(modelId, editedOutline, context, EstimateWritingTokens(goalBox.Text, context) + 500));
+            if (!await PreviewDraftAsync(draft)) return;
+            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.CreateChapterFromDraftAsync(
+                App.Services.Session.RequireProjectRoot(), draft, goalBox.Text.Trim(), referenceIds);
+            await App.Services.Session.RefreshAsync();
+            await LoadProjectAsync(updated.Chapters.Single(chapter => chapter.ChapterId == updated.ChapterOrder.Last()).SegmentOrder.First());
+            ShowStatus(InfoBarSeverity.Success, "AI draft accepted", "The chapter and canonical segment files were created atomically.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "AI chapter draft stopped", Actionable(exception));
+        }
+    }
+
+    private async void WritingAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null || _segment is null || sender is not Button { Tag: string actionName } ||
+            !Enum.TryParse(actionName, out WritingAction action)) return;
+        if (!await SaveCurrentScriptAsync()) return;
+        string providerId = GetSelectedContent(WritingProviderComboBox);
+        string modelId = GetSelectedContent(WritingModelComboBox);
+        int selectionStart = ScriptTextBox.SelectionStart;
+        int selectionLength = ScriptTextBox.SelectionLength;
+        string originalWhole = ScriptTextBox.Text;
+        string target = selectionLength > 0 ? originalWhole.Substring(selectionStart, selectionLength) : originalWhole;
+        string[] referenceIds = WritingReferencesList.SelectedItems.OfType<ListViewItem>()
+            .Select(item => item.Tag as string).OfType<string>().ToArray();
+        ChapterDocument? chapter = _project.Chapters.SingleOrDefault(item => item.ChapterId == _segment.ChapterId);
+        try
+        {
+            WritingContext context = await App.Services.WritingContexts.LoadAsync(
+                App.Services.Session.RequireProjectRoot(), chapter?.Brief ?? string.Empty, referenceIds);
+            WritingRevisionRequest request = new(
+                modelId,
+                action,
+                target,
+                action == WritingAction.Custom ? CustomWritingInstructionTextBox.Text.Trim() : null,
+                context,
+                EstimateWritingTokens(target, CustomWritingInstructionTextBox.Text, context));
+            ShowStatus(InfoBarSeverity.Informational, "Generating writing proposal", $"Using {providerId} / {modelId}. The canonical script will not change without acceptance.");
+            WritingProposal partial = await App.Services.WritingAssistant.ReviseAsync(providerId, request);
+            string proposedWhole = selectionLength > 0
+                ? string.Concat(originalWhole.AsSpan(0, selectionStart), partial.ProposedText, originalWhole.AsSpan(selectionStart + selectionLength))
+                : partial.ProposedText;
+            WritingProposal proposal = partial with { ProposedText = proposedWhole };
+            bool accept = await ShowWritingDiffAsync(originalWhole, proposal, action != WritingAction.Critique);
+            if (!accept || action == WritingAction.Critique) return;
+            _pendingWritingProposal = proposal;
+            _pendingWritingAction = action;
+            _pendingWritingProviderId = providerId;
+            _pendingWritingModelId = modelId;
+            _pendingWritingSourceHash = _segment.SourceSha256;
+            await App.Services.ChapterAuthoring.ApplyWritingProposalAsync(
+                App.Services.Session.RequireProjectRoot(),
+                _segment.SegmentId,
+                _pendingWritingSourceHash,
+                proposal,
+                action,
+                providerId,
+                modelId);
+            await App.Services.Session.RefreshAsync();
+            await LoadProjectAsync(_segment.SegmentId);
+            WritingProposalInfoBar.Message = $"Accepted {action}. A restorable local revision was saved.";
+            WritingProposalInfoBar.IsOpen = true;
+            ShowStatus(InfoBarSeverity.Success, "Writing proposal accepted", "Rendered or approved audio was marked stale and must be rerendered before Assembly.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Writing proposal stopped", Actionable(exception));
+        }
+    }
+
+    private async Task<bool> ShowWritingDiffAsync(string original, WritingProposal proposal, bool allowAccept)
+    {
+        int originalWords = CountWords(original);
+        int proposedWords = CountWords(proposal.ProposedText);
+        Grid comparison = new() { ColumnSpacing = 12, RowSpacing = 12 };
+        bool sideBySide = ActualWidth >= 900;
+        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = sideBySide ? new GridLength(1, GridUnitType.Star) : new GridLength(0) });
+        comparison.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        comparison.RowDefinitions.Add(new RowDefinition { Height = sideBySide ? new GridLength(0) : GridLength.Auto });
+        TextBox originalBox = new() { Header = "Original", Text = original, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 260 };
+        TextBox proposedBox = new() { Header = allowAccept ? "Proposal" : "Critique context", Text = proposal.ProposedText, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 260 };
+        comparison.Children.Add(originalBox);
+        Grid.SetColumn(proposedBox, sideBySide ? 1 : 0);
+        Grid.SetRow(proposedBox, sideBySide ? 0 : 1);
+        comparison.Children.Add(proposedBox);
+        StackPanel content = new() { Spacing = 10 };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{proposal.Summary}\n\nWords: {originalWords} → {proposedWords}  ·  Estimated duration: {FormatDuration(SegmentRenderService.EstimateDuration(original))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposal.ProposedText))}" +
+                (proposal.Warnings.Count == 0 ? string.Empty : $"\nWarnings: {string.Join("; ", proposal.Warnings)}"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(comparison);
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = allowAccept ? "Review original and proposal" : "Writing critique",
+            Content = new ScrollViewer { Content = content, MaxHeight = 620 },
+            PrimaryButtonText = allowAccept ? "Accept proposal" : null,
+            CloseButtonText = allowAccept ? "Reject" : "Close",
+            DefaultButton = allowAccept ? ContentDialogButton.Close : ContentDialogButton.None,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private async Task<ChapterOutline?> ReviewOutlineAsync(ChapterOutline outline)
+    {
+        TextBox title = new() { Header = "Chapter title", Text = outline.Title };
+        StackPanel fields = new() { Spacing = 10 };
+        fields.Children.Add(title);
+        List<(TextBox Title, TextBox Purpose, NumberBox Seconds)> editors = [];
+        foreach ((ChapterOutlineSegment segment, int index) in outline.Segments.Select((item, index) => (item, index)))
+        {
+            TextBox segmentTitle = new() { Header = $"Segment {index + 1} title", Text = segment.Title };
+            TextBox purpose = new() { Header = "Purpose", Text = segment.Purpose };
+            NumberBox seconds = new() { Header = "Estimated seconds", Value = segment.TargetSeconds, Minimum = 1, Maximum = 600 };
+            editors.Add((segmentTitle, purpose, seconds));
+            fields.Children.Add(segmentTitle);
+            fields.Children.Add(purpose);
+            fields.Children.Add(seconds);
+        }
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Approve or edit the outline",
+            Content = new ScrollViewer { Content = fields, MaxHeight = 580 },
+            PrimaryButtonText = "Approve and draft",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        return outline with
+        {
+            Title = title.Text.Trim(),
+            Segments = editors.Select(item => new ChapterOutlineSegment(
+                item.Title.Text.Trim(), item.Purpose.Text.Trim(), Math.Max(1, (int)item.Seconds.Value))).ToArray(),
+        };
+    }
+
+    private async Task<bool> PreviewDraftAsync(ChapterDraft draft)
+    {
+        string preview = string.Join("\n\n", draft.Segments.Select(segment => $"## {segment.Title}\n\n{segment.Text}"));
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Preview complete chapter — {draft.Title}",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 620,
+                Content = new TextBlock { Text = preview, TextWrapping = TextWrapping.Wrap },
+            },
+            PrimaryButtonText = "Accept and create chapter",
+            CloseButtonText = "Reject",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private static ComboBox CreateWritingProviderPicker(string selectedProvider)
+    {
+        ComboBox box = new() { Header = "Provider", HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (WritingProviderDescriptor provider in App.Services.WritingProviders)
+            box.Items.Add(new ComboBoxItem { Content = provider.DisplayName, Tag = provider.ProviderId });
+        SetSelectedContent(box, selectedProvider);
+        return box;
+    }
+
+    private static ListView CreateReferencePicker(VoiceBenchProjectDocument project, IEnumerable<string> selectedIds)
+    {
+        HashSet<string> selected = selectedIds.ToHashSet(StringComparer.Ordinal);
+        ListView list = new() { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 160 };
+        foreach (SourceReferenceDocument reference in project.SourceReferences)
+        {
+            ListViewItem item = new() { Content = reference.Name, Tag = reference.ReferenceId };
+            list.Items.Add(item);
+            if (selected.Contains(reference.ReferenceId)) list.SelectedItems.Add(item);
+        }
+        return list;
+    }
+
+    private async Task<(ContentDialogResult Result, string Title, string Brief)> ShowNameDialogAsync(
+        string dialogTitle, string titleHeader, string briefHeader, string primaryText)
+    {
+        TextBox title = new() { Header = titleHeader };
+        TextBox brief = new() { Header = briefHeader, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80 };
+        StackPanel panel = new() { Spacing = 10 };
+        panel.Children.Add(title);
+        panel.Children.Add(brief);
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = dialogTitle,
+            Content = panel,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        ContentDialogResult result = await dialog.ShowAsync();
+        return (result, title.Text.Trim(), brief.Text.Trim());
+    }
+
+    private async Task<string?> PromptForTextAsync(
+        string dialogTitle, string header, string current, string primaryText)
+    {
+        TextBox box = new() { Header = header, Text = current };
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = dialogTitle,
+            Content = box,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text.Trim() : null;
+    }
+
+    private RailItem? GetSelectedRailItem() => ChapterTree.SelectedNode?.Content as RailItem;
+
+    private bool EnsureProjectForAuthoring()
+    {
+        if (App.Services.Session.HasProject) return true;
+        ShowStatus(InfoBarSeverity.Warning, "Open a project first", "Chapters are stored inside the active project folder.");
+        return false;
+    }
+
+    private static int EstimateWritingTokens(params object?[] values)
+    {
+        int characters = values.Sum(value => value switch
+        {
+            null => 0,
+            string text => text.Length,
+            WritingContext context => context.References.Sum(reference => reference.Text.Length) +
+                context.ChapterBrief.Length + context.Profile.Audience.Length + context.Profile.Tone.Length + context.Profile.StyleNotes.Length,
+            _ => value.ToString()?.Length ?? 0,
+        });
+        return Math.Max(1, (int)Math.Ceiling(characters / 3d));
+    }
+
+    private static int CountWords(string text) =>
+        text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 
     private void ScriptTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -493,55 +1110,22 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
         if (!await SaveCurrentScriptAsync()) return;
-
-        VoiceBenchProjectDocument project = _project;
-        SegmentDocument segment = _segment;
-        int segmentIndex = project.Segments.FindIndex(item => item.SegmentId == segment.SegmentId);
-        string originalPath = App.Services.Session.ResolveProjectPath(segment.ScriptRelativePath);
-        string originalText = await File.ReadAllTextAsync(originalPath);
-        string newSegmentId = Guid.NewGuid().ToString("N");
-        string newTitle = $"{segment.Title} (part 2)";
-        string newFileName = ScriptSegmentNaming.CreateFileName(segmentIndex + 2, newTitle, newSegmentId);
-        string newRelativePath = VoiceBenchProjectLayout.ToManifestPath(Path.Combine(VoiceBenchProjectLayout.ScriptsDirectory, newFileName));
-        string newPath = App.Services.Session.ResolveProjectPath(newRelativePath);
-        string originalTemporaryPath = $"{originalPath}.{Guid.NewGuid():N}.tmp";
-
         try
         {
-            await File.WriteAllTextAsync(originalTemporaryPath, first);
-            File.Move(originalTemporaryPath, originalPath, overwrite: true);
-            await using (FileStream stream = new(newPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
-            await using (StreamWriter writer = new(stream))
-            {
-                await writer.WriteAsync(second);
-            }
-
-            SegmentDocument firstSegment = SegmentStateRules.WithSourceHash(segment, SourceTextHasher.Compute(first));
-            SegmentDocument secondSegment = new()
-            {
-                SegmentId = newSegmentId,
-                Title = newTitle,
-                ScriptRelativePath = newRelativePath,
-                SourceSha256 = SourceTextHasher.Compute(second),
-                Status = SegmentStatus.Draft,
-                VoicePresetId = segment.VoicePresetId,
-                Directions = segment.Directions,
-            };
-            List<SegmentDocument> segments = [.. project.Segments];
-            segments[segmentIndex] = firstSegment;
-            segments.Insert(segmentIndex + 1, secondSegment);
-            List<string> order = [.. project.SegmentOrder];
-            int orderIndex = order.IndexOf(segment.SegmentId);
-            order.Insert(orderIndex >= 0 ? orderIndex + 1 : order.Count, newSegmentId);
-            await App.Services.Session.SaveAsync(project with { Segments = segments, SegmentOrder = order });
+            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.SplitSegmentAsync(
+                App.Services.Session.RequireProjectRoot(),
+                _segment.SegmentId,
+                cursor,
+                _segment.SourceSha256);
+            await App.Services.Session.RefreshAsync();
+            ChapterDocument chapter = updated.Chapters.Single(item => item.ChapterId == _segment.ChapterId);
+            int originalIndex = chapter.SegmentOrder.IndexOf(_segment.SegmentId);
+            string newSegmentId = chapter.SegmentOrder[originalIndex + 1];
             await LoadProjectAsync(newSegmentId);
-            ShowStatus(InfoBarSeverity.Success, "Segment split", $"Created '{newTitle}' immediately after the original segment.");
+            ShowStatus(InfoBarSeverity.Success, "Segment split", "Created a new segment immediately after the original.");
         }
         catch (Exception exception)
         {
-            if (File.Exists(originalTemporaryPath)) File.Delete(originalTemporaryPath);
-            await File.WriteAllTextAsync(originalPath, originalText);
-            if (File.Exists(newPath)) File.Delete(newPath);
             ShowStatus(InfoBarSeverity.Error, "Segment could not be split", exception.Message);
         }
     }
@@ -650,27 +1234,9 @@ public sealed partial class WorkbenchView : UserControl
         }
     }
 
-    private async void BuildMaster_Click(object sender, RoutedEventArgs e)
-    {
-        if (_project is null)
-        {
-            ShowStatus(InfoBarSeverity.Warning, "No project is open", "Open a project before building a master.");
-            return;
-        }
-
-        try
-        {
-            ShowStatus(InfoBarSeverity.Informational, "Building master", "VoiceBench is normalizing, joining, probing, and exporting the approved sequence.");
-            MasteringResult result = await App.Services.BuildMasterAsync(_project.Name);
-            ShowStatus(InfoBarSeverity.Success, "Master verified", $"Created {result.MasterRelativePath} and {result.ReportRelativePath} at {result.IntegratedLufs:0.0} LUFS.");
-        }
-        catch (Exception exception)
-        {
-            ShowStatus(InfoBarSeverity.Error, "Master is blocked", Actionable(exception));
-        }
-    }
-
     private void OpenVoiceLab_Click(object sender, RoutedEventArgs e) => App.MainWindow?.NavigateTo("voice-lab");
+
+    private void OpenAssembly_Click(object sender, RoutedEventArgs e) => App.MainWindow?.NavigateTo("assembly");
 
     private void LoadDefaultPreset(VoiceBenchProjectDocument project)
     {
@@ -761,8 +1327,15 @@ public sealed partial class WorkbenchView : UserControl
     private void SelectTakeRailItem(string? segmentId)
     {
         if (segmentId is null) return;
-        TakeRailList.SelectedItem = TakeRailList.Items.OfType<ListViewItem>()
+        TreeViewNode? node = ChapterTree.RootNodes
+            .SelectMany(chapter => chapter.Children)
+            .FirstOrDefault(candidate => candidate.Content is RailItem item &&
+                string.Equals(item.SegmentId, segmentId, StringComparison.Ordinal));
+        if (node is not null) ChapterTree.SelectedNode = node;
+        _ignoreCompactPicker = true;
+        CompactSegmentPicker.SelectedItem = CompactSegmentPicker.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(item => string.Equals(item.Tag as string, segmentId, StringComparison.Ordinal));
+        _ignoreCompactPicker = false;
     }
 
     private string GetSelectedProviderId() =>
@@ -796,6 +1369,8 @@ public sealed partial class WorkbenchView : UserControl
     {
         SpeechProviderException { Kind: SpeechProviderFailureKind.Credentials } => $"{exception.Message} Open Settings and add the exact provider key.",
         SpeechProviderException { Kind: SpeechProviderFailureKind.Authentication } => $"{exception.Message} Replace the provider key in Settings and try again.",
+        WritingProviderException { Kind: WritingProviderFailureKind.Credentials } => $"{exception.Message} Open Settings and add the exact provider key.",
+        WritingProviderException { Kind: WritingProviderFailureKind.Authentication } => $"{exception.Message} Replace the provider key in Settings and try again.",
         FileNotFoundException => $"{exception.Message} Open Settings to download and verify the pinned FFmpeg toolchain.",
         _ => exception.Message,
     };

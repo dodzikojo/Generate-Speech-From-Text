@@ -1,13 +1,14 @@
 # VoiceBench
 
 VoiceBench is a Windows 11 narration workstation for turning folder-based scripts into
-auditioned, approved, mastered audio. It keeps the clean transcript separate from the exact
-provider submission, preserves every raw take, and makes narration status visible on a
-segment-by-segment take rail.
+auditioned, approved, mastered audio. Projects contain ordered chapters and render-sized
+segments. VoiceBench keeps the clean transcript separate from the exact provider submission,
+preserves every raw take, and makes narration status visible in a chapter/segment rail.
 
 The repository contains a packaged .NET 10 / WinUI 3 app and a companion `voicebench` CLI.
-Google Gemini and OpenAI speech generation sit behind provider-neutral contracts; FFmpeg is
-downloaded and verified on first use for mastering.
+Google Gemini and OpenAI speech and writing generation sit behind provider-neutral contracts;
+FFmpeg is downloaded and verified on first use for mastering. AI writing is outline-first,
+uses only explicitly selected local references, and always requires review before files change.
 
 ## Prerequisites
 
@@ -40,7 +41,8 @@ voicebench project create <folder> --name <name>
 voicebench project validate <project>
 voicebench render <project> --segment <id>
 voicebench render <project> --ready
-voicebench master <project> --name <name>
+voicebench master <project> --name <name> [--compilation]
+voicebench master <project> --name <name> --chapter <id>
 ```
 
 The CLI looks for `GEMINI_API_KEY` or `OPENAI_API_KEY` first, then Windows Credential
@@ -48,7 +50,7 @@ Manager. Keys are never accepted as command-line arguments.
 
 ## Project layout
 
-Each project is an ordinary movable folder. Script files in `02-scripts` are canonical;
+Each project is an ordinary movable folder. Chapter/segment script files in `02-scripts` are canonical;
 `voicebench.project.json` stores stable IDs, order, settings, hashes, statuses, and history.
 See the [product design](docs/superpowers/specs/2026-08-26-voicebench-design.md) for the full
 contract and the [execution plan](docs/superpowers/plans/2026-08-26-voicebench-execution.md)

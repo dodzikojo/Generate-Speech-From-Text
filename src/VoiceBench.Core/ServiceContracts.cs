@@ -85,7 +85,17 @@ public interface IRenderQueue
     Task RetryAsync(Guid jobId, CancellationToken cancellationToken = default);
 }
 
-public sealed record MasteringRequest(string ProjectRoot, string Name);
+public enum MasterScope
+{
+    Chapter,
+    Compilation,
+}
+
+public sealed record MasteringRequest(
+    string ProjectRoot,
+    string Name,
+    MasterScope Scope = MasterScope.Compilation,
+    string? ChapterId = null);
 
 public sealed record MasteringResult(
     string MasterRelativePath,

@@ -46,4 +46,17 @@ public sealed class CliApplicationTests
         Assert.Equal((int)CliExitCode.ValidationFailure, exitCode);
         Assert.Contains("project.manifest-invalid", error.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Master_RejectsConflictingChapterAndCompilationScopes()
+    {
+        StringWriter error = new();
+        CliApplication app = new(new FileProjectRepository(), new StringWriter(), error);
+
+        int exitCode = await app.RunAsync(
+            ["master", "project", "--name", "Final", "--chapter", "chapter-a", "--compilation"]);
+
+        Assert.Equal((int)CliExitCode.Usage, exitCode);
+        Assert.Contains("either --chapter", error.ToString(), StringComparison.Ordinal);
+    }
 }

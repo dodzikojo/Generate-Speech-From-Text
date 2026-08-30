@@ -85,14 +85,22 @@
                         <KeyboardAccelerator Key="Number3" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="AssemblyNavigationItem"
+                                    Content="Assembly" Icon="AllApps" Tag="assembly"
+                                    AutomationProperties.Name="Assembly"
+                                    AutomationProperties.AcceleratorKey="Alt+4">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number4" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem x:Name="SettingsNavigationItem"
                                     Content="Settings" Icon="Setting" Tag="settings"
                                     AutomationProperties.Name="Settings"
-                                    AutomationProperties.AcceleratorKey="Alt+4">
+                                    AutomationProperties.AcceleratorKey="Alt+5">
                     <NavigationViewItem.KeyboardAccelerators>
-                        <KeyboardAccelerator Key="Number4" Modifiers="Menu" />
+                        <KeyboardAccelerator Key="Number5" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
@@ -101,6 +109,7 @@
                 <views:ProjectsView x:Name="ProjectsSurface" />
                 <views:WorkbenchView x:Name="WorkbenchSurface" Visibility="Collapsed" />
                 <views:VoiceLabView x:Name="VoiceLabSurface" Visibility="Collapsed" />
+                <views:AssemblyView x:Name="AssemblySurface" Visibility="Collapsed" />
                 <views:SettingsView x:Name="SettingsSurface" Visibility="Collapsed" />
             </Grid>
         </NavigationView>

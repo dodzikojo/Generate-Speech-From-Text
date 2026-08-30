@@ -101,6 +101,24 @@ public static class ScriptSegmentNaming
         return $"{ordinal:000}-{slug}--{suffix}.md";
     }
 
+    public static string CreateDirectoryName(int ordinal, string title, string stableId)
+    {
+        if (ordinal < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ordinal));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stableId);
+        string suffix = new(stableId.Where(char.IsLetterOrDigit).Take(6).ToArray());
+        if (suffix.Length < 6)
+        {
+            throw new ArgumentException("A stable ID must contain at least six letters or digits.", nameof(stableId));
+        }
+
+        return $"{ordinal:000}-{Slugify(title)}--{suffix.ToLowerInvariant()}";
+    }
+
     private static string Slugify(string value)
     {
         var result = new StringBuilder();

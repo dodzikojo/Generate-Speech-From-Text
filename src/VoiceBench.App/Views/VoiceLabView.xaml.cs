@@ -127,7 +127,7 @@ public sealed partial class VoiceLabView : UserControl
 
         if (string.IsNullOrWhiteSpace(AuditionTextBox.Text))
         {
-            SegmentDocument? first = project.SegmentOrder
+            SegmentDocument? first = ProjectOrdering.GetPlaybackOrderedSegmentIds(project)
                 .Select(id => project.Segments.FirstOrDefault(item => item.SegmentId == id))
                 .FirstOrDefault(item => item is not null)
                 ?? project.Segments.FirstOrDefault();

@@ -4,7 +4,9 @@ public static class VoiceBenchProjectLayout
 {
     public const string ManifestFileName = "voicebench.project.json";
     public const string SourceDirectory = "01-source";
+    public const string SourceReferencesDirectory = "01-source/references";
     public const string ScriptsDirectory = "02-scripts";
+    public const string ScriptRevisionsDirectory = "02-scripts/.revisions";
     public const string RenderCopiesDirectory = "03-render-copies";
     public const string GeneratedAudioDirectory = "04-generated-audio";
     public const string AuditionsDirectory = "04-generated-audio/auditions";
@@ -17,7 +19,9 @@ public static class VoiceBenchProjectLayout
     public static IReadOnlyList<string> RequiredDirectories { get; } =
     [
         SourceDirectory,
+        SourceReferencesDirectory,
         ScriptsDirectory,
+        ScriptRevisionsDirectory,
         RenderCopiesDirectory,
         AuditionsDirectory,
         SegmentsDirectory,

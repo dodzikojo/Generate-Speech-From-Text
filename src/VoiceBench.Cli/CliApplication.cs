@@ -166,7 +166,7 @@ public sealed class CliApplication(
         else
         {
             VoiceBenchProjectDocument project = await projects.LoadAsync(folder, cancellationToken).ConfigureAwait(false);
-            segmentIds = project.SegmentOrder
+            segmentIds = ProjectOrdering.GetPlaybackOrderedSegmentIds(project)
                 .Where(id => project.Segments.Single(segment => segment.SegmentId == id).Status == SegmentStatus.Ready)
                 .ToArray();
         }
@@ -225,6 +225,15 @@ public sealed class CliApplication(
             return (int)CliExitCode.Usage;
         }
 
+        string? chapterId = GetOption(options, "--chapter");
+        bool compilation = options.Contains("--compilation", StringComparer.Ordinal);
+        if (chapterId is not null && compilation)
+        {
+            await error.WriteLineAsync("master accepts either --chapter <id> or --compilation, not both.")
+                .ConfigureAwait(false);
+            return (int)CliExitCode.Usage;
+        }
+
         try
         {
             using HttpClient httpClient = new();
@@ -233,7 +242,11 @@ public sealed class CliApplication(
                 .ConfigureAwait(false);
             FfmpegMasteringService mastering = new(projects, new ProcessRunner(), tools);
             MasteringResult result = await mastering.BuildAsync(
-                new MasteringRequest(folder, name),
+                new MasteringRequest(
+                    folder,
+                    name,
+                    chapterId is null ? MasterScope.Compilation : MasterScope.Chapter,
+                    chapterId),
                 cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync($"Master: {result.MasterRelativePath}").ConfigureAwait(false);
             await output.WriteLineAsync($"Report: {result.ReportRelativePath}").ConfigureAwait(false);
@@ -256,7 +269,8 @@ public sealed class CliApplication(
               voicebench project validate <project>
               voicebench render <project> --segment <id>
               voicebench render <project> --ready
-              voicebench master <project> --name <name>
+              voicebench master <project> --name <name> [--compilation]
+              voicebench master <project> --name <name> --chapter <id>
             """);
         return (int)CliExitCode.Usage;
     }

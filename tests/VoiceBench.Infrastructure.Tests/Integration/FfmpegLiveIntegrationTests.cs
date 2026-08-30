@@ -35,7 +35,13 @@ public sealed class FfmpegLiveIntegrationTests
         {
             string scriptRelative = $"02-scripts/{id}.md";
             string audioRelative = $"04-generated-audio/segments/{id}.processed.wav";
+            string cleanRelative = $"03-render-copies/{id}.clean.md";
+            string submittedRelative = $"03-render-copies/{id}.submitted.md";
             await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, scriptRelative), text);
+            await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, cleanRelative), text);
+            await File.WriteAllTextAsync(
+                VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, submittedRelative),
+                $"## Directions\n\n(none)\n\n## Exact submitted text\n\n{text}");
             WriteTone(
                 VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, audioRelative),
                 frequency,
@@ -45,6 +51,7 @@ public sealed class FfmpegLiveIntegrationTests
             segments.Add(new SegmentDocument
             {
                 SegmentId = id,
+                ChapterId = "chapter",
                 Title = title,
                 ScriptRelativePath = scriptRelative,
                 SourceSha256 = hash,
@@ -61,12 +68,16 @@ public sealed class FfmpegLiveIntegrationTests
                         ModelId = "sine",
                         Voice = "tone",
                         SourceSha256 = hash,
+                        SubmittedTextSha256 = hash,
+                        DirectionsSha256 = SourceTextHasher.Compute(string.Empty),
                         ApprovalSourceSha256 = hash,
                         RawAudioRelativePath = audioRelative,
                         ProcessedAudioRelativePath = audioRelative,
                         Duration = TimeSpan.FromSeconds(seconds),
                         SampleRate = 48_000,
                         Channels = 1,
+                        CleanSourceRelativePath = cleanRelative,
+                        SubmittedTextRelativePath = submittedRelative,
                     },
                 ],
             });
@@ -75,7 +86,16 @@ public sealed class FfmpegLiveIntegrationTests
         await repository.SaveAsync(directory.Root, project with
         {
             Segments = segments,
-            SegmentOrder = segments.Select(segment => segment.SegmentId).ToList(),
+            ChapterOrder = ["chapter"],
+            Chapters =
+            [
+                new ChapterDocument
+                {
+                    ChapterId = "chapter",
+                    Title = "Chapter",
+                    SegmentOrder = segments.Select(segment => segment.SegmentId).ToList(),
+                },
+            ],
         });
         FfmpegMasteringService mastering = new(repository, new ProcessRunner(), tools);
 

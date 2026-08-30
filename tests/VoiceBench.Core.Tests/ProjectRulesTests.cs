@@ -62,7 +62,7 @@ public sealed class ProjectRulesTests
     }
 
     [Fact]
-    public void Mastering_is_blocked_after_source_change_and_allowed_after_explicit_reapproval()
+    public void Mastering_remains_blocked_when_an_older_take_is_explicitly_reapproved()
     {
         var originalHash = SourceTextHasher.Compute("Original");
         var project = CreateProject(CreateApprovedSegment(originalHash));
@@ -82,7 +82,9 @@ public sealed class ProjectRulesTests
             stale.RenderHistory[0].RenderId,
             ApprovalTime,
             explicitlyApproveStaleSource: true);
-        Assert.True(MasterEligibilityEvaluator.Evaluate(CreateProject(reapproved)).CanBuild);
+        MasterEligibility reapprovedEligibility = MasterEligibilityEvaluator.Evaluate(CreateProject(reapproved));
+        Assert.False(reapprovedEligibility.CanBuild);
+        Assert.Contains(reapprovedEligibility.Issues, issue => issue.Code == "master.segment-stale");
     }
 
     [Fact]
@@ -102,6 +104,7 @@ public sealed class ProjectRulesTests
         return new SegmentDocument
         {
             SegmentId = "intro",
+            ChapterId = "chapter",
             Title = "Introduction",
             ScriptRelativePath = "02-scripts/001-introduction--a1b2c3.md",
             SourceSha256 = hash,
@@ -127,7 +130,16 @@ public sealed class ProjectRulesTests
     private static VoiceBenchProjectDocument CreateProject(SegmentDocument segment) => new()
     {
         Name = "Test",
-        SegmentOrder = [segment.SegmentId],
+        ChapterOrder = ["chapter"],
+        Chapters =
+        [
+            new ChapterDocument
+            {
+                ChapterId = "chapter",
+                Title = "Chapter",
+                SegmentOrder = [segment.SegmentId],
+            },
+        ],
         Segments = [segment],
     };
 }
