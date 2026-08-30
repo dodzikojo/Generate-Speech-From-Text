@@ -7,11 +7,11 @@ namespace IssueLab.VoiceBench.Core.Tests;
 public sealed class ProjectDocumentTests
 {
     [Fact]
-    public void New_document_uses_schema_two_and_narration_audio_standard()
+    public void New_document_uses_schema_three_and_narration_audio_standard()
     {
         var document = new VoiceBenchProjectDocument();
 
-        Assert.Equal(2, document.SchemaVersion);
+        Assert.Equal(3, document.SchemaVersion);
         Assert.Equal(48_000, document.AudioStandard.SampleRate);
         Assert.Equal(1, document.AudioStandard.Channels);
         Assert.Equal(-16, document.AudioStandard.IntegratedLufs);
@@ -48,11 +48,11 @@ public sealed class ProjectDocumentTests
             }
             """)!.AsObject();
         var migrator = new ProjectDocumentMigrator(
-            [new ZeroToOneMigration(), new OneToTwoProjectDocumentMigration()]);
+            [new ZeroToOneMigration(), new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
 
         var document = migrator.Deserialize(source);
 
-        Assert.Equal(2, document.SchemaVersion);
+        Assert.Equal(3, document.SchemaVersion);
         Assert.Equal("Training narration", document.Name);
         Assert.Equal(750, document.AudioStandard.PauseMilliseconds);
         Assert.Equal(0, source["schemaVersion"]!.GetValue<int>());
@@ -88,7 +88,7 @@ public sealed class ProjectDocumentTests
               }]
             }
             """)!.AsObject();
-        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration()]);
+        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
 
@@ -108,7 +108,7 @@ public sealed class ProjectDocumentTests
     {
         JsonObject source = JsonNode.Parse(
             """{"schemaVersion":1,"name":"Empty","segmentOrder":[],"segments":[]}""")!.AsObject();
-        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration()]);
+        ProjectDocumentMigrator migrator = new([new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
 
@@ -126,6 +126,37 @@ public sealed class ProjectDocumentTests
         var exception = Assert.Throws<ProjectSchemaException>(() => migrator.MigrateToCurrent(source));
 
         Assert.Contains("No migration", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Schema_two_migration_initializes_authoring_hashes_and_ai_cue_opt_in()
+    {
+        JsonObject source = JsonNode.Parse(
+            """
+            {
+              "schemaVersion": 2,
+              "writingProfile": { "tone": "Clear" },
+              "segments": [{
+                "segmentId": "intro",
+                "sourceSha256": "narration-hash",
+                "renderHistory": [{
+                  "renderId": "c01bfa56-135f-42c5-84c9-6b796ad0fb82",
+                  "sourceSha256": "narration-hash",
+                  "cleanSourceRelativePath": "03-render-copies/intro.clean.md"
+                }]
+              }]
+            }
+            """)!.AsObject();
+        ProjectDocumentMigrator migrator = new([new TwoToThreeProjectDocumentMigration()]);
+
+        VoiceBenchProjectDocument document = migrator.Deserialize(source);
+
+        SegmentDocument segment = Assert.Single(document.Segments);
+        Assert.Equal("narration-hash", segment.AuthoringSha256);
+        RenderRecord render = Assert.Single(segment.RenderHistory);
+        Assert.Equal("narration-hash", render.AuthoringSourceSha256);
+        Assert.Equal(render.CleanSourceRelativePath, render.AuthoringSourceRelativePath);
+        Assert.False(document.WritingProfile.GenerateProductionCues);
     }
 
     [Fact]

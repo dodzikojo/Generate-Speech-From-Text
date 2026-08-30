@@ -36,4 +36,18 @@ public sealed class ExternalEditCoordinatorTests
 
         Assert.Null(ExternalEditCoordinator.Detect(segment, "Original", false, "External disk change"));
     }
+
+    [Fact]
+    public void Detect_UsesFullAuthoringHashWhenTheScriptContainsCues()
+    {
+        const string authoring = "@visual: Show the dashboard.\n\nOriginal";
+        SegmentDocument segment = new()
+        {
+            SegmentId = "segment-1",
+            SourceSha256 = SourceTextHasher.Compute("Original"),
+            AuthoringSha256 = SourceTextHasher.Compute(authoring),
+        };
+
+        Assert.Null(ExternalEditCoordinator.Detect(segment, authoring, true, authoring));
+    }
 }

@@ -9,7 +9,8 @@ public sealed class FileProjectRepository(
     IAtomicFileCommitter? committer = null) : IProjectRepository
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
-    private readonly ProjectDocumentMigrator _migrator = new([new OneToTwoProjectDocumentMigration()]);
+    private readonly ProjectDocumentMigrator _migrator = new(
+        [new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration()]);
     private readonly IAtomicFileCommitter _committer = committer ?? new AtomicFileCommitter();
 
     public async Task<VoiceBenchProjectDocument> CreateAsync(
@@ -242,7 +243,27 @@ public sealed class FileProjectRepository(
                 }
 
                 string content = await File.ReadAllTextAsync(scriptPath, cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(SourceTextHasher.Compute(content), segment.SourceSha256, StringComparison.OrdinalIgnoreCase))
+                ParsedScriptDocument parsed = new ProductionScriptParser().Parse(content);
+                foreach (ScriptDocumentDiagnostic diagnostic in parsed.Diagnostics)
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        diagnostic.Code,
+                        $"{diagnostic.Message} Line {diagnostic.SourceLine} in '{segment.ScriptRelativePath}'.",
+                        segment.SegmentId));
+                }
+
+                string expectedAuthoringHash = string.IsNullOrWhiteSpace(segment.AuthoringSha256)
+                    ? segment.SourceSha256
+                    : segment.AuthoringSha256;
+                if (!string.Equals(SourceTextHasher.Compute(content), expectedAuthoringHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    issues.Add(new ProjectValidationIssue(
+                        "segment.authoring-changed",
+                        $"Script file '{segment.ScriptRelativePath}' differs from its recorded authoring hash.",
+                        segment.SegmentId));
+                }
+
+                if (!string.Equals(SourceTextHasher.Compute(parsed.NarrationText), segment.SourceSha256, StringComparison.OrdinalIgnoreCase))
                 {
                     issues.Add(new ProjectValidationIssue(
                         "segment.source-changed",
@@ -315,6 +336,11 @@ public sealed class FileProjectRepository(
                 if (!string.IsNullOrWhiteSpace(render.CleanSourceRelativePath))
                 {
                     ValidateProjectPath(render.CleanSourceRelativePath, $"Render '{render.RenderId}' clean source");
+                }
+
+                if (!string.IsNullOrWhiteSpace(render.AuthoringSourceRelativePath))
+                {
+                    ValidateProjectPath(render.AuthoringSourceRelativePath, $"Render '{render.RenderId}' authoring source");
                 }
 
                 if (!string.IsNullOrWhiteSpace(render.SubmittedTextRelativePath))

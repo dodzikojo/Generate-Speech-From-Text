@@ -164,7 +164,7 @@
 
             <Border x:Name="ScriptEditor" Grid.Column="1" Style="{StaticResource StudioPanelStyle}" AutomationProperties.Name="Canonical script editor">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <Grid x:Name="ScriptEditorHeader" RowSpacing="8">
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -189,10 +189,61 @@
                             </StackPanel>
                         </InfoBar.Content>
                     </InfoBar>
-                    <TextBox x:Name="ScriptTextBox" Grid.Row="2" Margin="0,12" AcceptsReturn="True" TextWrapping="Wrap"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="18" TextChanged="ScriptTextBox_TextChanged"
-                             AutomationProperties.Name="Canonical script text" />
-                    <Grid Grid.Row="3">
+                    <CommandBar x:Name="ProductionCueBar" Grid.Row="2" Margin="0,10,0,0" Padding="0"
+                                Background="Transparent" DefaultLabelPosition="Right"
+                                AutomationProperties.Name="Production guidance tools">
+                        <AppBarButton Label="Visual" Tag="visual" Click="InsertCue_Click" ToolTipService.ToolTip="Insert a visual cue">
+                            <AppBarButton.Icon><FontIcon Glyph="&#xE8B9;" /></AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Label="Action" Tag="action" Click="InsertCue_Click" ToolTipService.ToolTip="Insert an on-screen action">
+                            <AppBarButton.Icon><FontIcon Glyph="&#xE8CB;" /></AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Label="On-screen" Tag="screen" Click="InsertCue_Click" ToolTipService.ToolTip="Insert text shown in the video">
+                            <AppBarButton.Icon><FontIcon Glyph="&#xE8A7;" /></AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarButton Label="Note" Tag="note" Click="InsertCue_Click" ToolTipService.ToolTip="Insert an internal production note">
+                            <AppBarButton.Icon><FontIcon Glyph="&#xE70B;" /></AppBarButton.Icon>
+                        </AppBarButton>
+                        <CommandBar.SecondaryCommands>
+                            <AppBarButton Label="Custom cue…" Click="InsertCustomCue_Click" />
+                            <AppBarButton Label="Remove cue marker" Click="RemoveCueMarker_Click" />
+                            <AppBarSeparator />
+                            <AppBarButton Label="Export production pack" Click="ExportProductionPack_Click" />
+                        </CommandBar.SecondaryCommands>
+                    </CommandBar>
+                    <RichEditBox x:Name="ScriptTextBox" Grid.Row="3" Margin="0,8" TextWrapping="Wrap"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="18"
+                                 FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
+                                 ClipboardCopyFormat="PlainText" IsSpellCheckEnabled="True"
+                                 AutomationProperties.Name="Canonical production script text">
+                        <RichEditBox.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutSubItem Text="Insert production cue">
+                                    <MenuFlyoutItem Text="Visual" Tag="visual" Click="InsertCue_Click" />
+                                    <MenuFlyoutItem Text="Action" Tag="action" Click="InsertCue_Click" />
+                                    <MenuFlyoutItem Text="On-screen text" Tag="screen" Click="InsertCue_Click" />
+                                    <MenuFlyoutItem Text="Production note" Tag="note" Click="InsertCue_Click" />
+                                    <MenuFlyoutItem Text="Custom…" Click="InsertCustomCue_Click" />
+                                </MenuFlyoutSubItem>
+                                <MenuFlyoutSubItem Text="Convert line to cue">
+                                    <MenuFlyoutItem Text="Visual" Tag="visual" Click="ConvertLineToCue_Click" />
+                                    <MenuFlyoutItem Text="Action" Tag="action" Click="ConvertLineToCue_Click" />
+                                    <MenuFlyoutItem Text="On-screen text" Tag="screen" Click="ConvertLineToCue_Click" />
+                                    <MenuFlyoutItem Text="Production note" Tag="note" Click="ConvertLineToCue_Click" />
+                                    <MenuFlyoutItem Text="Custom…" Click="ConvertLineToCustomCue_Click" />
+                                </MenuFlyoutSubItem>
+                                <MenuFlyoutSubItem Text="Change cue type">
+                                    <MenuFlyoutItem Text="Visual" Tag="visual" Click="ChangeCueType_Click" />
+                                    <MenuFlyoutItem Text="Action" Tag="action" Click="ChangeCueType_Click" />
+                                    <MenuFlyoutItem Text="On-screen text" Tag="screen" Click="ChangeCueType_Click" />
+                                    <MenuFlyoutItem Text="Production note" Tag="note" Click="ChangeCueType_Click" />
+                                    <MenuFlyoutItem Text="Custom…" Click="ChangeCustomCueType_Click" />
+                                </MenuFlyoutSubItem>
+                                <MenuFlyoutItem Text="Remove cue marker" Click="RemoveCueMarker_Click" />
+                            </MenuFlyout>
+                        </RichEditBox.ContextFlyout>
+                    </RichEditBox>
+                    <Grid Grid.Row="4">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <TextBlock x:Name="ScriptPathText" Text="02-scripts" Style="{StaticResource UtilityLabelTextStyle}" />
                         <Button Grid.Column="1" Content="Mark ready" Style="{StaticResource SignalButtonStyle}" Click="MarkReady_Click"
@@ -217,7 +268,7 @@
                                 <ComboBox x:Name="WritingModelComboBox" Header="Exact model" />
                                 <TextBlock Text="Action" Style="{StaticResource UtilityLabelTextStyle}" />
                                 <Grid ColumnSpacing="6" RowSpacing="6">
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <Button Content="Improve clarity" Tag="ImproveClarity" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                     <Button Grid.Column="1" Content="Conversational" Tag="MakeConversational" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
@@ -225,7 +276,11 @@
                                     <Button Grid.Row="1" Grid.Column="1" Content="Expand" Tag="Expand" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                     <Button Grid.Row="2" Content="Grammar" Tag="FixGrammar" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                     <Button Grid.Row="2" Grid.Column="1" Content="Critique" Tag="Critique" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
+                                    <Button Grid.Row="3" Content="Generate cues" Tag="GenerateProductionCues" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
+                                    <Button Grid.Row="3" Grid.Column="1" Content="Refine cues" Tag="RefineProductionCues" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                 </Grid>
+                                <ToggleSwitch x:Name="GenerateProductionCuesToggle" Header="Generate production cues in AI chapter drafts"
+                                              OffContent="Off" OnContent="On" Toggled="GenerateProductionCuesToggle_Toggled" />
                                 <TextBox x:Name="CustomWritingInstructionTextBox" Header="Custom instruction" TextWrapping="Wrap"
                                          PlaceholderText="Describe the change, then choose Apply custom." />
                                 <Button Content="Apply custom" Tag="Custom" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />

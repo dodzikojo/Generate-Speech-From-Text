@@ -119,6 +119,30 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Workbench_authoring_editor_supports_plain_text_production_cues()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("<RichEditBox", xaml, StringComparison.Ordinal);
+        Assert.Contains("ClipboardCopyFormat=\"PlainText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("InsertCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("InsertCustomCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChangeCueType_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChangeCustomCueType_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ConvertLineToCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ConvertLineToCustomCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("RemoveCueMarker_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("Generate production cues", xaml, StringComparison.Ordinal);
+        Assert.Contains("Refine cues", xaml, StringComparison.Ordinal);
+        Assert.Contains("ProductionScriptParser", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyCueFormatting", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextGetOptions.None", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextSetOptions.None", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Assembly_exposes_persisted_order_inclusion_blockers_and_scoped_builds()
     {
         string xaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));

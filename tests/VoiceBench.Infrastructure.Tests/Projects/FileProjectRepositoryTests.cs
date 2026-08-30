@@ -162,12 +162,12 @@ public sealed class FileProjectRepositoryTests
 
         VoiceBenchProjectDocument project = await repository.LoadAsync(directory.Root);
 
-        Assert.Equal(2, project.SchemaVersion);
+        Assert.Equal(3, project.SchemaVersion);
         Assert.Equal(scriptRelative, project.Segments.Single().ScriptRelativePath);
         Assert.True(File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, scriptRelative)));
         JsonObject persisted = JsonNode.Parse(await File.ReadAllTextAsync(
             Path.Combine(directory.Root, VoiceBenchProjectLayout.ManifestFileName)))!.AsObject();
-        Assert.Equal(2, persisted["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(3, persisted["schemaVersion"]!.GetValue<int>());
         Assert.Null(persisted["segmentOrder"]);
     }
 

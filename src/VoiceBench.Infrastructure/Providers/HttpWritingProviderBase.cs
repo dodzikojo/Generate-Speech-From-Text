@@ -43,7 +43,7 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             BuildDraftPrompt(request),
             "chapter_draft",
             WritingJsonSchemas.Draft,
-            ValidateDraft,
+            draft => ValidateDraft(request, draft),
             apiKey,
             cancellationToken);
 
@@ -57,7 +57,7 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             BuildRevisionPrompt(request),
             "writing_proposal",
             WritingJsonSchemas.Proposal,
-            ValidateProposal,
+            proposal => ValidateProposal(request, proposal),
             apiKey,
             cancellationToken);
 
@@ -241,7 +241,7 @@ public abstract class HttpWritingProviderBase : IWritingProvider
         return outline;
     }
 
-    private static ChapterDraft ValidateDraft(ChapterDraft draft)
+    private static ChapterDraft ValidateDraft(WritingDraftRequest request, ChapterDraft draft)
     {
         if (string.IsNullOrWhiteSpace(draft.Title) || draft.Segments.Count == 0 ||
             draft.Segments.Any(segment => string.IsNullOrWhiteSpace(segment.Title) || string.IsNullOrWhiteSpace(segment.Text)))
@@ -249,15 +249,31 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             throw new InvalidDataException("The draft must contain a title and at least one non-empty segment.");
         }
 
+        ProductionScriptParser parser = new();
+        foreach (ChapterDraftSegment segment in draft.Segments)
+        {
+            ParsedScriptDocument parsed = parser.Parse(segment.Text);
+            if (parsed.HasErrors || string.IsNullOrWhiteSpace(parsed.NarrationText))
+            {
+                throw new InvalidDataException($"Draft segment '{segment.Title}' has invalid production cues or no narration.");
+            }
+            if (!request.GenerateProductionCues && parsed.Cues.Count > 0)
+            {
+                throw new InvalidDataException("The draft added production cues even though cue generation was disabled.");
+            }
+        }
+
         return draft;
     }
 
-    private static WritingProposal ValidateProposal(WritingProposal proposal)
+    private static WritingProposal ValidateProposal(WritingRevisionRequest request, WritingProposal proposal)
     {
         if (string.IsNullOrWhiteSpace(proposal.ProposedText))
         {
             throw new InvalidDataException("The proposal text is empty.");
         }
+
+        WritingProposalRules.Validate(request.Text, proposal.ProposedText, request.Action);
 
         return proposal;
     }
@@ -282,6 +298,9 @@ public abstract class HttpWritingProviderBase : IWritingProvider
         builder.AppendLine("Approved outline:");
         builder.AppendLine(JsonSerializer.Serialize(request.Outline, JsonOptions));
         builder.AppendLine("Keep provider-neutral source text clean: do not add TTS directions, SSML, or pronunciation substitutions.");
+        builder.AppendLine(request.GenerateProductionCues
+            ? "Add concise production guidance where useful using standalone @visual:, @action:, @screen:, or @note: lines. Cue lines are not narration. Use no custom cue types unless the brief explicitly names them."
+            : "Do not add production cue lines. Return narration only because production-cue generation is disabled.");
         return builder.ToString();
     }
 
@@ -295,6 +314,8 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             WritingAction.Expand => "Expand the narration with useful connective explanation.",
             WritingAction.FixGrammar => "Correct grammar and mechanics without unnecessary rewriting.",
             WritingAction.Critique => "Critique the narration. Preserve the original in proposedText and put advice in summary and warnings.",
+            WritingAction.GenerateProductionCues => "Add concise production cues using standalone @visual:, @action:, @screen:, or @note: lines. Preserve every narration character exactly.",
+            WritingAction.RefineProductionCues => "Improve the existing production cues for clarity and usefulness. Preserve every narration character exactly.",
             WritingAction.Custom => request.CustomInstruction ?? "Apply the requested revision.",
             _ => throw new ArgumentOutOfRangeException(nameof(request.Action)),
         };
@@ -302,6 +323,10 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             "Revise a narration selection or segment. Return only the requested structured result.",
             request.Context);
         builder.AppendLine($"Instruction: {action}");
+        if (request.Action is not WritingAction.GenerateProductionCues and not WritingAction.RefineProductionCues and not WritingAction.Custom)
+        {
+            builder.AppendLine("Preserve every existing production cue line verbatim while revising narration.");
+        }
         builder.AppendLine("Text to review:");
         builder.AppendLine(request.Text);
         return builder.ToString();

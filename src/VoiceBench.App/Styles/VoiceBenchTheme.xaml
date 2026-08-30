@@ -14,6 +14,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="#F49B52" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="#58C58B" />
             <SolidColorBrush x:Key="FailureBrush" Color="#EF6A6A" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="#B39DDB" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="#AAB0BC" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="BaseBrush" Color="#0E1014" />
@@ -26,6 +28,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="#F49B52" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="#58C58B" />
             <SolidColorBrush x:Key="FailureBrush" Color="#EF6A6A" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="#B39DDB" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="#AAB0BC" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="BaseBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -38,6 +42,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="FailureBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 

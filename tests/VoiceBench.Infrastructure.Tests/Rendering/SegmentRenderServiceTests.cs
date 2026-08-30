@@ -17,9 +17,10 @@ public sealed class SegmentRenderServiceTests
         var repository = new FileProjectRepository(new FixedTimeProvider());
         var project = await repository.CreateAsync(directory.Root, "Training narration");
         var scriptRelativePath = "02-scripts/001-introduction--abc123.md";
+        const string authoringText = "@visual: Show the clash dashboard.\n\nClashWise keeps BIM coordination clear.\n\n@action: Select the Level 02 filter.";
         await File.WriteAllTextAsync(
             Path.Combine(directory.Root, scriptRelativePath),
-            "ClashWise keeps BIM coordination clear.");
+            authoringText);
         var segment = new SegmentDocument
         {
             SegmentId = "introduction",
@@ -28,6 +29,7 @@ public sealed class SegmentRenderServiceTests
             ScriptRelativePath = scriptRelativePath,
             Status = SegmentStatus.Ready,
             SourceSha256 = SourceTextHasher.Compute("ClashWise keeps BIM coordination clear."),
+            AuthoringSha256 = SourceTextHasher.Compute(authoringText),
             Directions = "Pause after the product name.",
         };
         var preset = new VoicePreset
@@ -93,9 +95,15 @@ public sealed class SegmentRenderServiceTests
         Assert.True(File.Exists(Path.Combine(directory.Root, result.Render.RawAudioRelativePath)));
         Assert.Equal(result.RenderCopyRelativePath, result.Render.SubmittedTextRelativePath);
         Assert.NotNull(result.Render.CleanSourceRelativePath);
+        Assert.NotNull(result.Render.AuthoringSourceRelativePath);
         Assert.Equal(
             "ClashWise keeps BIM coordination clear.",
             await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.CleanSourceRelativePath!)));
+        Assert.Equal(
+            authoringText,
+            await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.AuthoringSourceRelativePath!)));
+        Assert.Equal(SourceTextHasher.Compute(authoringText), result.Render.AuthoringSourceSha256);
+        Assert.DoesNotContain("@visual", provider.Request?.Text, StringComparison.Ordinal);
 
         var reloaded = await repository.LoadAsync(directory.Root);
         var rendered = Assert.Single(reloaded.Segments);

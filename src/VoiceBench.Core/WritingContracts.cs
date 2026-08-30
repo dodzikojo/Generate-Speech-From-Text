@@ -53,7 +53,8 @@ public sealed record WritingDraftRequest(
     string ModelId,
     ChapterOutline Outline,
     WritingContext Context,
-    int EstimatedInputTokens);
+    int EstimatedInputTokens,
+    bool GenerateProductionCues = false);
 
 public sealed record WritingRevisionRequest(
     string ModelId,
@@ -71,7 +72,43 @@ public enum WritingAction
     Expand,
     FixGrammar,
     Critique,
+    GenerateProductionCues,
+    RefineProductionCues,
     Custom,
+}
+
+public static class WritingProposalRules
+{
+    public static void Validate(string originalText, string proposedText, WritingAction action)
+    {
+        ProductionScriptParser parser = new();
+        ParsedScriptDocument original = parser.Parse(originalText);
+        ParsedScriptDocument proposed = parser.Parse(proposedText);
+        if (proposed.HasErrors)
+        {
+            throw new InvalidDataException(string.Join(" ", proposed.Diagnostics.Select(item => item.Message)));
+        }
+
+        if (action is WritingAction.GenerateProductionCues or WritingAction.RefineProductionCues)
+        {
+            if (!string.Equals(original.NarrationText, proposed.NarrationText, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Production-cue proposals must preserve narration exactly.");
+            }
+            return;
+        }
+
+        if (action is WritingAction.ImproveClarity or WritingAction.MakeConversational or WritingAction.Shorten
+            or WritingAction.Expand or WritingAction.FixGrammar or WritingAction.Critique)
+        {
+            string[] originalCues = original.Cues.Select(item => $"{item.Type}\u001f{item.Content}").ToArray();
+            string[] proposedCues = proposed.Cues.Select(item => $"{item.Type}\u001f{item.Content}").ToArray();
+            if (!originalCues.SequenceEqual(proposedCues, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException("Narration proposals must preserve production cues verbatim.");
+            }
+        }
+    }
 }
 
 public enum WritingProviderFailureKind

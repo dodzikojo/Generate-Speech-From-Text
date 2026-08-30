@@ -2,7 +2,7 @@ namespace IssueLab.VoiceBench.Core;
 
 public sealed record VoiceBenchProjectDocument
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -64,6 +64,8 @@ public sealed record SegmentDocument
 
     public string SourceSha256 { get; init; } = string.Empty;
 
+    public string AuthoringSha256 { get; init; } = string.Empty;
+
     public string? VoicePresetId { get; init; }
 
     public string? Directions { get; init; }
@@ -90,6 +92,8 @@ public sealed record RenderRecord
     public string Voice { get; init; } = string.Empty;
 
     public string SourceSha256 { get; init; } = string.Empty;
+
+    public string AuthoringSourceSha256 { get; init; } = string.Empty;
 
     public string SubmittedTextSha256 { get; init; } = string.Empty;
 
@@ -124,6 +128,8 @@ public sealed record RenderRecord
     public string? ProviderResponseId { get; init; }
 
     public string? CleanSourceRelativePath { get; init; }
+
+    public string? AuthoringSourceRelativePath { get; init; }
 
     public string? SubmittedTextRelativePath { get; init; }
 }
@@ -177,6 +183,8 @@ public sealed record WritingProfile
     public string DefaultProviderId { get; init; } = "openai";
 
     public string DefaultModelId { get; init; } = "gpt-5.6-terra";
+
+    public bool GenerateProductionCues { get; init; }
 }
 
 public sealed record SourceReferenceDocument

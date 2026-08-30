@@ -2,6 +2,7 @@ using System.Diagnostics;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -10,6 +11,7 @@ using Microsoft.UI.Xaml.Media;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.System;
+using Windows.UI;
 
 namespace IssueLab.VoiceBench.App.Views;
 
@@ -36,6 +38,8 @@ public sealed partial class WorkbenchView : UserControl
     private ScriptFileMonitor? _scriptFileMonitor;
     private string? _monitoredProjectRoot;
     private int _scriptChangeVersion;
+    private int _cueFormatVersion;
+    private bool _ignoreCueToggle;
 
     private sealed record RailItem(
         string Title,
@@ -230,6 +234,9 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         _project = App.Services.Session.RequireProject();
+        _ignoreCueToggle = true;
+        GenerateProductionCuesToggle.IsOn = _project.WritingProfile.GenerateProductionCues;
+        _ignoreCueToggle = false;
         EnsureScriptFileMonitor(App.Services.Session.RequireProjectRoot());
         ProjectHeaderText.Text = $"WORKBENCH  /  {_project.Name.ToUpperInvariant()}";
         ProjectTitleText.Text = _project.Name;
@@ -539,8 +546,10 @@ public sealed partial class WorkbenchView : UserControl
         SegmentDocument segment = project.Segments[index];
         string path = App.Services.Session.ResolveProjectPath(segment.ScriptRelativePath);
         string text = await File.ReadAllTextAsync(path);
-        string sourceHash = SourceTextHasher.Compute(text);
-        SegmentDocument current = SegmentStateRules.WithSourceHash(segment, sourceHash);
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
+        string sourceHash = SourceTextHasher.Compute(parsed.NarrationText);
+        string authoringHash = SourceTextHasher.Compute(text);
+        SegmentDocument current = SegmentStateRules.WithSourceHashes(segment, sourceHash, authoringHash);
         if (current != segment)
         {
             List<SegmentDocument> segments = [.. project.Segments];
@@ -553,7 +562,7 @@ public sealed partial class WorkbenchView : UserControl
 
         _segment = current;
         _loadedText = text;
-        _loadedDiskHash = sourceHash;
+        _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
         ExternalEditBar.IsOpen = false;
         SetEditorText(text);
@@ -912,6 +921,13 @@ public sealed partial class WorkbenchView : UserControl
         TextBox goalBox = new() { Header = "Goal", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 80 };
         TextBox audienceBox = new() { Header = "Audience", Text = project.WritingProfile.Audience };
         TextBox toneBox = new() { Header = "Tone", Text = project.WritingProfile.Tone };
+        ToggleSwitch cueToggle = new()
+        {
+            Header = "Production guidance",
+            OffContent = "Narration only",
+            OnContent = "Generate video cues",
+            IsOn = project.WritingProfile.GenerateProductionCues,
+        };
         NumberBox durationBox = new() { Header = "Desired duration (minutes)", Value = 5, Minimum = 1, Maximum = 60, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
         ComboBox providerBox = CreateWritingProviderPicker(project.WritingProfile.DefaultProviderId);
         ComboBox modelBox = new() { Header = "Exact model", HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -931,7 +947,7 @@ public sealed partial class WorkbenchView : UserControl
         SetDraftModels();
         ListView references = CreateReferencePicker(project, []);
         StackPanel fields = new() { Spacing = 10 };
-        foreach (UIElement item in new UIElement[] { titleBox, goalBox, audienceBox, toneBox, durationBox, providerBox, modelBox,
+        foreach (UIElement item in new UIElement[] { titleBox, goalBox, audienceBox, toneBox, cueToggle, durationBox, providerBox, modelBox,
             new TextBlock { Text = "Only checked local references are sent", Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"] }, references })
             fields.Children.Add(item);
         ContentDialog setup = new()
@@ -960,6 +976,7 @@ public sealed partial class WorkbenchView : UserControl
             Tone = toneBox.Text.Trim(),
             DefaultProviderId = providerId,
             DefaultModelId = modelId,
+            GenerateProductionCues = cueToggle.IsOn,
         };
         project = project with { WritingProfile = profile };
         await App.Services.Session.SaveAsync(project);
@@ -982,7 +999,12 @@ public sealed partial class WorkbenchView : UserControl
             ShowStatus(InfoBarSeverity.Informational, "Writing full chapter", "Generating from the approved outline. No project files exist until you accept the preview.");
             ChapterDraft draft = await App.Services.WritingAssistant.CreateDraftAsync(
                 providerId,
-                new WritingDraftRequest(modelId, editedOutline, context, EstimateWritingTokens(goalBox.Text, context) + 500));
+                new WritingDraftRequest(
+                    modelId,
+                    editedOutline,
+                    context,
+                    EstimateWritingTokens(goalBox.Text, context) + 500,
+                    cueToggle.IsOn));
             if (!await PreviewDraftAsync(draft)) return;
             VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.CreateChapterFromDraftAsync(
                 App.Services.Session.RequireProjectRoot(), draft, goalBox.Text.Trim(), referenceIds);
@@ -1003,10 +1025,9 @@ public sealed partial class WorkbenchView : UserControl
         if (!await SaveCurrentScriptAsync()) return;
         string providerId = GetSelectedContent(WritingProviderComboBox);
         string modelId = GetSelectedContent(WritingModelComboBox);
-        int selectionStart = ScriptTextBox.SelectionStart;
-        int selectionLength = ScriptTextBox.SelectionLength;
-        string originalWhole = ScriptTextBox.Text;
-        string target = selectionLength > 0 ? originalWhole.Substring(selectionStart, selectionLength) : originalWhole;
+        (int selectionStart, int selectionLength, string selectedText) = GetEditorSelection();
+        string originalWhole = GetEditorText();
+        string target = selectionLength > 0 ? selectedText : originalWhole;
         string[] referenceIds = WritingReferencesList.SelectedItems.OfType<ListViewItem>()
             .Select(item => item.Tag as string).OfType<string>().ToArray();
         ChapterDocument? chapter = _project.Chapters.SingleOrDefault(item => item.ChapterId == _segment.ChapterId);
@@ -1033,7 +1054,7 @@ public sealed partial class WorkbenchView : UserControl
             _pendingWritingAction = action;
             _pendingWritingProviderId = providerId;
             _pendingWritingModelId = modelId;
-            _pendingWritingSourceHash = _segment.SourceSha256;
+            _pendingWritingSourceHash = _segment.AuthoringSha256;
             await App.Services.ChapterAuthoring.ApplyWritingProposalAsync(
                 App.Services.Session.RequireProjectRoot(),
                 _segment.SegmentId,
@@ -1046,7 +1067,16 @@ public sealed partial class WorkbenchView : UserControl
             await LoadProjectAsync(_segment.SegmentId);
             WritingProposalInfoBar.Message = $"Accepted {action}. A restorable local revision was saved.";
             WritingProposalInfoBar.IsOpen = true;
-            ShowStatus(InfoBarSeverity.Success, "Writing proposal accepted", "Rendered or approved audio was marked stale and must be rerendered before Assembly.");
+            bool narrationChanged = !string.Equals(
+                SourceTextHasher.Compute(new ProductionScriptParser().Parse(originalWhole).NarrationText),
+                SourceTextHasher.Compute(new ProductionScriptParser().Parse(proposal.ProposedText).NarrationText),
+                StringComparison.OrdinalIgnoreCase);
+            ShowStatus(
+                InfoBarSeverity.Success,
+                "Writing proposal accepted",
+                narrationChanged
+                    ? "Narration changed, so existing audio is stale and must be rerendered before Assembly."
+                    : "Production guidance changed while the approved narration and audio remained current.");
         }
         catch (Exception exception)
         {
@@ -1056,8 +1086,10 @@ public sealed partial class WorkbenchView : UserControl
 
     private async Task<bool> ShowWritingDiffAsync(string original, WritingProposal proposal, bool allowAccept)
     {
-        int originalWords = CountWords(original);
-        int proposedWords = CountWords(proposal.ProposedText);
+        ParsedScriptDocument originalParsed = new ProductionScriptParser().Parse(original);
+        ParsedScriptDocument proposalParsed = new ProductionScriptParser().Parse(proposal.ProposedText);
+        int originalWords = originalParsed.NarrationWordCount;
+        int proposedWords = proposalParsed.NarrationWordCount;
         Grid comparison = new() { ColumnSpacing = 12, RowSpacing = 12 };
         bool sideBySide = ActualWidth >= 900;
         comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1073,7 +1105,7 @@ public sealed partial class WorkbenchView : UserControl
         StackPanel content = new() { Spacing = 10 };
         content.Children.Add(new TextBlock
         {
-            Text = $"{proposal.Summary}\n\nWords: {originalWords} → {proposedWords}  ·  Estimated duration: {FormatDuration(SegmentRenderService.EstimateDuration(original))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposal.ProposedText))}" +
+            Text = $"{proposal.Summary}\n\nSpoken words: {originalWords} → {proposedWords}  ·  Cues: {originalParsed.Cues.Count} → {proposalParsed.Cues.Count}  ·  Estimated duration: {FormatDuration(SegmentRenderService.EstimateDuration(originalParsed.NarrationText))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposalParsed.NarrationText))}" +
                 (proposal.Warnings.Count == 0 ? string.Empty : $"\nWarnings: {string.Join("; ", proposal.Warnings)}"),
             TextWrapping = TextWrapping.Wrap,
         });
@@ -1227,11 +1259,12 @@ public sealed partial class WorkbenchView : UserControl
     private static int CountWords(string text) =>
         text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 
-    private void ScriptTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void ScriptTextBox_TextChanged(object sender, RoutedEventArgs e)
     {
         if (_ignoreTextChanges) return;
-        _isDirty = !string.Equals(ScriptTextBox.Text, _loadedText, StringComparison.Ordinal);
+        _isDirty = !string.Equals(GetEditorText(), _loadedText, StringComparison.Ordinal);
         UpdateEditorStats();
+        QueueCueFormatting();
     }
 
     private async void Save_Click(object sender, RoutedEventArgs e)
@@ -1260,7 +1293,7 @@ public sealed partial class WorkbenchView : UserControl
         string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
         try
         {
-            await File.WriteAllTextAsync(temporaryPath, ScriptTextBox.Text);
+            await File.WriteAllTextAsync(temporaryPath, GetEditorText());
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally
@@ -1268,16 +1301,19 @@ public sealed partial class WorkbenchView : UserControl
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
 
-        string newHash = SourceTextHasher.Compute(ScriptTextBox.Text);
-        SegmentDocument updated = SegmentStateRules.WithSourceHash(_segment, newHash);
+        string editorText = GetEditorText();
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(editorText);
+        string newHash = SourceTextHasher.Compute(parsed.NarrationText);
+        string authoringHash = SourceTextHasher.Compute(editorText);
+        SegmentDocument updated = SegmentStateRules.WithSourceHashes(_segment, newHash, authoringHash);
         int index = _project.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
         List<SegmentDocument> segments = [.. _project.Segments];
         segments[index] = updated;
         await App.Services.Session.SaveAsync(_project with { Segments = segments });
         _project = App.Services.Session.RequireProject();
         _segment = _project.Segments.Single(item => item.SegmentId == updated.SegmentId);
-        _loadedText = ScriptTextBox.Text;
-        _loadedDiskHash = newHash;
+        _loadedText = editorText;
+        _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
         _isDirty = false;
         ExternalEditBar.IsOpen = false;
@@ -1314,10 +1350,195 @@ public sealed partial class WorkbenchView : UserControl
             Content = new ScrollViewer
             {
                 MaxHeight = 520,
-                Content = new TextBlock { Text = $"EDITOR\n\n{ScriptTextBox.Text}\n\n────────\nEXTERNAL FILE\n\n{external}", TextWrapping = TextWrapping.Wrap },
+                Content = new TextBlock { Text = $"EDITOR\n\n{GetEditorText()}\n\n────────\nEXTERNAL FILE\n\n{external}", TextWrapping = TextWrapping.Wrap },
             },
         };
         await dialog.ShowAsync();
+    }
+
+    private void InsertCue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string type }) return;
+        InsertCue(type);
+    }
+
+    private async void InsertCustomCue_Click(object sender, RoutedEventArgs e)
+    {
+        string? type = await PromptForCustomCueTypeAsync("Insert custom production cue", "Insert cue");
+        if (type is not null) InsertCue(type);
+    }
+
+    private void InsertCue(string type)
+    {
+        if (_segment is null) return;
+        string text = GetEditorText();
+        (int start, int length, string selectedText) = GetEditorSelection();
+        string replacement;
+        int selectionStart;
+        int selectionLength;
+        if (length > 0)
+        {
+            string guidance = string.Join(' ', selectedText
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            string before = start > 0 && text[start - 1] != '\n' ? "\n" : string.Empty;
+            string after = start + length < text.Length && text[start + length] != '\n' ? "\n" : string.Empty;
+            replacement = $"{before}@{type}: {guidance}{after}";
+            selectionStart = start + before.Length + type.Length + 3;
+            selectionLength = guidance.Length;
+            ScriptTextBox.Document.GetRange(start, start + length).Text = replacement;
+        }
+        else
+        {
+            int lineStart = start == 0 ? 0 : text.LastIndexOf('\n', Math.Min(start - 1, text.Length - 1)) + 1;
+            replacement = $"@{type}: \n";
+            ScriptTextBox.Document.GetRange(lineStart, lineStart).Text = replacement;
+            selectionStart = lineStart + type.Length + 3;
+            selectionLength = 0;
+        }
+
+        ScriptTextBox.Document.Selection.SetRange(selectionStart, selectionStart + selectionLength);
+        ScriptTextBox.Focus(FocusState.Programmatic);
+        QueueCueFormatting();
+    }
+
+    private void RemoveCueMarker_Click(object sender, RoutedEventArgs e)
+    {
+        string text = GetEditorText();
+        int cursor = GetEditorSelection().Start;
+        ProductionCue? cue = new ProductionScriptParser().Parse(text).Cues.FirstOrDefault(item =>
+            cursor >= item.SourceStart && cursor <= item.SourceStart + item.SourceLength);
+        if (cue is null)
+        {
+            ShowStatus(InfoBarSeverity.Informational, "No cue on this line", "Place the cursor in a production cue before removing its marker.");
+            return;
+        }
+
+        ScriptTextBox.Document.GetRange(cue.SourceStart, cue.SourceStart + cue.SourceLength).Text = cue.Content;
+        ScriptTextBox.Document.Selection.SetRange(cue.SourceStart, cue.SourceStart + cue.Content.Length);
+        ScriptTextBox.Focus(FocusState.Programmatic);
+    }
+
+    private void ChangeCueType_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string type }) ChangeCueType(type);
+    }
+
+    private async void ChangeCustomCueType_Click(object sender, RoutedEventArgs e)
+    {
+        string? type = await PromptForCustomCueTypeAsync("Change production cue type", "Change type");
+        if (type is not null) ChangeCueType(type);
+    }
+
+    private void ChangeCueType(string type)
+    {
+        string text = GetEditorText();
+        int cursor = GetEditorSelection().Start;
+        ProductionCue? cue = new ProductionScriptParser().Parse(text).Cues.FirstOrDefault(item =>
+            cursor >= item.SourceStart && cursor <= item.SourceStart + item.SourceLength);
+        if (cue is null)
+        {
+            ShowStatus(InfoBarSeverity.Informational, "No cue on this line", "Place the cursor in a production cue before changing its type.");
+            return;
+        }
+
+        string replacement = $"@{type}: {cue.Content}";
+        ScriptTextBox.Document.GetRange(cue.SourceStart, cue.SourceStart + cue.SourceLength).Text = replacement;
+        ScriptTextBox.Document.Selection.SetRange(cue.SourceStart, cue.SourceStart + replacement.Length);
+        ScriptTextBox.Focus(FocusState.Programmatic);
+        QueueCueFormatting();
+    }
+
+    private void ConvertLineToCue_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string type }) ConvertCurrentLineToCue(type);
+    }
+
+    private async void ConvertLineToCustomCue_Click(object sender, RoutedEventArgs e)
+    {
+        string? type = await PromptForCustomCueTypeAsync("Convert line to custom cue", "Convert line");
+        if (type is not null) ConvertCurrentLineToCue(type);
+    }
+
+    private void ConvertCurrentLineToCue(string type)
+    {
+        string text = GetEditorText();
+        int cursor = Math.Clamp(GetEditorSelection().Start, 0, text.Length);
+        int lineStart = cursor == 0 ? 0 : text.LastIndexOf('\n', Math.Min(cursor - 1, text.Length - 1)) + 1;
+        int nextBreak = text.IndexOf('\n', cursor);
+        int lineEnd = nextBreak < 0 ? text.Length : nextBreak;
+        string guidance = text[lineStart..lineEnd].Trim();
+        if (string.IsNullOrWhiteSpace(guidance))
+        {
+            ShowStatus(InfoBarSeverity.Informational, "This line is empty", "Place the cursor on a narration or note line to convert it into a cue.");
+            return;
+        }
+
+        if (ProductionScriptParser.IsCueLine(text[lineStart..lineEnd]))
+        {
+            ShowStatus(InfoBarSeverity.Informational, "This line is already a cue", "Use Change cue type or Remove cue marker instead.");
+            return;
+        }
+
+        string replacement = $"@{type}: {guidance}";
+        ScriptTextBox.Document.GetRange(lineStart, lineEnd).Text = replacement;
+        ScriptTextBox.Document.Selection.SetRange(lineStart, lineStart + replacement.Length);
+        ScriptTextBox.Focus(FocusState.Programmatic);
+        QueueCueFormatting();
+    }
+
+    private async Task<string?> PromptForCustomCueTypeAsync(string title, string primaryButtonText)
+    {
+        TextBox typeBox = new()
+        {
+            Header = "Custom cue type",
+            PlaceholderText = "camera-note",
+            Description = "Use lowercase letters, numbers, and single hyphens.",
+        };
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = title,
+            Content = typeBox,
+            PrimaryButtonText = primaryButtonText,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        string type = typeBox.Text.Trim();
+        ParsedScriptDocument validation = new ProductionScriptParser().Parse($"@{type}: guidance");
+        if (!validation.HasErrors && validation.Cues.SingleOrDefault()?.Type == type) return type;
+        ShowStatus(InfoBarSeverity.Warning, "Custom cue type is invalid", "Use a lowercase kebab-case type such as camera-note.");
+        return null;
+    }
+
+    private async void ExportProductionPack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null || !await SaveCurrentScriptAsync()) return;
+        try
+        {
+            ProductionExportResult result = await App.Services.ExportProductionPackAsync(_project.Name);
+            ShowStatus(
+                InfoBarSeverity.Success,
+                "Production pack exported",
+                $"Exported {result.SegmentCount} segments and {result.CueCount} cues to {result.ProductionScriptRelativePath}.");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Production pack could not be exported", Actionable(exception));
+        }
+    }
+
+    private async void GenerateProductionCuesToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_ignoreCueToggle || _project is null) return;
+        WritingProfile profile = _project.WritingProfile with
+        {
+            GenerateProductionCues = GenerateProductionCuesToggle.IsOn,
+        };
+        await App.Services.Session.SaveAsync(_project with { WritingProfile = profile });
+        _project = App.Services.Session.RequireProject();
     }
 
     private async void Pronunciation_Click(object sender, RoutedEventArgs e)
@@ -1331,7 +1552,7 @@ public sealed partial class WorkbenchView : UserControl
         TextBox writtenBox = new()
         {
             Header = "Written text",
-            Text = ScriptTextBox.SelectedText.Trim(),
+            Text = GetEditorSelection().SelectedText.Trim(),
             PlaceholderText = "Navisworks",
         };
         TextBox spokenBox = new()
@@ -1381,8 +1602,8 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
 
-        int cursor = ScriptTextBox.SelectionStart;
-        string editorText = ScriptTextBox.Text;
+        int cursor = GetEditorSelection().Start;
+        string editorText = GetEditorText();
         if (cursor <= 0 || cursor >= editorText.Length)
         {
             ShowStatus(InfoBarSeverity.Warning, "Place the cursor inside the script", "Both halves must contain narration text.");
@@ -1403,7 +1624,7 @@ public sealed partial class WorkbenchView : UserControl
                 App.Services.Session.RequireProjectRoot(),
                 _segment.SegmentId,
                 cursor,
-                _segment.SourceSha256);
+                _segment.AuthoringSha256);
             await App.Services.Session.RefreshAsync();
             ChapterDocument chapter = updated.Chapters.Single(item => item.ChapterId == _segment.ChapterId);
             int originalIndex = chapter.SegmentOrder.IndexOf(_segment.SegmentId);
@@ -1420,6 +1641,7 @@ public sealed partial class WorkbenchView : UserControl
     private async void MarkReady_Click(object sender, RoutedEventArgs e)
     {
         if (!await SaveCurrentScriptAsync() || _project is null || _segment is null) return;
+        if (!ValidateScriptForRender()) return;
         await SetSegmentStatusAsync(SegmentStatus.Ready);
         ShowStatus(InfoBarSeverity.Success, "Segment marked Ready", "It can now be rendered with the exact selected preset.");
     }
@@ -1441,6 +1663,7 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             if (!await SaveCurrentScriptAsync()) return;
+            if (!ValidateScriptForRender()) return;
             VoicePreset preset = GetOrCreateSelectedVoicePreset(
                 _project,
                 setAsProjectDefault: _project.DefaultVoicePresetId is null,
@@ -1680,17 +1903,118 @@ public sealed partial class WorkbenchView : UserControl
 
     private void UpdateEditorStats()
     {
-        int words = ScriptTextBox.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
-        TimeSpan duration = SegmentRenderService.EstimateDuration(ScriptTextBox.Text);
-        SegmentStatsText.Text = $"{words} WORDS  ·  EST. {FormatDuration(duration)}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}";
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(GetEditorText());
+        TimeSpan duration = SegmentRenderService.EstimateDuration(parsed.NarrationText);
+        string diagnostics = parsed.HasErrors ? $"  ·  {parsed.Diagnostics.Count} ISSUE{(parsed.Diagnostics.Count == 1 ? "" : "S")}" : string.Empty;
+        SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  EST. {FormatDuration(duration)}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}{diagnostics}";
     }
+
+    private bool ValidateScriptForRender()
+    {
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(GetEditorText());
+        if (parsed.HasErrors)
+        {
+            ScriptDocumentDiagnostic first = parsed.Diagnostics[0];
+            ShowStatus(
+                InfoBarSeverity.Warning,
+                "Fix production cues before rendering",
+                $"Line {first.SourceLine}: {first.Message}");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(parsed.NarrationText))
+        {
+            ShowStatus(
+                InfoBarSeverity.Warning,
+                "This segment has no narration",
+                "Production cues are not spoken. Add narration before marking the segment ready or rendering it.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private string GetEditorText()
+    {
+        ScriptTextBox.Document.GetText(TextGetOptions.None, out string text);
+        text = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return text.EndsWith('\n') ? text[..^1] : text;
+    }
+
+    private (int Start, int Length, string SelectedText) GetEditorSelection()
+    {
+        ITextSelection selection = ScriptTextBox.Document.Selection;
+        int start = Math.Min(selection.StartPosition, selection.EndPosition);
+        int end = Math.Max(selection.StartPosition, selection.EndPosition);
+        string selected = selection.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        if (end >= GetEditorText().Length && selected.EndsWith('\n')) selected = selected[..^1];
+        return (start, Math.Max(0, end - start), selected);
+    }
+
+    private void QueueCueFormatting()
+    {
+        int version = Interlocked.Increment(ref _cueFormatVersion);
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (version == _cueFormatVersion) ApplyCueFormatting();
+        });
+    }
+
+    private void ApplyCueFormatting()
+    {
+        if (_ignoreTextChanges) return;
+        string text = GetEditorText();
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
+        ITextSelection selection = ScriptTextBox.Document.Selection;
+        int selectionStart = selection.StartPosition;
+        int selectionEnd = selection.EndPosition;
+        _ignoreTextChanges = true;
+        try
+        {
+            ITextRange all = ScriptTextBox.Document.GetRange(0, text.Length);
+            ITextCharacterFormat baseFormat = all.CharacterFormat;
+            baseFormat.ForegroundColor = ThemeColor("ReadingTextBrush", Color.FromArgb(255, 255, 255, 255));
+            baseFormat.BackgroundColor = Color.FromArgb(0, 0, 0, 0);
+            baseFormat.Bold = FormatEffect.Off;
+            all.CharacterFormat = baseFormat;
+
+            foreach (ProductionCue cue in parsed.Cues)
+            {
+                Color accent = cue.Kind switch
+                {
+                    ProductionCueKind.Visual => ThemeColor("ActiveSignalBrush", Color.FromArgb(255, 53, 199, 232)),
+                    ProductionCueKind.Action => ThemeColor("PickupBrush", Color.FromArgb(255, 244, 155, 82)),
+                    ProductionCueKind.Screen => ThemeColor("ApprovalBrush", Color.FromArgb(255, 88, 197, 139)),
+                    ProductionCueKind.Note => ThemeColor("CueNoteBrush", Color.FromArgb(255, 179, 157, 219)),
+                    _ => ThemeColor("CueCustomBrush", Color.FromArgb(255, 170, 176, 188)),
+                };
+                ITextRange range = ScriptTextBox.Document.GetRange(
+                    cue.SourceStart,
+                    Math.Min(text.Length, cue.SourceStart + cue.SourceLength));
+                ITextCharacterFormat format = range.CharacterFormat;
+                format.ForegroundColor = accent;
+                format.BackgroundColor = Color.FromArgb(30, accent.R, accent.G, accent.B);
+                format.Bold = FormatEffect.On;
+                range.CharacterFormat = format;
+            }
+        }
+        finally
+        {
+            ScriptTextBox.Document.Selection.SetRange(selectionStart, selectionEnd);
+            _ignoreTextChanges = false;
+        }
+    }
+
+    private static Color ThemeColor(string key, Color fallback) =>
+        Application.Current.Resources[key] is SolidColorBrush brush ? brush.Color : fallback;
 
     private void SetEditorText(string text)
     {
         _ignoreTextChanges = true;
-        ScriptTextBox.Text = text;
+        ScriptTextBox.Document.SetText(TextSetOptions.None, text);
         _ignoreTextChanges = false;
         _isDirty = false;
+        QueueCueFormatting();
     }
 
     private void SelectTakeRailItem(string? segmentId)

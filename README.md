@@ -53,6 +53,22 @@ Manager. Keys are never accepted as command-line arguments.
 
 Each project is an ordinary movable folder. Chapter/segment script files in `02-scripts` are canonical;
 `voicebench.project.json` stores stable IDs, order, settings, hashes, statuses, and history.
+
+Canonical Markdown may mix narration with standalone production guidance:
+
+```markdown
+@visual: Show the dashboard.
+
+This sentence is spoken.
+
+@action: Select the Level 02 filter.
+```
+
+VoiceBench recognizes `visual`, `action`, `screen`, `note`, and custom lowercase kebab-case
+cue types. Cue lines are excluded from TTS, spoken-duration estimates, and clean transcripts;
+escape a literal spoken marker as `\@visual:`. Production-script and cue-sheet exports remain
+available before audio is approved.
+
 See the [product design](docs/superpowers/specs/2026-08-26-voicebench-design.md) for the full
 contract and the [execution plan](docs/superpowers/plans/2026-08-26-voicebench-execution.md)
 for slice boundaries and acceptance checks.

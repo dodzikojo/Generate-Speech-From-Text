@@ -59,6 +59,7 @@ public sealed class AppServices : IDisposable
         ChapterAuthoring = new ChapterAuthoringService(Projects);
         ScriptImporter = new ProjectImportService(Projects);
         WritingContexts = new WritingContextLoader(Projects);
+        ProductionExports = new ProductionExportService(Projects);
         _toolchainManager = new FfmpegToolchainManager(_httpClient);
     }
 
@@ -73,6 +74,8 @@ public sealed class AppServices : IDisposable
     public ProjectImportService ScriptImporter { get; }
 
     public WritingContextLoader WritingContexts { get; }
+
+    public IProductionExportService ProductionExports { get; }
 
     public IReadOnlyCollection<ISpeechProvider> SpeechProviders => _providers.Providers;
 
@@ -158,6 +161,15 @@ public sealed class AppServices : IDisposable
         FfmpegMasteringService mastering = new(Projects, _processRunner, toolchain);
         return await mastering.BuildAsync(new MasteringRequest(root, name, scope, chapterId), cancellationToken);
     }
+
+    public Task<ProductionExportResult> ExportProductionPackAsync(
+        string name,
+        MasterScope scope = MasterScope.Compilation,
+        string? chapterId = null,
+        CancellationToken cancellationToken = default) =>
+        ProductionExports.ExportAsync(
+            new ProductionExportRequest(Session.RequireProjectRoot(), name, scope, chapterId),
+            cancellationToken);
 
     public async Task<ToolchainPaths> EnsureFfmpegAsync(CancellationToken cancellationToken = default)
     {

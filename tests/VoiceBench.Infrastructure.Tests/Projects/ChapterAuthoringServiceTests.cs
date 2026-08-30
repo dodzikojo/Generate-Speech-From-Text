@@ -173,7 +173,7 @@ public sealed class ChapterAuthoringServiceTests
         project = await service.ApplyWritingProposalAsync(
             directory.Root,
             segment.SegmentId,
-            segment.SourceSha256,
+            segment.AuthoringSha256,
             new WritingProposal("Clearer text", "Improved clarity", []),
             WritingAction.ImproveClarity,
             "openai",
@@ -197,6 +197,57 @@ public sealed class ChapterAuthoringServiceTests
         Assert.Equal("Original text", await File.ReadAllTextAsync(
             VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, restored.Segments.Single().ScriptRelativePath)));
         Assert.Equal(2, restored.Segments.Single().WritingRevisions.Count);
+    }
+
+    [Fact]
+    public async Task ApplyWritingProposalAsync_CueOnlyRevisionKeepsApprovedTakeCurrent()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        await repository.CreateAsync(directory.Root, "Course");
+        Queue<string> ids = new(["chapter01", "segment01"]);
+        ChapterAuthoringService service = new(repository, ids.Dequeue);
+        VoiceBenchProjectDocument project = await service.CreateChapterFromDraftAsync(
+            directory.Root,
+            new ChapterDraft("One", [new ChapterDraftSegment("Opening", "Original narration.")], ""),
+            null,
+            []);
+        SegmentDocument segment = project.Segments.Single();
+        Guid renderId = Guid.NewGuid();
+        segment = segment with
+        {
+            Status = SegmentStatus.Approved,
+            ApprovedRenderId = renderId,
+            RenderHistory =
+            [
+                new RenderRecord
+                {
+                    RenderId = renderId,
+                    TakeNumber = 1,
+                    Status = RenderStatus.Approved,
+                    SourceSha256 = segment.SourceSha256,
+                    ApprovalSourceSha256 = segment.SourceSha256,
+                    ProcessedAudioRelativePath = "04-generated-audio/segments/processed.wav",
+                },
+            ],
+        };
+        await repository.SaveAsync(directory.Root, project with { Segments = [segment] });
+
+        project = await service.ApplyWritingProposalAsync(
+            directory.Root,
+            segment.SegmentId,
+            segment.AuthoringSha256,
+            new WritingProposal("@visual: Show the overview.\n\nOriginal narration.", "Added guidance", []),
+            WritingAction.GenerateProductionCues,
+            "openai",
+            "gpt-5.6-terra");
+
+        SegmentDocument updated = Assert.Single(project.Segments);
+        Assert.Equal(SegmentStatus.Approved, updated.Status);
+        Assert.Equal(renderId, updated.ApprovedRenderId);
+        Assert.Equal(segment.SourceSha256, updated.SourceSha256);
+        Assert.NotEqual(segment.AuthoringSha256, updated.AuthoringSha256);
+        Assert.Equal(RenderStatus.Approved, Assert.Single(updated.RenderHistory).Status);
     }
 
     [Fact]
@@ -237,7 +288,7 @@ public sealed class ChapterAuthoringServiceTests
             directory.Root,
             original.SegmentId,
             "First paragraph. ".Length,
-            original.SourceSha256);
+            original.AuthoringSha256);
 
         Assert.Equal(["segment01", "segment02"], project.Chapters.Single().SegmentOrder);
         Assert.Equal(2, project.Segments.Count);
@@ -246,6 +297,32 @@ public sealed class ChapterAuthoringServiceTests
             VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, project.Segments[0].ScriptRelativePath)));
         Assert.Equal("Second paragraph.", await File.ReadAllTextAsync(
             VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, project.Segments[1].ScriptRelativePath)));
+    }
+
+    [Fact]
+    public async Task SplitSegmentAsync_RejectsCursorInsideCueAndCueOnlyResult()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        await repository.CreateAsync(directory.Root, "Course");
+        Queue<string> ids = new(["chapter01", "segment01", "segment02"]);
+        ChapterAuthoringService service = new(repository, ids.Dequeue);
+        const string text = "@visual: Show the dashboard.\n\nFirst narration. Second narration.";
+        VoiceBenchProjectDocument project = await service.CreateChapterFromDraftAsync(
+            directory.Root,
+            new ChapterDraft("One", [new ChapterDraftSegment("Opening", text)], ""),
+            null,
+            []);
+        SegmentDocument segment = Assert.Single(project.Segments);
+
+        InvalidOperationException insideCue = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SplitSegmentAsync(directory.Root, segment.SegmentId, "@visual: Show".Length, segment.AuthoringSha256));
+        Assert.Contains("cue line", insideCue.Message, StringComparison.OrdinalIgnoreCase);
+
+        int afterCue = text.IndexOf("First narration", StringComparison.Ordinal);
+        InvalidOperationException cueOnly = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SplitSegmentAsync(directory.Root, segment.SegmentId, afterCue, segment.AuthoringSha256));
+        Assert.Contains("must contain narration", cueOnly.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -108,6 +108,62 @@ public sealed class OpenAiWritingProviderTests
         Assert.Equal(WritingProviderFailureKind.MalformedResponse, exception.Kind);
     }
 
+    [Fact]
+    public async Task CreateDraftAsync_CueOptInAcceptsProductionGuidanceAndStatesTheConstraint()
+    {
+        StubHttpMessageHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK, """
+            {"output":[{"content":[{"type":"output_text","text":"{\"title\":\"Welcome\",\"segments\":[{\"title\":\"Opening\",\"text\":\"@visual: Show the dashboard.\\n\\nWelcome to VoiceBench.\"}],\"summary\":\"Drafted with guidance\"}"}]}]}
+            """);
+        OpenAiWritingProvider provider = new(new HttpClient(handler), new RecordingRetryDelay());
+
+        ChapterDraft result = await provider.CreateDraftAsync(DraftRequest(generateProductionCues: true), "key", CancellationToken.None);
+
+        Assert.Contains("@visual:", result.Segments[0].Text, StringComparison.Ordinal);
+        CapturedRequest captured = Assert.Single(handler.Requests);
+        using JsonDocument body = JsonDocument.Parse(captured.Body);
+        string prompt = body.RootElement.GetProperty("input").GetString()!;
+        Assert.Contains("standalone @visual:", prompt, StringComparison.Ordinal);
+        Assert.Contains("Cue lines are not narration", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_CueOptOutRejectsUnexpectedGuidance()
+    {
+        StubHttpMessageHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK, """
+            {"output":[{"content":[{"type":"output_text","text":"{\"title\":\"Welcome\",\"segments\":[{\"title\":\"Opening\",\"text\":\"Narration.\\n\\n@action: Click continue.\"}],\"summary\":\"Drafted\"}"}]}]}
+            """);
+        OpenAiWritingProvider provider = new(new HttpClient(handler), new RecordingRetryDelay());
+
+        WritingProviderException exception = await Assert.ThrowsAsync<WritingProviderException>(
+            () => provider.CreateDraftAsync(DraftRequest(generateProductionCues: false), "key", CancellationToken.None));
+
+        Assert.Equal(WritingProviderFailureKind.MalformedResponse, exception.Kind);
+        Assert.Contains("disabled", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_CueFocusedActionRejectsNarrationChanges()
+    {
+        StubHttpMessageHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK, """
+            {"output":[{"content":[{"type":"output_text","text":"{\"proposedText\":\"Changed narration.\\n\\n@visual: Show the dashboard.\",\"summary\":\"Added guidance\",\"warnings\":[]}"}]}]}
+            """);
+        OpenAiWritingProvider provider = new(new HttpClient(handler), new RecordingRetryDelay());
+        WritingRevisionRequest request = RevisionRequest() with
+        {
+            Action = WritingAction.GenerateProductionCues,
+            Text = "Original narration.",
+        };
+
+        WritingProviderException exception = await Assert.ThrowsAsync<WritingProviderException>(
+            () => provider.ReviseAsync(request, "key", CancellationToken.None));
+
+        Assert.Equal(WritingProviderFailureKind.MalformedResponse, exception.Kind);
+        Assert.Contains("preserve narration", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static WritingOutlineRequest OutlineRequest() => new(
         "gpt-5.6-terra",
         "Welcome",
@@ -126,4 +182,14 @@ public sealed class OpenAiWritingProviderTests
         null,
         new WritingContext(new WritingProfile(), "", []),
         20);
+
+    private static WritingDraftRequest DraftRequest(bool generateProductionCues) => new(
+        "gpt-5.6-terra",
+        new ChapterOutline(
+            "Welcome",
+            "Introduction",
+            [new ChapterOutlineSegment("Opening", "Orient the viewer", 45)]),
+        new WritingContext(new WritingProfile(), "Start with the value", []),
+        100,
+        generateProductionCues);
 }
