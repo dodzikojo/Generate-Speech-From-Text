@@ -36,8 +36,15 @@ public sealed partial class ProjectsView : UserControl
     private async void ProjectsView_Loaded(object sender, RoutedEventArgs e) =>
         await UpdateRecentProjectsAsync();
 
-    private async void Session_ProjectChanged(object? sender, EventArgs e) =>
-        await UpdateRecentProjectsAsync();
+    private void Session_ProjectChanged(object? sender, EventArgs e)
+    {
+        bool queued = DispatcherQueue.TryEnqueue(async () => await UpdateRecentProjectsAsync());
+        if (!queued)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                "The Projects view dispatcher was shutting down before the recent-project list could refresh.");
+        }
+    }
 
     private async void NewProject_Click(object sender, RoutedEventArgs e)
     {

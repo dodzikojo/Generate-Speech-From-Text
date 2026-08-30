@@ -6,6 +6,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Storage;
@@ -18,6 +19,8 @@ namespace IssueLab.VoiceBench.App.Views;
 
 public sealed partial class WorkbenchView : UserControl
 {
+    private const int EditorHistoryLimit = 200;
+    private const string EditorFontSizeSetting = "Workbench.EditorFontSize";
     private const string ChapterRailVisibilitySetting = "Workbench.ShowChapterRail";
     private const string DirectorVisibilitySetting = "Workbench.ShowDirector";
     private const string TakeReviewVisibilitySetting = "Workbench.ShowTakeReview";
@@ -44,9 +47,21 @@ public sealed partial class WorkbenchView : UserControl
     private bool _suppressProjectChangedReload;
     private string _lastEditorText = string.Empty;
     private DispatcherQueueTimer? _cueFormatTimer;
+    private DispatcherQueueTimer? _editorHistoryTimer;
     private bool _ignoreCueToggle;
     private bool _cueFormattingUnavailable;
     private bool _writingActionInProgress;
+    private bool _authoringHistoryOperationInProgress;
+    private readonly List<EditorHistorySnapshot> _editorUndoHistory = [];
+    private readonly List<EditorHistorySnapshot> _editorRedoHistory = [];
+    private EditorHistorySnapshot? _pendingEditorUndo;
+    private int _lastEditorSelectionStart;
+    private int _lastEditorSelectionEnd;
+    private AuthoringTransactionState _authoringHistory = new(
+        AuthoringTransactionState.CurrentSchemaVersion,
+        [],
+        0,
+        false);
 
     private sealed record RailItem(
         string Title,
@@ -57,6 +72,8 @@ public sealed partial class WorkbenchView : UserControl
 
     private sealed record RevisionChoice(Guid RevisionId, bool RestorePreviousText);
 
+    private sealed record EditorHistorySnapshot(string Text, int SelectionStart, int SelectionEnd);
+
     public WorkbenchView()
     {
         InitializeComponent();
@@ -64,29 +81,40 @@ public sealed partial class WorkbenchView : UserControl
         _cueFormatTimer.Interval = TimeSpan.FromMilliseconds(150);
         _cueFormatTimer.IsRepeating = false;
         _cueFormatTimer.Tick += (_, _) => ApplyCueFormatting();
+        _editorHistoryTimer = DispatcherQueue.CreateTimer();
+        _editorHistoryTimer.Interval = TimeSpan.FromMilliseconds(650);
+        _editorHistoryTimer.IsRepeating = false;
+        _editorHistoryTimer.Tick += (_, _) => CommitPendingEditorUndo();
+        ScriptTextBox.Document.UndoLimit = 0;
         LoadWorkspacePanelPreferences();
+        LoadEditorFontSizePreference();
+        EditorFontSizeSlider.ValueChanged += EditorFontSizeSlider_ValueChanged;
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
         PopulateWritingProviders();
-        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
+        SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width, args.NewSize.Height);
         Loaded += WorkbenchView_Loaded;
         Unloaded += WorkbenchView_Unloaded;
         App.Services.Session.ProjectChanged += Session_ProjectChanged;
     }
 
-    private void ApplyResponsiveState(double width)
+    private void ApplyResponsiveState(double width, double height)
     {
         VisualStateManager.GoToState(
             this,
             width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
             false);
-        ApplyWorkspacePanelLayout(width);
+        WorkbenchInfoBar.Width = Math.Max(280, Math.Min(720, width - (width >= 860 ? 40 : 24)));
+        WorkbenchInfoBar.Margin = width >= 860
+            ? new Thickness(20, 76, 20, 0)
+            : new Thickness(12, 118, 12, 0);
+        ApplyWorkspacePanelLayout(width, height);
     }
 
     private void WorkspacePanelToggle_Click(object sender, RoutedEventArgs e)
     {
         SaveWorkspacePanelPreferences();
-        ApplyWorkspacePanelLayout(ActualWidth);
+        ApplyWorkspacePanelLayout(ActualWidth, ActualHeight);
     }
 
     private void LoadWorkspacePanelPreferences()
@@ -108,7 +136,34 @@ public sealed partial class WorkbenchView : UserControl
     private static bool ReadWorkspacePanelPreference(object? storedValue) =>
         storedValue is not bool value || value;
 
-    private void ApplyWorkspacePanelLayout(double width)
+    private void LoadEditorFontSizePreference()
+    {
+        object? storedValue = ApplicationData.Current.LocalSettings.Values[EditorFontSizeSetting];
+        double fontSize = storedValue switch
+        {
+            double value => value,
+            int value => value,
+            _ => 15,
+        };
+        ApplyEditorFontSize(fontSize, persist: false);
+    }
+
+    private void EditorFontSizeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e) =>
+        ApplyEditorFontSize(e.NewValue, persist: true);
+
+    private void ApplyEditorFontSize(double value, bool persist)
+    {
+        double fontSize = Math.Clamp(Math.Round(value), 12, 24);
+        EditorFontSizeSlider.Value = fontSize;
+        EditorFontSizeValueText.Text = $"{fontSize:0}";
+        EditorFontSizeButton.Label = $"{fontSize:0} px";
+        ScriptTextBox.FontSize = fontSize;
+        if (persist)
+            ApplicationData.Current.LocalSettings.Values[EditorFontSizeSetting] = fontSize;
+        QueueCueFormatting();
+    }
+
+    private void ApplyWorkspacePanelLayout(double width, double height)
     {
         if (TakeRailPanel is null) return;
         bool narrow = width < 860;
@@ -122,7 +177,12 @@ public sealed partial class WorkbenchView : UserControl
 
         DirectorPanel.Visibility = showDirector ? Visibility.Visible : Visibility.Collapsed;
         DirectorColumn.Width = wide && showDirector ? new GridLength(350) : new GridLength(0);
-        DirectorRow.Height = !wide && showDirector ? new GridLength(narrow ? 380 : 360) : new GridLength(0);
+        double directorShare = narrow
+            ? height < 720 ? 0.55 : 0.8
+            : height < 720 ? 0.45 : 0.7;
+        DirectorRow.Height = !wide && showDirector
+            ? new GridLength(directorShare, GridUnitType.Star)
+            : new GridLength(0);
         DirectorPanel.SetValue(Grid.RowProperty, wide ? 0 : 1);
         DirectorPanel.SetValue(Grid.ColumnProperty, wide ? 2 : 1);
 
@@ -217,6 +277,7 @@ public sealed partial class WorkbenchView : UserControl
     private void WorkbenchView_Unloaded(object sender, RoutedEventArgs e)
     {
         _cueFormatTimer?.Stop();
+        _editorHistoryTimer?.Stop();
         DisposeScriptFileMonitor();
     }
 
@@ -254,6 +315,7 @@ public sealed partial class WorkbenchView : UserControl
             SetEditorText(string.Empty);
             SetEditorAvailability(hasSegment: false, showEmptyState: false);
             ShowStatus(InfoBarSeverity.Informational, "Open a project", "Create or open a folder-based project from Projects.");
+            await RefreshAuthoringHistoryAsync();
             return;
         }
 
@@ -292,6 +354,7 @@ public sealed partial class WorkbenchView : UserControl
             SegmentStatsText.Text = "CREATE, DRAFT, OR IMPORT A CHAPTER TO BEGIN";
             SetEditorAvailability(hasSegment: false, showEmptyState: true);
             ShowStatus(InfoBarSeverity.Informational, "Start your first chapter", "Create a blank chapter, draft one with AI, or import one or more scripts here in VoiceBench.");
+            await RefreshAuthoringHistoryAsync();
             return;
         }
 
@@ -299,6 +362,7 @@ public sealed partial class WorkbenchView : UserControl
         SelectTakeRailItem(segmentId);
         await LoadSegmentAsync(segmentId);
         WorkbenchInfoBar.IsOpen = false;
+        await RefreshAuthoringHistoryAsync();
     }
 
     private void SetEditorAvailability(bool hasSegment, bool showEmptyState)
@@ -629,14 +693,34 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             VoiceBenchProjectDocument before = App.Services.Session.RequireProject();
-            VoiceBenchProjectDocument after = await App.Services.ScriptImporter.ImportFilesAsync(
-                App.Services.Session.RequireProjectRoot(),
-                files.Select(file => file.Path).ToArray());
-            await App.Services.Session.RefreshAsync();
+            VoiceBenchProjectDocument after = await ExecuteAuthoringTransactionAsync(
+                files.Count == 1 ? "Import script" : $"Import {files.Count} scripts",
+                cancellationToken => App.Services.ScriptImporter.ImportFilesAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    files.Select(file => file.Path).ToArray(),
+                    cancellationToken));
+            string? firstImportedSegmentId = after.ChapterOrder
+                .Skip(before.ChapterOrder.Count)
+                .SelectMany(chapterId => after.Chapters
+                    .Where(chapter => chapter.ChapterId == chapterId)
+                    .SelectMany(chapter => chapter.SegmentOrder))
+                .FirstOrDefault();
+            _suppressProjectChangedReload = true;
+            try
+            {
+                await App.Services.Session.RefreshAsync();
+            }
+            finally
+            {
+                _suppressProjectChangedReload = false;
+            }
+            await LoadProjectAsync(firstImportedSegmentId);
+            int importedChapterCount = after.Chapters.Count - before.Chapters.Count;
+            int importedSegmentCount = after.Segments.Count - before.Segments.Count;
             ShowStatus(
                 InfoBarSeverity.Success,
                 files.Count == 1 ? "Script imported" : "Scripts imported",
-                $"Created {after.Chapters.Count - before.Chapters.Count} chapter(s) and {after.Segments.Count - before.Segments.Count} canonical segment(s).");
+                $"Created {importedChapterCount} chapter(s) and {importedSegmentCount} segment(s). Each ## heading is a separate segment in the chapter rail.");
         }
         catch (Exception exception)
         {
@@ -699,11 +783,14 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             string segmentId = _segment.SegmentId;
-            await App.Services.ChapterAuthoring.RestoreRevisionAsync(
-                App.Services.Session.RequireProjectRoot(),
-                segmentId,
-                choice.RevisionId,
-                choice.RestorePreviousText);
+            await ExecuteAuthoringTransactionAsync(
+                "Restore writing revision",
+                cancellationToken => App.Services.ChapterAuthoring.RestoreRevisionAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    segmentId,
+                    choice.RevisionId,
+                    choice.RestorePreviousText,
+                    cancellationToken));
             await App.Services.Session.RefreshAsync();
             await LoadProjectAsync(segmentId);
             ShowStatus(InfoBarSeverity.Success, "Writing revision restored", "The canonical source and assembly status were updated.");
@@ -726,11 +813,16 @@ public sealed partial class WorkbenchView : UserControl
         if (files.Count == 0) return;
         try
         {
-            foreach (Windows.Storage.StorageFile file in files)
-            {
-                await App.Services.ChapterAuthoring.ImportReferenceAsync(
-                    App.Services.Session.RequireProjectRoot(), file.Path);
-            }
+            await ExecuteAuthoringTransactionAsync(
+                files.Count == 1 ? "Import writing reference" : $"Import {files.Count} writing references",
+                async cancellationToken =>
+                {
+                    foreach (Windows.Storage.StorageFile file in files)
+                    {
+                        await App.Services.ChapterAuthoring.ImportReferenceAsync(
+                            App.Services.Session.RequireProjectRoot(), file.Path, cancellationToken);
+                    }
+                });
             await App.Services.Session.RefreshAsync();
             ShowStatus(InfoBarSeverity.Success, "References imported", "References stay local until you explicitly select them for a writing request.");
         }
@@ -751,10 +843,13 @@ public sealed partial class WorkbenchView : UserControl
         if (result != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(title)) return;
         try
         {
-            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.CreateBlankChapterAsync(
-                App.Services.Session.RequireProjectRoot(),
-                title,
-                brief);
+            VoiceBenchProjectDocument updated = await ExecuteAuthoringTransactionAsync(
+                $"Create chapter: {title.Trim()}",
+                cancellationToken => App.Services.ChapterAuthoring.CreateBlankChapterAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    title,
+                    brief,
+                    cancellationToken));
             await App.Services.Session.RefreshAsync();
             string segmentId = updated.Chapters.Single(chapter => chapter.ChapterId == updated.ChapterOrder.Last())
                 .SegmentOrder.Single();
@@ -783,8 +878,10 @@ public sealed partial class WorkbenchView : UserControl
         VoiceBenchProjectDocument before = App.Services.Session.RequireProject();
         try
         {
-            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.AddSegmentAsync(
-                App.Services.Session.RequireProjectRoot(), chapterId, title);
+            VoiceBenchProjectDocument updated = await ExecuteAuthoringTransactionAsync(
+                $"Create segment: {title.Trim()}",
+                cancellationToken => App.Services.ChapterAuthoring.AddSegmentAsync(
+                    App.Services.Session.RequireProjectRoot(), chapterId, title, cancellationToken: cancellationToken));
             await App.Services.Session.RefreshAsync();
             string newId = updated.Chapters.Single(chapter => chapter.ChapterId == chapterId).SegmentOrder
                 .Except(before.Chapters.Single(chapter => chapter.ChapterId == chapterId).SegmentOrder)
@@ -806,16 +903,21 @@ public sealed partial class WorkbenchView : UserControl
             : _project.Segments.Single(segment => segment.SegmentId == selected.SegmentId).Title;
         string? title = await PromptForTextAsync("Rename", "Name", current, "Rename");
         if (string.IsNullOrWhiteSpace(title)) return;
-        if (selected.SegmentId is null)
-        {
-            await App.Services.ChapterAuthoring.UpdateChapterAsync(
-                App.Services.Session.RequireProjectRoot(), selected.ChapterId, title);
-        }
-        else
-        {
-            await App.Services.ChapterAuthoring.RenameSegmentAsync(
-                App.Services.Session.RequireProjectRoot(), selected.SegmentId, title);
-        }
+        await ExecuteAuthoringTransactionAsync(
+            selected.SegmentId is null ? "Rename chapter" : "Rename segment",
+            async cancellationToken =>
+            {
+                if (selected.SegmentId is null)
+                {
+                    await App.Services.ChapterAuthoring.UpdateChapterAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.ChapterId, title, cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await App.Services.ChapterAuthoring.RenameSegmentAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.SegmentId, title, cancellationToken);
+                }
+            });
 
         await App.Services.Session.RefreshAsync();
     }
@@ -824,16 +926,21 @@ public sealed partial class WorkbenchView : UserControl
     {
         RailItem? selected = GetSelectedRailItem();
         if (selected is null) return;
-        if (selected.SegmentId is null)
-        {
-            await App.Services.ChapterAuthoring.DuplicateChapterAsync(
-                App.Services.Session.RequireProjectRoot(), selected.ChapterId);
-        }
-        else
-        {
-            await App.Services.ChapterAuthoring.DuplicateSegmentAsync(
-                App.Services.Session.RequireProjectRoot(), selected.SegmentId);
-        }
+        await ExecuteAuthoringTransactionAsync(
+            selected.SegmentId is null ? "Duplicate chapter" : "Duplicate segment",
+            async cancellationToken =>
+            {
+                if (selected.SegmentId is null)
+                {
+                    await App.Services.ChapterAuthoring.DuplicateChapterAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.ChapterId, cancellationToken);
+                }
+                else
+                {
+                    await App.Services.ChapterAuthoring.DuplicateSegmentAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.SegmentId, cancellationToken);
+                }
+            });
 
         await App.Services.Session.RefreshAsync();
         ShowStatus(InfoBarSeverity.Success, "Duplicate created", "The copy has its own canonical source and stable ID.");
@@ -843,16 +950,21 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (sender is not MenuFlyoutItem { Tag: string offsetText } ||
             !int.TryParse(offsetText, out int offset) || GetSelectedRailItem() is not RailItem selected) return;
-        if (selected.SegmentId is null)
-        {
-            await App.Services.ChapterAuthoring.MoveChapterAsync(
-                App.Services.Session.RequireProjectRoot(), selected.ChapterId, offset);
-        }
-        else
-        {
-            await App.Services.ChapterAuthoring.MoveSegmentAsync(
-                App.Services.Session.RequireProjectRoot(), selected.ChapterId, selected.SegmentId, offset);
-        }
+        await ExecuteAuthoringTransactionAsync(
+            selected.SegmentId is null ? "Reorder chapter" : "Reorder segment",
+            async cancellationToken =>
+            {
+                if (selected.SegmentId is null)
+                {
+                    await App.Services.ChapterAuthoring.MoveChapterAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.ChapterId, offset, cancellationToken);
+                }
+                else
+                {
+                    await App.Services.ChapterAuthoring.MoveSegmentAsync(
+                        App.Services.Session.RequireProjectRoot(), selected.ChapterId, selected.SegmentId, offset, cancellationToken);
+                }
+            });
 
         await App.Services.Session.RefreshAsync();
     }
@@ -863,10 +975,13 @@ public sealed partial class WorkbenchView : UserControl
         string? chapterId = selected?.ChapterId ?? _segment?.ChapterId;
         if (_project is null || chapterId is null) return;
         ChapterDocument chapter = _project.Chapters.Single(item => item.ChapterId == chapterId);
-        await App.Services.ChapterAuthoring.UpdateChapterAsync(
-            App.Services.Session.RequireProjectRoot(),
-            chapterId,
-            includedInCompilation: !chapter.IncludedInCompilation);
+        await ExecuteAuthoringTransactionAsync(
+            chapter.IncludedInCompilation ? "Exclude chapter from compilation" : "Include chapter in compilation",
+            cancellationToken => App.Services.ChapterAuthoring.UpdateChapterAsync(
+                App.Services.Session.RequireProjectRoot(),
+                chapterId,
+                includedInCompilation: !chapter.IncludedInCompilation,
+                cancellationToken: cancellationToken));
         await App.Services.Session.RefreshAsync();
     }
 
@@ -885,11 +1000,14 @@ public sealed partial class WorkbenchView : UserControl
             DefaultButton = ContentDialogButton.Close,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        await App.Services.ChapterAuthoring.UpdateChapterAsync(
-            App.Services.Session.RequireProjectRoot(),
-            chapterId,
-            includedInCompilation: false,
-            status: ChapterStatus.Archived);
+        await ExecuteAuthoringTransactionAsync(
+            "Archive chapter",
+            cancellationToken => App.Services.ChapterAuthoring.UpdateChapterAsync(
+                App.Services.Session.RequireProjectRoot(),
+                chapterId,
+                includedInCompilation: false,
+                status: ChapterStatus.Archived,
+                cancellationToken: cancellationToken));
         await App.Services.Session.RefreshAsync();
     }
 
@@ -920,16 +1038,21 @@ public sealed partial class WorkbenchView : UserControl
 
         try
         {
-            if (isChapter)
-            {
-                await App.Services.ChapterAuthoring.DeleteChapterAsync(
-                    App.Services.Session.RequireProjectRoot(), selected.ChapterId);
-            }
-            else
-            {
-                await App.Services.ChapterAuthoring.DeleteSegmentAsync(
-                    App.Services.Session.RequireProjectRoot(), selected.SegmentId!);
-            }
+            await ExecuteAuthoringTransactionAsync(
+                isChapter ? $"Delete chapter: {name}" : $"Delete segment: {name}",
+                async cancellationToken =>
+                {
+                    if (isChapter)
+                    {
+                        await App.Services.ChapterAuthoring.DeleteChapterAsync(
+                            App.Services.Session.RequireProjectRoot(), selected.ChapterId, cancellationToken);
+                    }
+                    else
+                    {
+                        await App.Services.ChapterAuthoring.DeleteSegmentAsync(
+                            App.Services.Session.RequireProjectRoot(), selected.SegmentId!, cancellationToken);
+                    }
+                });
 
             await App.Services.Session.RefreshAsync();
             ShowStatus(
@@ -1009,7 +1132,9 @@ public sealed partial class WorkbenchView : UserControl
             GenerateProductionCues = cueToggle.IsOn,
         };
         project = project with { WritingProfile = profile };
-        await App.Services.Session.SaveAsync(project);
+        await ExecuteAuthoringTransactionAsync(
+            "Update writing profile",
+            cancellationToken => App.Services.Session.SaveAsync(project, cancellationToken));
         try
         {
             WritingContext context = await App.Services.WritingContexts.LoadAsync(
@@ -1036,8 +1161,14 @@ public sealed partial class WorkbenchView : UserControl
                     EstimateWritingTokens(goalBox.Text, context) + 500,
                     cueToggle.IsOn));
             if (!await PreviewDraftAsync(draft)) return;
-            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.CreateChapterFromDraftAsync(
-                App.Services.Session.RequireProjectRoot(), draft, goalBox.Text.Trim(), referenceIds);
+            VoiceBenchProjectDocument updated = await ExecuteAuthoringTransactionAsync(
+                $"Accept AI chapter draft: {draft.Title}",
+                cancellationToken => App.Services.ChapterAuthoring.CreateChapterFromDraftAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    draft,
+                    goalBox.Text.Trim(),
+                    referenceIds,
+                    cancellationToken));
             await App.Services.Session.RefreshAsync();
             await LoadProjectAsync(updated.Chapters.Single(chapter => chapter.ChapterId == updated.ChapterOrder.Last()).SegmentOrder.First());
             ShowStatus(InfoBarSeverity.Success, "AI draft accepted", "The chapter and canonical segment files were created atomically.");
@@ -1132,14 +1263,17 @@ public sealed partial class WorkbenchView : UserControl
             _pendingWritingProviderId = providerId;
             _pendingWritingModelId = modelId;
             _pendingWritingSourceHash = _segment.AuthoringSha256;
-            await App.Services.ChapterAuthoring.ApplyWritingProposalAsync(
-                App.Services.Session.RequireProjectRoot(),
-                _segment.SegmentId,
-                _pendingWritingSourceHash,
-                proposal,
-                acceptedAction,
-                providerId,
-                modelId);
+            await ExecuteAuthoringTransactionAsync(
+                $"Accept writing proposal: {WritingActionDisplayName(acceptedAction)}",
+                cancellationToken => App.Services.ChapterAuthoring.ApplyWritingProposalAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    _segment.SegmentId,
+                    _pendingWritingSourceHash,
+                    proposal,
+                    acceptedAction,
+                    providerId,
+                    modelId,
+                    cancellationToken));
             await App.Services.Session.RefreshAsync();
             await LoadProjectAsync(_segment.SegmentId);
             ShowWritingConfirmation(
@@ -1637,6 +1771,247 @@ public sealed partial class WorkbenchView : UserControl
         return false;
     }
 
+    private async Task ExecuteAuthoringTransactionAsync(
+        string label,
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken = default)
+    {
+        await App.Services.AuthoringTransactions.ExecuteAsync(
+            App.Services.Session.RequireProjectRoot(),
+            label,
+            action,
+            cancellationToken);
+        await RefreshAuthoringHistoryAsync();
+    }
+
+    private async Task<T> ExecuteAuthoringTransactionAsync<T>(
+        string label,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken = default)
+    {
+        T result = default!;
+        await ExecuteAuthoringTransactionAsync(
+            label,
+            async token =>
+            {
+                result = await action(token);
+            },
+            cancellationToken);
+        return result;
+    }
+
+    private async Task RefreshAuthoringHistoryAsync()
+    {
+        if (!App.Services.Session.HasProject)
+        {
+            _authoringHistory = new AuthoringTransactionState(
+                AuthoringTransactionState.CurrentSchemaVersion,
+                [],
+                0,
+                false);
+            UpdateUndoRedoState();
+            return;
+        }
+
+        _authoringHistory = await App.Services.AuthoringTransactions.GetStateAsync(
+            App.Services.Session.RequireProjectRoot());
+        UpdateUndoRedoState();
+    }
+
+    private void UpdateUndoRedoState()
+    {
+        bool hasEditor = _segment is not null && ScriptTextBox.IsEnabled;
+        bool editorUndo = hasEditor && (_pendingEditorUndo is not null || _editorUndoHistory.Count > 0);
+        bool editorRedo = hasEditor && _editorRedoHistory.Count > 0;
+        bool durableUndo = !_isDirty && _authoringHistory.CanUndo;
+        bool durableRedo = !_isDirty && _authoringHistory.CanRedo;
+        UndoAuthoringButton.IsEnabled = !_authoringHistoryOperationInProgress && (editorUndo || durableUndo);
+        RedoAuthoringButton.IsEnabled = !_authoringHistoryOperationInProgress && (editorRedo || durableRedo);
+        AuthoringHistoryButton.IsEnabled = !_authoringHistoryOperationInProgress && _authoringHistory.Transactions.Count > 0;
+        ToolTipService.SetToolTip(
+            UndoAuthoringButton,
+            editorUndo
+                ? "Undo the latest editor change (Ctrl+Z)"
+                : durableUndo
+                    ? $"Undo saved action: {_authoringHistory.NextUndo!.Label} (Ctrl+Z)"
+                    : _isDirty ? "Finish or save the current edit before undoing saved actions" : "Nothing to undo");
+        ToolTipService.SetToolTip(
+            RedoAuthoringButton,
+            editorRedo
+                ? "Redo the latest editor change (Ctrl+Y)"
+                : durableRedo
+                    ? $"Redo saved action: {_authoringHistory.NextRedo!.Label} (Ctrl+Y)"
+                    : _isDirty ? "Finish or save the current edit before redoing saved actions" : "Nothing to redo");
+    }
+
+    private async void UndoAuthoring_Click(object sender, RoutedEventArgs e)
+        => await UndoAuthoringAsync();
+
+    private async void RedoAuthoring_Click(object sender, RoutedEventArgs e)
+        => await RedoAuthoringAsync();
+
+    private async void UndoAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        await UndoAuthoringAsync();
+    }
+
+    private async void RedoAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        await RedoAuthoringAsync();
+    }
+
+    private async Task UndoAuthoringAsync()
+    {
+        if (_authoringHistoryOperationInProgress) return;
+        CommitPendingEditorUndo();
+        if (_segment is not null && _editorUndoHistory.Count > 0)
+        {
+            EditorHistorySnapshot current = CaptureEditorSnapshot();
+            EditorHistorySnapshot target = _editorUndoHistory[^1];
+            _editorUndoHistory.RemoveAt(_editorUndoHistory.Count - 1);
+            _editorRedoHistory.Add(current);
+            ApplyEditorSnapshot(target);
+            return;
+        }
+        await ApplyDurableHistoryAsync(undo: true);
+    }
+
+    private async Task RedoAuthoringAsync()
+    {
+        if (_authoringHistoryOperationInProgress) return;
+        CommitPendingEditorUndo();
+        if (_segment is not null && _editorRedoHistory.Count > 0)
+        {
+            EditorHistorySnapshot current = CaptureEditorSnapshot();
+            EditorHistorySnapshot target = _editorRedoHistory[^1];
+            _editorRedoHistory.RemoveAt(_editorRedoHistory.Count - 1);
+            _editorUndoHistory.Add(current);
+            ApplyEditorSnapshot(target);
+            return;
+        }
+        await ApplyDurableHistoryAsync(undo: false);
+    }
+
+    private async Task ApplyDurableHistoryAsync(bool undo)
+    {
+        if (!App.Services.Session.HasProject || _isDirty)
+        {
+            ShowStatus(
+                InfoBarSeverity.Warning,
+                "Save or finish the current edit",
+                "Saved project actions can be restored only from a clean editor boundary.");
+            return;
+        }
+
+        _authoringHistoryOperationInProgress = true;
+        UpdateUndoRedoState();
+        string? preferredSegmentId = _segment?.SegmentId;
+        try
+        {
+            ShowStatus(
+                InfoBarSeverity.Informational,
+                undo ? "Undoing saved action" : "Redoing saved action",
+                "Restoring the project manifest and canonical authoring files together…");
+            AuthoringTransactionRecord transaction = undo
+                ? await App.Services.AuthoringTransactions.UndoAsync(App.Services.Session.RequireProjectRoot())
+                : await App.Services.AuthoringTransactions.RedoAsync(App.Services.Session.RequireProjectRoot());
+            await App.Services.Session.RefreshAsync();
+            VoiceBenchProjectDocument project = App.Services.Session.RequireProject();
+            string? segmentId = preferredSegmentId is not null && project.Segments.Any(item => item.SegmentId == preferredSegmentId)
+                ? preferredSegmentId
+                : ProjectOrdering.GetPlaybackOrderedSegmentIds(project).FirstOrDefault();
+            await LoadProjectAsync(segmentId);
+            ShowStatus(
+                InfoBarSeverity.Success,
+                undo ? "Saved action undone" : "Saved action redone",
+                transaction.Label);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(
+                InfoBarSeverity.Error,
+                undo ? "Undo stopped" : "Redo stopped",
+                exception.Message);
+        }
+        finally
+        {
+            _authoringHistoryOperationInProgress = false;
+            await RefreshAuthoringHistoryAsync();
+        }
+    }
+
+    private async void ShowAuthoringHistory_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshAuthoringHistoryAsync();
+        StackPanel entries = new() { Spacing = 8 };
+        for (int index = _authoringHistory.Transactions.Count - 1; index >= 0; index--)
+        {
+            AuthoringTransactionRecord transaction = _authoringHistory.Transactions[index];
+            bool applied = index < _authoringHistory.Cursor;
+            string state = applied ? "APPLIED" : "UNDONE";
+            if (index == _authoringHistory.Cursor - 1) state = "NEXT UNDO";
+            else if (index == _authoringHistory.Cursor) state = "NEXT REDO";
+            entries.Children.Add(new Border
+            {
+                Background = ThemeBrush("PanelBrush"),
+                BorderBrush = ThemeBrush("DividerBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(12, 9, 12, 9),
+                Child = new StackPanel
+                {
+                    Spacing = 3,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = transaction.Label,
+                            FontSize = 14,
+                            Foreground = ThemeBrush("ReadingTextBrush"),
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                        new TextBlock
+                        {
+                            Text = $"{transaction.CreatedAt.LocalDateTime:g}  ·  {state}",
+                            Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"],
+                        },
+                    },
+                },
+            });
+        }
+
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Saved authoring history",
+            CloseButtonText = "Close",
+            Content = new StackPanel
+            {
+                Width = 520,
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Undo and redo restore the project manifest and canonical scripts together. Audio and exports are never changed.",
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = ThemeBrush("MutedTextBrush"),
+                    },
+                    new ScrollViewer
+                    {
+                        Content = entries,
+                        MaxHeight = 460,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    },
+                },
+            },
+        };
+        await dialog.ShowAsync();
+    }
+
     private static int EstimateWritingTokens(params object?[] values)
     {
         int characters = values.Sum(value => value switch
@@ -1659,12 +2034,98 @@ public sealed partial class WorkbenchView : UserControl
         string currentText = GetEditorText();
         if (string.Equals(currentText, _lastEditorText, StringComparison.Ordinal)) return;
 
-        // RichEditBox also raises TextChanged for character-format changes. Remembering
-        // the plain text prevents cue highlighting from scheduling itself forever.
+        // RichEditBox also raises TextChanged for character-format changes. The plain-text
+        // comparison keeps visual cue formatting out of VoiceBench's editor history.
+        if (_pendingEditorUndo is null)
+        {
+            _pendingEditorUndo = new EditorHistorySnapshot(
+                _lastEditorText,
+                _lastEditorSelectionStart,
+                _lastEditorSelectionEnd);
+        }
+        _editorRedoHistory.Clear();
+        _editorHistoryTimer?.Stop();
+        _editorHistoryTimer?.Start();
         _lastEditorText = currentText;
+        CaptureEditorSelection();
         _isDirty = !string.Equals(currentText, _loadedText, StringComparison.Ordinal);
         UpdateEditorStats();
+        UpdateUndoRedoState();
         QueueCueFormatting();
+    }
+
+    private void ScriptTextBox_SelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ignoreTextChanges) CaptureEditorSelection();
+    }
+
+    private void CaptureEditorSelection()
+    {
+        ITextSelection selection = ScriptTextBox.Document.Selection;
+        _lastEditorSelectionStart = selection.StartPosition;
+        _lastEditorSelectionEnd = selection.EndPosition;
+    }
+
+    private EditorHistorySnapshot CaptureEditorSnapshot()
+    {
+        ITextSelection selection = ScriptTextBox.Document.Selection;
+        return new EditorHistorySnapshot(GetEditorText(), selection.StartPosition, selection.EndPosition);
+    }
+
+    private void CommitPendingEditorUndo()
+    {
+        _editorHistoryTimer?.Stop();
+        if (_pendingEditorUndo is null) return;
+        if (!string.Equals(_pendingEditorUndo.Text, GetEditorText(), StringComparison.Ordinal))
+        {
+            _editorUndoHistory.Add(_pendingEditorUndo);
+            if (_editorUndoHistory.Count > EditorHistoryLimit) _editorUndoHistory.RemoveAt(0);
+        }
+        _pendingEditorUndo = null;
+        UpdateUndoRedoState();
+    }
+
+    private void ResetEditorHistory()
+    {
+        _editorHistoryTimer?.Stop();
+        _pendingEditorUndo = null;
+        _editorUndoHistory.Clear();
+        _editorRedoHistory.Clear();
+        CaptureEditorSelection();
+        UpdateUndoRedoState();
+    }
+
+    private void ApplyEditorSnapshot(EditorHistorySnapshot snapshot)
+    {
+        bool wasEnabled = ScriptTextBox.IsEnabled;
+        bool wasReadOnly = ScriptTextBox.IsReadOnly;
+        _ignoreTextChanges = true;
+        try
+        {
+            ScriptTextBox.IsEnabled = true;
+            ScriptTextBox.IsReadOnly = false;
+            ScriptTextBox.Document.SetText(TextSetOptions.None, snapshot.Text);
+            int textLength = GetEditorText().Length;
+            int start = Math.Clamp(snapshot.SelectionStart, 0, textLength);
+            int end = Math.Clamp(snapshot.SelectionEnd, 0, textLength);
+            ScriptTextBox.Document.Selection.SetRange(start, end);
+            ScriptTextBox.Document.ClearUndoRedoHistory();
+            _lastEditorText = snapshot.Text;
+            _lastEditorSelectionStart = start;
+            _lastEditorSelectionEnd = end;
+        }
+        finally
+        {
+            ScriptTextBox.IsReadOnly = wasReadOnly;
+            ScriptTextBox.IsEnabled = wasEnabled;
+            _ignoreTextChanges = false;
+        }
+
+        _isDirty = !string.Equals(snapshot.Text, _loadedText, StringComparison.Ordinal);
+        UpdateEditorStats();
+        UpdateUndoRedoState();
+        QueueCueFormatting();
+        ScriptTextBox.Focus(FocusState.Programmatic);
     }
 
     private void ScriptTextBox_PointerStateChanged(object sender, PointerRoutedEventArgs e) =>
@@ -1696,17 +2157,6 @@ public sealed partial class WorkbenchView : UserControl
             return false;
         }
 
-        string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            await File.WriteAllTextAsync(temporaryPath, GetEditorText());
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-        }
-
         string editorText = GetEditorText();
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(editorText);
         string newHash = SourceTextHasher.Compute(parsed.NarrationText);
@@ -1715,13 +2165,31 @@ public sealed partial class WorkbenchView : UserControl
         int index = _project.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
         List<SegmentDocument> segments = [.. _project.Segments];
         segments[index] = updated;
-        await App.Services.Session.SaveAsync(_project with { Segments = segments });
+        await ExecuteAuthoringTransactionAsync(
+            $"Save script: {_segment.Title}",
+            async cancellationToken =>
+            {
+                string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+                try
+                {
+                    await File.WriteAllTextAsync(temporaryPath, editorText, cancellationToken);
+                    File.Move(temporaryPath, path, overwrite: true);
+                    await App.Services.Session.SaveAsync(
+                        _project with { Segments = segments },
+                        cancellationToken);
+                }
+                finally
+                {
+                    if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                }
+            });
         _project = App.Services.Session.RequireProject();
         _segment = _project.Segments.Single(item => item.SegmentId == updated.SegmentId);
         _loadedText = editorText;
         _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
         _isDirty = false;
+        ResetEditorHistory();
         ExternalEditBar.IsOpen = false;
         UpdateEditorStats();
         return true;
@@ -1943,7 +2411,11 @@ public sealed partial class WorkbenchView : UserControl
         {
             GenerateProductionCues = GenerateProductionCuesToggle.IsOn,
         };
-        await App.Services.Session.SaveAsync(_project with { WritingProfile = profile });
+        await ExecuteAuthoringTransactionAsync(
+            "Update production-cue preference",
+            cancellationToken => App.Services.Session.SaveAsync(
+                _project with { WritingProfile = profile },
+                cancellationToken));
         _project = App.Services.Session.RequireProject();
     }
 
@@ -1995,7 +2467,11 @@ public sealed partial class WorkbenchView : UserControl
         int existingIndex = lexicon.FindIndex(item => item.Written.Equals(entry.Written, StringComparison.OrdinalIgnoreCase));
         if (existingIndex >= 0) lexicon[existingIndex] = entry;
         else lexicon.Add(entry);
-        await App.Services.Session.SaveAsync(_project with { Lexicon = lexicon });
+        await ExecuteAuthoringTransactionAsync(
+            $"Save pronunciation: {entry.Written}",
+            cancellationToken => App.Services.Session.SaveAsync(
+                _project with { Lexicon = lexicon },
+                cancellationToken));
         _project = App.Services.Session.RequireProject();
         ShowStatus(InfoBarSeverity.Success, "Pronunciation saved", $"Render copies will submit '{entry.Spoken}' wherever '{entry.Written}' appears as a whole word.");
     }
@@ -2030,11 +2506,14 @@ public sealed partial class WorkbenchView : UserControl
             if (!await SaveCurrentScriptAsync()) return;
             string originalSegmentId = _segment.SegmentId;
             string originalChapterId = _segment.ChapterId;
-            VoiceBenchProjectDocument updated = await App.Services.ChapterAuthoring.SplitSegmentAsync(
-                App.Services.Session.RequireProjectRoot(),
-                originalSegmentId,
-                cursor,
-                _segment.AuthoringSha256);
+            VoiceBenchProjectDocument updated = await ExecuteAuthoringTransactionAsync(
+                $"Split segment: {_segment.Title}",
+                cancellationToken => App.Services.ChapterAuthoring.SplitSegmentAsync(
+                    App.Services.Session.RequireProjectRoot(),
+                    originalSegmentId,
+                    cursor,
+                    _segment.AuthoringSha256,
+                    cancellationToken));
             await App.Services.Session.RefreshAsync();
             ChapterDocument chapter = updated.Chapters.Single(item => item.ChapterId == originalChapterId);
             int originalIndex = chapter.SegmentOrder.IndexOf(originalSegmentId);
@@ -2394,7 +2873,6 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (_ignoreTextChanges || _cueFormattingUnavailable) return;
         string text = GetEditorText();
-        if (text.Length == 0) return;
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
         ITextSelection selection = ScriptTextBox.Document.Selection;
         int selectionStart = selection.StartPosition;
@@ -2402,10 +2880,12 @@ public sealed partial class WorkbenchView : UserControl
         _ignoreTextChanges = true;
         try
         {
+            ApplyEditorDefaultCharacterFormat();
+            if (text.Length == 0) return;
+
             ITextRange all = ScriptTextBox.Document.GetRange(0, text.Length);
             ITextCharacterFormat baseFormat = all.CharacterFormat;
-            baseFormat.ForegroundColor = ThemeColor("ReadingTextBrush", Color.FromArgb(255, 255, 255, 255));
-            baseFormat.Bold = FormatEffect.Off;
+            ApplyNarrationCharacterFormat(baseFormat);
             all.CharacterFormat = baseFormat;
 
             foreach (ProductionCue cue in parsed.Cues)
@@ -2444,6 +2924,21 @@ public sealed partial class WorkbenchView : UserControl
         }
     }
 
+    private void ApplyEditorDefaultCharacterFormat()
+    {
+        ITextCharacterFormat defaultFormat = ScriptTextBox.Document.GetDefaultCharacterFormat();
+        ApplyNarrationCharacterFormat(defaultFormat);
+        ScriptTextBox.Document.SetDefaultCharacterFormat(defaultFormat);
+    }
+
+    private void ApplyNarrationCharacterFormat(ITextCharacterFormat format)
+    {
+        format.ForegroundColor = ThemeColor("ReadingTextBrush", Color.FromArgb(255, 255, 255, 255));
+        format.Bold = FormatEffect.Off;
+        format.Name = ScriptTextBox.FontFamily.Source;
+        format.Size = (float)ScriptTextBox.FontSize;
+    }
+
     private static Color ThemeColor(string key, Color fallback) =>
         Application.Current.Resources[key] is SolidColorBrush brush ? brush.Color : fallback;
 
@@ -2460,6 +2955,8 @@ public sealed partial class WorkbenchView : UserControl
             ScriptTextBox.IsEnabled = true;
             ScriptTextBox.IsReadOnly = false;
             ScriptTextBox.Document.SetText(TextSetOptions.None, text);
+            ApplyEditorDefaultCharacterFormat();
+            ScriptTextBox.Document.ClearUndoRedoHistory();
             _lastEditorText = GetEditorText();
         }
         finally
@@ -2470,6 +2967,7 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         _isDirty = false;
+        ResetEditorHistory();
         QueueCueFormatting();
     }
 

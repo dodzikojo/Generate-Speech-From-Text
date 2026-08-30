@@ -185,8 +185,14 @@ public sealed partial class AssemblyView : UserControl
     private async void Inclusion_Toggled(object sender, RoutedEventArgs e)
     {
         if (_loading || sender is not ToggleSwitch { Tag: string chapterId } toggle) return;
-        await App.Services.ChapterAuthoring.UpdateChapterAsync(
-            App.Services.Session.RequireProjectRoot(), chapterId, includedInCompilation: toggle.IsOn);
+        await App.Services.AuthoringTransactions.ExecuteAsync(
+            App.Services.Session.RequireProjectRoot(),
+            toggle.IsOn ? "Include chapter in compilation" : "Exclude chapter from compilation",
+            cancellationToken => App.Services.ChapterAuthoring.UpdateChapterAsync(
+                App.Services.Session.RequireProjectRoot(),
+                chapterId,
+                includedInCompilation: toggle.IsOn,
+                cancellationToken: cancellationToken));
         await App.Services.Session.RefreshAsync();
     }
 
@@ -194,8 +200,14 @@ public sealed partial class AssemblyView : UserControl
     {
         if (sender is not Button { Tag: string tag }) return;
         string[] parts = tag.Split('|');
-        await App.Services.ChapterAuthoring.MoveChapterAsync(
-            App.Services.Session.RequireProjectRoot(), parts[0], int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture));
+        await App.Services.AuthoringTransactions.ExecuteAsync(
+            App.Services.Session.RequireProjectRoot(),
+            "Reorder chapter",
+            cancellationToken => App.Services.ChapterAuthoring.MoveChapterAsync(
+                App.Services.Session.RequireProjectRoot(),
+                parts[0],
+                int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture),
+                cancellationToken));
         await App.Services.Session.RefreshAsync();
     }
 

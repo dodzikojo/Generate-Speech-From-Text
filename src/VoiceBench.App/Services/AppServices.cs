@@ -43,7 +43,8 @@ public sealed class AppServices : IDisposable
     {
         Projects = new FileProjectRepository();
         RecentProjects = new FileRecentProjectCatalog();
-        Session = new WorkspaceSession(Projects, RecentProjects);
+        AuthoringTransactions = new FileAuthoringTransactionManager();
+        Session = new WorkspaceSession(Projects, RecentProjects, AuthoringTransactions);
         _credentialResolver = new ProviderCredentialResolver(_credentialStore);
         _providers = new SpeechProviderRegistry(
         [
@@ -66,6 +67,8 @@ public sealed class AppServices : IDisposable
     public FileProjectRepository Projects { get; }
 
     public FileRecentProjectCatalog RecentProjects { get; }
+
+    public IAuthoringTransactionManager AuthoringTransactions { get; }
 
     public WorkspaceSession Session { get; }
 

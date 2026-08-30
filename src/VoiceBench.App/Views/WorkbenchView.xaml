@@ -9,8 +9,12 @@
     d:DesignWidth="1360" d:DesignHeight="820">
 
     <Grid x:Name="WorkbenchRoot" Background="{ThemeResource BaseBrush}">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="UndoAccelerator_Invoked" />
+            <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="RedoAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
+        <Grid x:Name="WorkbenchLayout">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -18,13 +22,15 @@
         </Grid.RowDefinitions>
 
         <Grid x:Name="WorkbenchHeader" Margin="12,14,12,12">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel Spacing="3">
-                <TextBlock x:Name="ProjectHeaderText" Text="WORKBENCH  /  NO PROJECT" Style="{StaticResource UtilityLabelTextStyle}" />
-                <TextBlock x:Name="ProjectTitleText" Text="Open a project to begin" Style="{StaticResource StudioHeadingTextStyle}" />
+                <TextBlock x:Name="ProjectHeaderText" Text="WORKBENCH  /  NO PROJECT" Style="{StaticResource UtilityLabelTextStyle}"
+                           MaxLines="1" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="ProjectTitleText" Text="Open a project to begin" Style="{StaticResource StudioHeadingTextStyle}"
+                           MaxLines="1" TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <Grid x:Name="PanelVisibilityControls" Grid.Row="1" Margin="0,10,0,0" ColumnSpacing="3"
+            <Grid x:Name="PanelVisibilityControls" Grid.Column="2" Margin="12,0,0,0" ColumnSpacing="3"
                   AutomationProperties.Name="Workspace panels">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <ToggleButton x:Name="ChapterRailToggle" IsChecked="True"
@@ -46,21 +52,27 @@
                     <SymbolIcon Symbol="Audio" />
                 </ToggleButton>
             </Grid>
-            <StackPanel x:Name="WorkbenchHeaderActions" Grid.Row="2" Margin="0,12,0,0" Orientation="Horizontal" Spacing="8">
-                <Button Content="New chapter" Style="{StaticResource QuietButtonStyle}" Click="NewChapter_Click" />
-                <Button Content="Draft with AI" Style="{StaticResource QuietButtonStyle}" Click="DraftWithAi_Click" />
-                <Button Content="Import scripts" Style="{StaticResource QuietButtonStyle}" Click="ImportScript_Click" />
-                <Button Content="Save" Style="{StaticResource QuietButtonStyle}" Click="Save_Click"
-                        AutomationProperties.AcceleratorKey="Control+S">
-                    <Button.KeyboardAccelerators><KeyboardAccelerator Key="S" Modifiers="Control" /></Button.KeyboardAccelerators>
-                </Button>
-            </StackPanel>
+            <CommandBar x:Name="WorkbenchHeaderActions" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0" Padding="0"
+                        Background="Transparent" DefaultLabelPosition="Right" ClosedDisplayMode="Compact"
+                        IsDynamicOverflowEnabled="True" HorizontalAlignment="Right"
+                        AutomationProperties.Name="Project authoring actions">
+                <AppBarButton Label="New chapter" Click="NewChapter_Click">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton Label="Draft with AI" Click="DraftWithAi_Click">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE70F;" /></AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton Label="Import scripts" Click="ImportScript_Click">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE8E5;" /></AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton Label="Save" Click="Save_Click" AutomationProperties.AcceleratorKey="Control+S">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" /></AppBarButton.Icon>
+                    <AppBarButton.KeyboardAccelerators><KeyboardAccelerator Key="S" Modifiers="Control" /></AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+            </CommandBar>
         </Grid>
 
-        <InfoBar x:Name="WorkbenchInfoBar" Grid.Row="1" Margin="12,0,12,12"
-                 IsOpen="False" IsClosable="True" Severity="Informational" />
-
-        <Border x:Name="CompactPickerPanel" Grid.Row="2" Margin="12,0,12,12"
+        <Border x:Name="CompactPickerPanel" Grid.Row="1" Margin="12,0,12,12"
                 Style="{StaticResource StudioPanelStyle}" Visibility="Collapsed">
             <Grid ColumnSpacing="10">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -71,7 +83,7 @@
             </Grid>
         </Border>
 
-        <Grid x:Name="WorkbenchColumns" Grid.Row="3" Margin="12,0" ColumnSpacing="12" RowSpacing="12">
+        <Grid x:Name="WorkbenchColumns" Grid.Row="2" Margin="12,0" ColumnSpacing="12" RowSpacing="12">
             <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition x:Name="DirectorRow" Height="0" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="TakeRailColumn" Width="300" />
@@ -175,11 +187,53 @@
                                     Background="Transparent" DefaultLabelPosition="Right"
                                     ClosedDisplayMode="Compact" IsDynamicOverflowEnabled="True"
                                     AutomationProperties.Name="Script and production guidance tools">
+                            <AppBarButton x:Name="UndoAuthoringButton" Label="Undo" LabelPosition="Collapsed"
+                                          IsEnabled="False" Click="UndoAuthoring_Click"
+                                          ToolTipService.ToolTip="Nothing to undo"
+                                          AutomationProperties.Name="Undo editor or saved authoring action">
+                                <AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton x:Name="RedoAuthoringButton" Label="Redo" LabelPosition="Collapsed"
+                                          IsEnabled="False" Click="RedoAuthoring_Click"
+                                          ToolTipService.ToolTip="Nothing to redo"
+                                          AutomationProperties.Name="Redo editor or saved authoring action">
+                                <AppBarButton.Icon><FontIcon Glyph="&#xE7A6;" /></AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton x:Name="AuthoringHistoryButton" Label="History" LabelPosition="Collapsed"
+                                          IsEnabled="False" Click="ShowAuthoringHistory_Click"
+                                          ToolTipService.ToolTip="Saved authoring history"
+                                          AutomationProperties.Name="Show saved authoring history">
+                                <AppBarButton.Icon><FontIcon Glyph="&#xE81C;" /></AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarSeparator />
                             <AppBarButton Label="Pronunciation" Click="Pronunciation_Click" ToolTipService.ToolTip="Add a project pronunciation">
                                 <AppBarButton.Icon><FontIcon Glyph="&#xE8D6;" /></AppBarButton.Icon>
                             </AppBarButton>
                             <AppBarButton Label="Split" Click="SplitAtCursor_Click" ToolTipService.ToolTip="Split this segment at the cursor">
                                 <AppBarButton.Icon><FontIcon Glyph="&#xE8C6;" /></AppBarButton.Icon>
+                            </AppBarButton>
+                            <AppBarButton x:Name="EditorFontSizeButton" Label="15 px"
+                                          ToolTipService.ToolTip="Text editor font size"
+                                          AutomationProperties.Name="Change text editor font size">
+                                <AppBarButton.Icon><FontIcon Glyph="&#xE8D2;" /></AppBarButton.Icon>
+                                <AppBarButton.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedRight">
+                                        <StackPanel Width="240" Spacing="8">
+                                            <TextBlock Text="EDITOR TEXT SIZE" Style="{StaticResource UtilityLabelTextStyle}" />
+                                            <Grid ColumnSpacing="10">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                <Slider x:Name="EditorFontSizeSlider" Minimum="12" Maximum="24" StepFrequency="1"
+                                                        Value="15"
+                                                        AutomationProperties.Name="Editor text size" />
+                                                <TextBlock x:Name="EditorFontSizeValueText" Grid.Column="1" MinWidth="26"
+                                                           Text="15" FontFamily="{StaticResource UtilityFont}"
+                                                           VerticalAlignment="Center" TextAlignment="Right" />
+                                            </Grid>
+                                            <TextBlock Text="Applies to narration and production cues." TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource MutedTextBrush}" FontSize="12" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </AppBarButton.Flyout>
                             </AppBarButton>
                             <AppBarSeparator />
                             <AppBarButton Label="Visual" Tag="visual" Click="InsertCue_Click" ToolTipService.ToolTip="Insert a visual cue">
@@ -217,6 +271,7 @@
                     <RichEditBox x:Name="ScriptTextBox" Grid.Row="2" Margin="0,8" TextWrapping="Wrap"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="15"
                                  FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
+                                 SelectionChanged="ScriptTextBox_SelectionChanged"
                                  PointerEntered="ScriptTextBox_PointerStateChanged" PointerExited="ScriptTextBox_PointerStateChanged"
                                  GotFocus="ScriptTextBox_FocusStateChanged" LostFocus="ScriptTextBox_FocusStateChanged"
                                  Background="{ThemeResource BaseBrush}" Foreground="{ThemeResource ReadingTextBrush}"
@@ -400,7 +455,7 @@
             </Grid>
         </Grid>
 
-        <Border x:Name="WorkbenchFooter" Grid.Row="4" Margin="12,12,12,14" Padding="12"
+        <Border x:Name="WorkbenchFooter" Grid.Row="3" Margin="12,12,12,14" Padding="12"
                 Style="{StaticResource StudioPanelStyle}"
                 AutomationProperties.Name="Take transport and approval controls">
             <Grid ColumnSpacing="14" RowSpacing="8">
@@ -444,17 +499,27 @@
                 </StackPanel>
 
                 <Border x:Name="TakeDecisionGroup" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center">
-                    <StackPanel x:Name="TakeDecisionControls" Orientation="Horizontal" Spacing="8">
+                    <Grid x:Name="TakeDecisionControls" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <Button x:Name="PickupButton" Content="Request pickup" Style="{StaticResource QuietButtonStyle}"
-                                Foreground="{ThemeResource PickupBrush}" Click="Pickup_Click" IsEnabled="False" />
-                        <Button x:Name="ApproveButton" Content="✓  Approve take" Style="{StaticResource QuietButtonStyle}"
-                                Foreground="{ThemeResource ApprovalBrush}" Click="Approve_Click" IsEnabled="False" />
-                    </StackPanel>
+                                Foreground="{ThemeResource PickupBrush}" Click="Pickup_Click" IsEnabled="False"
+                                HorizontalAlignment="Stretch" />
+                        <Button x:Name="ApproveButton" Grid.Column="1" Content="✓  Approve take" Style="{StaticResource QuietButtonStyle}"
+                                Foreground="{ThemeResource ApprovalBrush}" Click="Approve_Click" IsEnabled="False"
+                                HorizontalAlignment="Stretch" />
+                    </Grid>
                 </Border>
 
                 <controls:AudioTransport x:Name="TakeTransport" Grid.Row="3" Grid.ColumnSpan="4" />
             </Grid>
         </Border>
+        </Grid>
+
+        <InfoBar x:Name="WorkbenchInfoBar"
+                 HorizontalAlignment="Right" VerticalAlignment="Top"
+                 Width="720" MaxWidth="720" Margin="20,76,20,0"
+                 Canvas.ZIndex="20" IsOpen="False" IsClosable="True"
+                 Severity="Informational" AutomationProperties.LiveSetting="Polite" />
 
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WorkbenchWidthStates">
@@ -464,12 +529,11 @@
                         <Setter Target="CompactPickerPanel.Visibility" Value="Visible" />
                         <Setter Target="TakeRailColumn.Width" Value="0" />
                         <Setter Target="DirectorColumn.Width" Value="0" />
-                        <Setter Target="DirectorRow.Height" Value="380" />
+                        <Setter Target="DirectorRow.Height" Value="0.8*" />
                         <Setter Target="DirectorPanel.(Grid.Row)" Value="1" />
                         <Setter Target="DirectorPanel.(Grid.Column)" Value="1" />
                         <Setter Target="EmptyAuthoringState.(Grid.Column)" Value="1" />
                         <Setter Target="EmptyAuthoringState.(Grid.ColumnSpan)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.Orientation" Value="Vertical" />
                         <Setter Target="EmptyActions.Orientation" Value="Vertical" />
                     </VisualState.Setters>
                 </VisualState>
@@ -480,19 +544,19 @@
                         <Setter Target="CompactPickerPanel.Visibility" Value="Collapsed" />
                         <Setter Target="TakeRailColumn.Width" Value="270" />
                         <Setter Target="DirectorColumn.Width" Value="0" />
-                        <Setter Target="DirectorRow.Height" Value="360" />
+                        <Setter Target="DirectorRow.Height" Value="0.7*" />
                         <Setter Target="DirectorPanel.(Grid.Row)" Value="1" />
                         <Setter Target="DirectorPanel.(Grid.Column)" Value="1" />
                         <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
                         <Setter Target="PanelVisibilityControls.(Grid.Row)" Value="0" />
-                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="1" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="2" />
                         <Setter Target="PanelVisibilityControls.Margin" Value="12,0,0,0" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="0" />
-                        <Setter Target="WorkbenchHeaderActions.Margin" Value="0,12,0,0" />
-                        <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="16,0,0,0" />
+                        <Setter Target="WorkbenchHeaderActions.MaxWidth" Value="420" />
                         <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
-                        <Setter Target="WorkbenchHeaderActions.Orientation" Value="Horizontal" />
                         <Setter Target="EmptyActions.Orientation" Value="Horizontal" />
                         <Setter Target="TakeReviewContext.(Grid.ColumnSpan)" Value="1" />
                         <Setter Target="TakeSelectionControls.(Grid.Row)" Value="0" />
@@ -522,12 +586,13 @@
                         <Setter Target="DirectorPanel.(Grid.Column)" Value="2" />
                         <Setter Target="WorkbenchHeader.Margin" Value="20,16,20,12" />
                         <Setter Target="PanelVisibilityControls.(Grid.Row)" Value="0" />
-                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="1" />
+                        <Setter Target="PanelVisibilityControls.(Grid.Column)" Value="2" />
                         <Setter Target="PanelVisibilityControls.Margin" Value="12,0,0,0" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="0" />
-                        <Setter Target="WorkbenchHeaderActions.Margin" Value="0,12,0,0" />
-                        <Setter Target="WorkbenchInfoBar.Margin" Value="20,0,20,12" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Row)" Value="0" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.Column)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.(Grid.ColumnSpan)" Value="1" />
+                        <Setter Target="WorkbenchHeaderActions.Margin" Value="16,0,0,0" />
+                        <Setter Target="WorkbenchHeaderActions.MaxWidth" Value="620" />
                         <Setter Target="WorkbenchColumns.Margin" Value="20,0" />
                         <Setter Target="WorkbenchFooter.Margin" Value="20,12,20,18" />
                         <Setter Target="TakeReviewContext.(Grid.ColumnSpan)" Value="1" />
@@ -544,7 +609,6 @@
                         <Setter Target="AssemblyHandoff.BorderThickness" Value="1,0,0,0" />
                         <Setter Target="AssemblyHandoff.Padding" Value="14,0,0,0" />
                         <Setter Target="TakeTransport.(Grid.Row)" Value="1" />
-                        <Setter Target="WorkbenchHeaderActions.Orientation" Value="Horizontal" />
                         <Setter Target="EmptyActions.Orientation" Value="Horizontal" />
                     </VisualState.Setters>
                 </VisualState>
