@@ -256,4 +256,100 @@ public sealed class XamlContractTests
 
         Assert.Equal("Center", (string?)createButton.Attribute("HorizontalAlignment"));
     }
+
+    [Fact]
+    public void Projects_page_renders_the_persisted_catalog_without_legacy_placeholder_content()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+        string windowCodeBehind = File.ReadAllText(RepositoryPaths.App("MainWindow.xaml.cs"));
+
+        Assert.Contains("RecentProjectsList", xaml, StringComparison.Ordinal);
+        Assert.Contains("RecentProjectsEmptyText", xaml, StringComparison.Ordinal);
+        Assert.Contains("RecentProject_Click", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("Legacy ClashWise narration", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("FindSampleProject", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("App.Services.RecentProjects.GetAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RestoreMostRecentAsync", windowCodeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void New_project_dialog_can_browse_for_its_parent_folder()
+    {
+        var document = XDocument.Load(RepositoryPaths.App("Views/ProjectsView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+        XElement dialog = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "ContentDialog" &&
+            string.Equals((string?)element.Attribute(XamlNamespace + "Name"), "NewProjectDialog", StringComparison.Ordinal));
+        XElement folderBox = Assert.Single(dialog.Descendants(), element =>
+            element.Name.LocalName == "TextBox" &&
+            string.Equals((string?)element.Attribute(XamlNamespace + "Name"), "ProjectFolderBox", StringComparison.Ordinal));
+        XElement browseButton = Assert.Single(dialog.Descendants(), element =>
+            element.Name.LocalName == "Button" &&
+            string.Equals((string?)element.Attribute("Click"), "BrowseProjectFolder_Click", StringComparison.Ordinal));
+
+        Assert.Equal("Parent folder", (string?)folderBox.Attribute("Header"));
+        Assert.Equal("Browse…", (string?)browseButton.Attribute("Content"));
+        Assert.NotNull(browseButton.Attribute("AutomationProperties.Name"));
+        Assert.Contains("ProjectFolderBox.Text = folder", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string.IsNullOrWhiteSpace(ProjectNameBox.Text)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("new DirectoryInfo(folder).Name", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Packaged_app_has_a_visual_studio_msix_launch_profile()
+    {
+        string path = RepositoryPaths.App("Properties/launchSettings.json");
+        Assert.True(File.Exists(path), "The packaged WinUI project requires Properties/launchSettings.json for Visual Studio F5 deployment.");
+
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        System.Text.Json.JsonElement profiles = document.RootElement.GetProperty("profiles");
+        System.Text.Json.JsonProperty packageProfile = profiles.EnumerateObject().First();
+        Assert.Equal("VoiceBench.App (Package)", packageProfile.Name);
+        Assert.Equal("MsixPackage", packageProfile.Value.GetProperty("commandName").GetString());
+        Assert.Equal("Project", profiles.GetProperty("VoiceBench.App (Unpackaged)").GetProperty("commandName").GetString());
+    }
+
+    [Fact]
+    public void Packaged_app_is_enabled_for_visual_studio_deployment()
+    {
+        var solution = XDocument.Load(Path.Combine(RepositoryPaths.Root, "VoiceBench.slnx"));
+        var appProjectDocument = XDocument.Load(RepositoryPaths.App("VoiceBench.App.csproj"));
+        XElement appProject = Assert.Single(solution.Descendants(), element =>
+            element.Name.LocalName == "Project" &&
+            string.Equals(
+                ((string?)element.Attribute("Path"))?.Replace('\\', '/'),
+                "src/VoiceBench.App/VoiceBench.App.csproj",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains(appProject.Elements(), element => element.Name.LocalName == "Deploy");
+        XElement appPlatform = Assert.Single(
+            appProject.Elements(), element => element.Name.LocalName == "Platform");
+        Assert.Equal("x64", (string?)appPlatform.Attribute("Project"));
+
+        string[] solutionPlatforms = solution.Descendants()
+            .Where(element => element.Name.LocalName == "Platform")
+            .Select(element => (string?)element.Attribute("Name"))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToArray();
+        Assert.Equal(["x64"], solutionPlatforms);
+        Assert.Contains(appProjectDocument.Descendants(), element =>
+            element.Name.LocalName == "ProjectCapability" &&
+            string.Equals((string?)element.Attribute("Include"), "Msix", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Publish_profile_does_not_replace_the_debug_layout_with_an_msix_archive()
+    {
+        var profile = XDocument.Load(RepositoryPaths.App("Properties/PublishProfiles/win-x64.pubxml"));
+        string[] propertyNames = profile.Descendants()
+            .Select(element => element.Name.LocalName)
+            .ToArray();
+
+        Assert.DoesNotContain("GenerateAppxPackageOnBuild", propertyNames);
+        Assert.DoesNotContain("Configuration", propertyNames);
+        Assert.Contains("PublishDir", propertyNames);
+    }
+
 }

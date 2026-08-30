@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "VoiceBench.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "VoiceBench.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

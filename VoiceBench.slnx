@@ -1,6 +1,14 @@
 <Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="x64" />
+  </Configurations>
   <Folder Name="/src/">
-    <Project Path="src/VoiceBench.App/VoiceBench.App.csproj" />
+    <Project Path="src/VoiceBench.App/VoiceBench.App.csproj">
+      <Platform Project="x64" />
+      <Deploy />
+    </Project>
     <Project Path="src/VoiceBench.Cli/VoiceBench.Cli.csproj" />
     <Project Path="src/VoiceBench.Core/VoiceBench.Core.csproj" />
     <Project Path="src/VoiceBench.Infrastructure/VoiceBench.Infrastructure.csproj" />

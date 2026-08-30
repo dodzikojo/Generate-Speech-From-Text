@@ -13,6 +13,13 @@ public sealed partial class MainWindow : Window
         App.Services.Session.ProjectActivated += Session_ProjectActivated;
         ShellNavigation.SelectedItem = ProjectsNavigationItem;
         ShowSurface("projects");
+        ShellRoot.Loaded += ShellRoot_Loaded;
+    }
+
+    private async void ShellRoot_Loaded(object sender, RoutedEventArgs e)
+    {
+        ShellRoot.Loaded -= ShellRoot_Loaded;
+        await App.Services.Session.RestoreMostRecentAsync();
     }
 
     private void Session_ProjectActivated(object? sender, EventArgs e) => NavigateTo("workbench");

@@ -11,4 +11,9 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VoiceBench.Core\VoiceBench.Core.csproj" />
+    <ProjectReference Include="..\..\src\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\WorkspaceSession.cs" Link="Services\WorkspaceSession.cs" />
+  </ItemGroup>
 </Project>

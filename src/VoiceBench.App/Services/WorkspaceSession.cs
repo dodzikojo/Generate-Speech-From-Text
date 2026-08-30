@@ -1,9 +1,12 @@
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
+using System.Text.Json;
 
 namespace IssueLab.VoiceBench.App.Services;
 
-public sealed class WorkspaceSession(IProjectRepository projects)
+public sealed class WorkspaceSession(
+    IProjectRepository projects,
+    FileRecentProjectCatalog recentProjects)
 {
     public string? ProjectRoot { get; private set; }
 
@@ -28,6 +31,7 @@ public sealed class WorkspaceSession(IProjectRepository projects)
             projectRoot,
             name,
             cancellationToken);
+        await TryRecordRecentAsync(projectRoot, project.Name, cancellationToken);
         Activate(projectRoot, project);
     }
 
@@ -36,7 +40,45 @@ public sealed class WorkspaceSession(IProjectRepository projects)
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         string root = Path.GetFullPath(projectRoot);
         VoiceBenchProjectDocument project = await projects.LoadAsync(root, cancellationToken);
+        await TryRecordRecentAsync(root, project.Name, cancellationToken);
         Activate(root, project);
+    }
+
+    public async Task<bool> RestoreMostRecentAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<RecentProjectEntry> entries;
+        try
+        {
+            entries = await recentProjects.GetAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            return false;
+        }
+
+        foreach (RecentProjectEntry entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!File.Exists(Path.Combine(entry.ProjectRoot, VoiceBenchProjectLayout.ManifestFileName)))
+            {
+                continue;
+            }
+
+            try
+            {
+                VoiceBenchProjectDocument project = await projects.LoadAsync(entry.ProjectRoot, cancellationToken);
+                Activate(entry.ProjectRoot, project, notifyActivated: false);
+                return true;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or JsonException or ProjectSchemaException)
+            {
+                System.Diagnostics.Debug.WriteLine(exception);
+            }
+        }
+
+        return false;
     }
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
@@ -65,12 +107,33 @@ public sealed class WorkspaceSession(IProjectRepository projects)
     public string ResolveProjectPath(string relativePath) =>
         VoiceBenchProjectLayout.ResolveRelativePath(RequireProjectRoot(), relativePath);
 
-    private void Activate(string projectRoot, VoiceBenchProjectDocument project)
+    private void Activate(
+        string projectRoot,
+        VoiceBenchProjectDocument project,
+        bool notifyActivated = true)
     {
         ProjectRoot = projectRoot;
         Project = project;
         ProjectChanged?.Invoke(this, EventArgs.Empty);
-        ProjectActivated?.Invoke(this, EventArgs.Empty);
+        if (notifyActivated)
+        {
+            ProjectActivated?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private async Task TryRecordRecentAsync(
+        string projectRoot,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await recentProjects.RecordAsync(projectRoot, name, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+        }
     }
 
     private static string CreateSafeFolderName(string name)
