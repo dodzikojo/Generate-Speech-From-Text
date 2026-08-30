@@ -40,6 +40,7 @@ public sealed partial class WorkbenchView : UserControl
     private int _scriptChangeVersion;
     private int _cueFormatVersion;
     private bool _ignoreCueToggle;
+    private bool _cueFormattingUnavailable;
 
     private sealed record RailItem(
         string Title,
@@ -1962,8 +1963,9 @@ public sealed partial class WorkbenchView : UserControl
 
     private void ApplyCueFormatting()
     {
-        if (_ignoreTextChanges) return;
+        if (_ignoreTextChanges || _cueFormattingUnavailable) return;
         string text = GetEditorText();
+        if (text.Length == 0) return;
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
         ITextSelection selection = ScriptTextBox.Document.Selection;
         int selectionStart = selection.StartPosition;
@@ -1997,6 +1999,16 @@ public sealed partial class WorkbenchView : UserControl
                 format.Bold = FormatEffect.On;
                 range.CharacterFormat = format;
             }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Some RichEdit hosts reject TOM color mutations while the document is initializing.
+            // Highlighting is decorative; keep the plain-text editor usable and stop retrying.
+            _cueFormattingUnavailable = true;
+            ShowStatus(
+                InfoBarSeverity.Informational,
+                "Cue highlighting unavailable",
+                "Cue labels and production behavior are still active; this editor session will use plain-text styling.");
         }
         finally
         {

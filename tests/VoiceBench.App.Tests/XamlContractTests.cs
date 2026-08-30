@@ -137,6 +137,9 @@ public sealed class XamlContractTests
         Assert.Contains("Refine cues", xaml, StringComparison.Ordinal);
         Assert.Contains("ProductionScriptParser", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ApplyCueFormatting", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("text.Length == 0", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("catch (UnauthorizedAccessException)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormattingUnavailable", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextGetOptions.None", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextSetOptions.None", codeBehind, StringComparison.Ordinal);
         Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
