@@ -72,6 +72,7 @@ public enum WritingAction
     Expand,
     FixGrammar,
     Critique,
+    ApplyCritique,
     GenerateProductionCues,
     RefineProductionCues,
     Custom,
@@ -99,7 +100,7 @@ public static class WritingProposalRules
         }
 
         if (action is WritingAction.ImproveClarity or WritingAction.MakeConversational or WritingAction.Shorten
-            or WritingAction.Expand or WritingAction.FixGrammar or WritingAction.Critique)
+            or WritingAction.Expand or WritingAction.FixGrammar or WritingAction.Critique or WritingAction.ApplyCritique)
         {
             string[] originalCues = original.Cues.Select(item => $"{item.Type}\u001f{item.Content}").ToArray();
             string[] proposedCues = proposed.Cues.Select(item => $"{item.Type}\u001f{item.Content}").ToArray();

@@ -314,6 +314,7 @@ public abstract class HttpWritingProviderBase : IWritingProvider
             WritingAction.Expand => "Expand the narration with useful connective explanation.",
             WritingAction.FixGrammar => "Correct grammar and mechanics without unnecessary rewriting.",
             WritingAction.Critique => "Critique the narration. Preserve the original in proposedText and put advice in summary and warnings.",
+            WritingAction.ApplyCritique => $"Revise the narration to address this editorial critique:\n{request.CustomInstruction}",
             WritingAction.GenerateProductionCues => "Add concise production cues using standalone @visual:, @action:, @screen:, or @note: lines. Preserve every narration character exactly.",
             WritingAction.RefineProductionCues => "Improve the existing production cues for clarity and usefulness. Preserve every narration character exactly.",
             WritingAction.Custom => request.CustomInstruction ?? "Apply the requested revision.",

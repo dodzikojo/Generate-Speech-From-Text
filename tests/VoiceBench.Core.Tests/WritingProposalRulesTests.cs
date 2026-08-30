@@ -34,4 +34,15 @@ public sealed class WritingProposalRulesTests
 
         Assert.Contains("preserve production cues", error.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Apply_critique_rejects_cue_changes()
+    {
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() => WritingProposalRules.Validate(
+            "@visual: Keep this cue.\nOriginal narration.",
+            "@visual: Changed cue.\nNarration revised from the critique.",
+            WritingAction.ApplyCritique));
+
+        Assert.Contains("preserve production cues", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

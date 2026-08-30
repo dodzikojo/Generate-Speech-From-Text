@@ -164,6 +164,31 @@ public sealed class OpenAiWritingProviderTests
         Assert.Contains("preserve narration", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ReviseAsync_ApplyCritiqueIncludesEditorialNotesAndPreservesCues()
+    {
+        StubHttpMessageHandler handler = new();
+        handler.Enqueue(HttpStatusCode.OK, """
+            {"output":[{"content":[{"type":"output_text","text":"{\"proposedText\":\"@visual: Keep this cue.\\n\\nClearer narration.\",\"summary\":\"Applied the critique\",\"warnings\":[]}"}]}]}
+            """);
+        OpenAiWritingProvider provider = new(new HttpClient(handler), new RecordingRetryDelay());
+        WritingRevisionRequest request = RevisionRequest() with
+        {
+            Action = WritingAction.ApplyCritique,
+            Text = "@visual: Keep this cue.\n\nOriginal narration.",
+            CustomInstruction = "Replace the vague management-layer phrase with a concrete benefit.",
+        };
+
+        WritingProposal proposal = await provider.ReviseAsync(request, "key", CancellationToken.None);
+
+        Assert.Equal("Applied the critique", proposal.Summary);
+        CapturedRequest captured = Assert.Single(handler.Requests);
+        using JsonDocument body = JsonDocument.Parse(captured.Body);
+        string prompt = body.RootElement.GetProperty("input").GetString()!;
+        Assert.Contains("Replace the vague management-layer phrase", prompt, StringComparison.Ordinal);
+        Assert.Contains("Preserve every existing production cue line verbatim", prompt, StringComparison.Ordinal);
+    }
+
     private static WritingOutlineRequest OutlineRequest() => new(
         "gpt-5.6-terra",
         "Welcome",

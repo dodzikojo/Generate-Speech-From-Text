@@ -219,6 +219,64 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Workbench_director_tabs_and_script_footer_keep_their_labels_readable()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+
+        Assert.Contains("<TabViewItem.Header>", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Writing assistant\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Voice director\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Foreground=\"{ThemeResource ReadingTextBrush}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ScriptPathText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MaxLines=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTipService.ToolTip=\"{Binding Text, ElementName=ScriptPathText}\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Writing_proposal_preview_uses_selectable_wrapped_text_panes()
+    {
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("CreateWritingReviewPane(\"Original\", original)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Text = ToMultilineDisplayText(text)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains(".Replace(\"\\n\", Environment.NewLine, StringComparison.Ordinal)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("IsTextSelectionEnabled = true", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("VerticalScrollBarVisibility = ScrollBarVisibility.Auto", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateWritingDiffTextBox", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Writing_critique_is_actionable_and_long_reviews_are_responsive()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"WritingActivityPanel\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActivityRing\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActivityText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActionButtons\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Revise from critique", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("WritingAction.ApplyCritique", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingCritiqueContent", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingComparison", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("new TabView", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("comparisonHost.SizeChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyWritingComparisonLayout", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("EstimateWritingComparisonHeight", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingReviewTab(\"Proposal\", proposed, reviewHeight)", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("ActualHeight - 360", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("MaxWidth = 1120", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("Width = WritingReviewWidth()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("SetWritingActivity(", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ShowWritingConfirmation(", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Proposal rejected", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("FontSize = 14", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Nothing has changed yet", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Assembly_exposes_persisted_order_inclusion_blockers_and_scoped_builds()
     {
         string xaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
@@ -323,6 +381,25 @@ public sealed class XamlContractTests
         Assert.Contains("{Binding Content.Title}", workbench, StringComparison.Ordinal);
         Assert.Contains("{Binding Content.Metadata}", workbench, StringComparison.Ordinal);
         Assert.Contains("{Binding Content.StatusBrush}", workbench, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Duration_is_estimated_before_rendering_and_measured_after_a_current_take()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+        string assemblyXaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
+        string projects = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+
+        Assert.Contains("LoadEstimatesAsync", workbench, StringComparison.Ordinal);
+        Assert.Contains("NarrationDurationProjection.Resolve", workbench, StringComparison.Ordinal);
+        Assert.Contains("LATEST TAKE", workbench, StringComparison.Ordinal);
+        Assert.Contains("EST.", workbench, StringComparison.Ordinal);
+        Assert.Contains("NarrationDurationProjection.Summarize", assembly, StringComparison.Ordinal);
+        Assert.Contains("EXPECTED DURATION", assemblyXaml, StringComparison.Ordinal);
+        Assert.Contains("DurationBasisText", assemblyXaml, StringComparison.Ordinal);
+        Assert.Contains("expected", projects, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("renderedDuration", projects, StringComparison.Ordinal);
     }
 
     [Fact]

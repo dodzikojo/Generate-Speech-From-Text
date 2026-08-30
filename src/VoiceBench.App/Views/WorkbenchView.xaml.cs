@@ -24,6 +24,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private VoiceBenchProjectDocument? _project;
     private SegmentDocument? _segment;
+    private IReadOnlyDictionary<string, TimeSpan> _estimatedSegmentDurations = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
     private string _loadedText = string.Empty;
     private string _loadedDiskHash = string.Empty;
     private bool _ignoreTextChanges;
@@ -45,6 +46,7 @@ public sealed partial class WorkbenchView : UserControl
     private DispatcherQueueTimer? _cueFormatTimer;
     private bool _ignoreCueToggle;
     private bool _cueFormattingUnavailable;
+    private bool _writingActionInProgress;
 
     private sealed record RailItem(
         string Title,
@@ -244,6 +246,7 @@ public sealed partial class WorkbenchView : UserControl
             DisposeScriptFileMonitor();
             _project = null;
             _segment = null;
+            _estimatedSegmentDurations = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
             ChapterTree.RootNodes.Clear();
             CompactSegmentPicker.Items.Clear();
             TakeTransport.ClearAudio();
@@ -265,6 +268,9 @@ public sealed partial class WorkbenchView : UserControl
         ChapterCountText.Text = _project.Chapters.Count(item => item.Status == ChapterStatus.Active).ToString();
         SegmentCountText.Text = _project.Segments.Count.ToString();
         ApprovedCountText.Text = approved.ToString();
+        _estimatedSegmentDurations = await NarrationDurationProjection.LoadEstimatesAsync(
+            App.Services.Session.RequireProjectRoot(),
+            _project.Segments);
         PopulateChapterTree(_project);
         PopulateWritingReferences(_project);
         LoadDefaultPreset(_project);
@@ -342,9 +348,13 @@ public sealed partial class WorkbenchView : UserControl
                 string takes = segment.RenderHistory.Count == 0
                     ? "no takes"
                     : $"take {segment.RenderHistory.Max(item => item.TakeNumber):00}";
-                TimeSpan duration = segment.RenderHistory.OrderByDescending(item => item.TakeNumber)
-                    .Select(item => item.Duration).FirstOrDefault();
-                string durationText = duration > TimeSpan.Zero ? $"  ·  {FormatDuration(duration)}" : string.Empty;
+                _estimatedSegmentDurations.TryGetValue(segment.SegmentId, out TimeSpan estimate);
+                SegmentDurationProjection projection = NarrationDurationProjection.Resolve(segment, estimate);
+                string durationText = projection.Duration > TimeSpan.Zero
+                    ? projection.IsMeasured
+                        ? $"  ·  {FormatDuration(projection.Duration)} latest take  ·  {FormatDuration(estimate)} est."
+                        : $"  ·  {FormatDuration(projection.Duration)} est."
+                    : "  ·  duration unavailable";
                 chapterNode.Children.Add(new TreeViewNode
                 {
                     Content = new RailItem(
@@ -592,7 +602,6 @@ public sealed partial class WorkbenchView : UserControl
         int segmentPosition = Math.Max(0, chapter?.SegmentOrder.IndexOf(current.SegmentId) ?? 0) + 1;
         SegmentTitleText.Text = $"{chapterPosition:00}.{segmentPosition:000}  /  {current.Title.ToUpperInvariant()}";
         TakeReviewTitleText.Text = current.Title;
-        TakeReviewStatusText.Text = $"{FormatStatus(current.Status)}  ·  {current.RenderHistory.Count} {(current.RenderHistory.Count == 1 ? "TAKE" : "TAKES")}";
         ScriptPathText.Text = current.ScriptRelativePath.Replace('/', '\\');
         SelectTakeRailItem(current.SegmentId);
         UpdateEditorStats();
@@ -1041,9 +1050,10 @@ public sealed partial class WorkbenchView : UserControl
 
     private async void WritingAction_Click(object sender, RoutedEventArgs e)
     {
-        if (_project is null || _segment is null || sender is not Button { Tag: string actionName } ||
+        if (_writingActionInProgress || _project is null || _segment is null || sender is not Button { Tag: string actionName } ||
             !Enum.TryParse(actionName, out WritingAction action)) return;
         if (!await SaveCurrentScriptAsync()) return;
+        _writingActionInProgress = true;
         string providerId = GetSelectedContent(WritingProviderComboBox);
         string modelId = GetSelectedContent(WritingModelComboBox);
         (int selectionStart, int selectionLength, string selectedText) = GetEditorSelection();
@@ -1054,6 +1064,10 @@ public sealed partial class WorkbenchView : UserControl
         ChapterDocument? chapter = _project.Chapters.SingleOrDefault(item => item.ChapterId == _segment.ChapterId);
         try
         {
+            SetWritingActivity(
+                true,
+                WritingActionProgressTitle(action),
+                $"{providerId} / {modelId} · Loading the selected script context…");
             WritingContext context = await App.Services.WritingContexts.LoadAsync(
                 App.Services.Session.RequireProjectRoot(), chapter?.Brief ?? string.Empty, referenceIds);
             WritingRevisionRequest request = new(
@@ -1063,16 +1077,58 @@ public sealed partial class WorkbenchView : UserControl
                 action == WritingAction.Custom ? CustomWritingInstructionTextBox.Text.Trim() : null,
                 context,
                 EstimateWritingTokens(target, CustomWritingInstructionTextBox.Text, context));
+            SetWritingActivity(
+                true,
+                WritingActionProgressTitle(action),
+                $"{providerId} / {modelId} · Preparing a reviewable proposal…");
             ShowStatus(InfoBarSeverity.Informational, "Generating writing proposal", $"Using {providerId} / {modelId}. The canonical script will not change without acceptance.");
             WritingProposal partial = await App.Services.WritingAssistant.ReviseAsync(providerId, request);
+            SetWritingActivity(false);
+            WritingAction acceptedAction = action;
+            if (action == WritingAction.Critique)
+            {
+                if (!await ShowWritingCritiqueAsync(target, partial))
+                {
+                    ShowWritingConfirmation(
+                        InfoBarSeverity.Informational,
+                        "Critique complete",
+                        "You kept the script as-is. No canonical text changed.");
+                    return;
+                }
+                string critiqueInstruction = BuildCritiqueRevisionInstruction(partial);
+                WritingRevisionRequest critiqueRevision = request with
+                {
+                    Action = WritingAction.ApplyCritique,
+                    CustomInstruction = critiqueInstruction,
+                    EstimatedInputTokens = EstimateWritingTokens(target, critiqueInstruction, context),
+                };
+                SetWritingActivity(
+                    true,
+                    "Revising from critique",
+                    $"{providerId} / {modelId} · Applying the editorial notes without changing production cues…");
+                ShowStatus(
+                    InfoBarSeverity.Informational,
+                    "Revising from critique",
+                    $"Using {providerId} / {modelId}. You will review the rewritten narration before anything changes.");
+                partial = await App.Services.WritingAssistant.ReviseAsync(providerId, critiqueRevision);
+                SetWritingActivity(false);
+                acceptedAction = WritingAction.ApplyCritique;
+            }
+
             string proposedWhole = selectionLength > 0
                 ? string.Concat(originalWhole.AsSpan(0, selectionStart), partial.ProposedText, originalWhole.AsSpan(selectionStart + selectionLength))
                 : partial.ProposedText;
             WritingProposal proposal = partial with { ProposedText = proposedWhole };
-            bool accept = await ShowWritingDiffAsync(originalWhole, proposal, action != WritingAction.Critique);
-            if (!accept || action == WritingAction.Critique) return;
+            if (!await ShowWritingDiffAsync(originalWhole, proposal))
+            {
+                ShowWritingConfirmation(
+                    InfoBarSeverity.Informational,
+                    "Proposal rejected",
+                    "The canonical script remains unchanged.");
+                return;
+            }
             _pendingWritingProposal = proposal;
-            _pendingWritingAction = action;
+            _pendingWritingAction = acceptedAction;
             _pendingWritingProviderId = providerId;
             _pendingWritingModelId = modelId;
             _pendingWritingSourceHash = _segment.AuthoringSha256;
@@ -1081,13 +1137,15 @@ public sealed partial class WorkbenchView : UserControl
                 _segment.SegmentId,
                 _pendingWritingSourceHash,
                 proposal,
-                action,
+                acceptedAction,
                 providerId,
                 modelId);
             await App.Services.Session.RefreshAsync();
             await LoadProjectAsync(_segment.SegmentId);
-            WritingProposalInfoBar.Message = $"Accepted {action}. A restorable local revision was saved.";
-            WritingProposalInfoBar.IsOpen = true;
+            ShowWritingConfirmation(
+                InfoBarSeverity.Success,
+                "Proposal accepted",
+                $"{WritingActionDisplayName(acceptedAction)} was saved as a restorable local revision.");
             bool narrationChanged = !string.Equals(
                 SourceTextHasher.Compute(new ProductionScriptParser().Parse(originalWhole).NarrationText),
                 SourceTextHasher.Compute(new ProductionScriptParser().Parse(proposal.ProposedText).NarrationText),
@@ -1101,47 +1159,362 @@ public sealed partial class WorkbenchView : UserControl
         }
         catch (Exception exception)
         {
+            ShowWritingConfirmation(InfoBarSeverity.Error, "Writing request stopped", Actionable(exception));
             ShowStatus(InfoBarSeverity.Error, "Writing proposal stopped", Actionable(exception));
+        }
+        finally
+        {
+            _writingActionInProgress = false;
+            SetWritingActivity(false);
         }
     }
 
-    private async Task<bool> ShowWritingDiffAsync(string original, WritingProposal proposal, bool allowAccept)
+    private void SetWritingActivity(bool isActive, string title = "", string message = "")
     {
-        ParsedScriptDocument originalParsed = new ProductionScriptParser().Parse(original);
-        ParsedScriptDocument proposalParsed = new ProductionScriptParser().Parse(proposal.ProposedText);
-        int originalWords = originalParsed.NarrationWordCount;
-        int proposedWords = proposalParsed.NarrationWordCount;
-        Grid comparison = new() { ColumnSpacing = 12, RowSpacing = 12 };
-        bool sideBySide = ActualWidth >= 900;
-        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        comparison.ColumnDefinitions.Add(new ColumnDefinition { Width = sideBySide ? new GridLength(1, GridUnitType.Star) : new GridLength(0) });
-        comparison.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        comparison.RowDefinitions.Add(new RowDefinition { Height = sideBySide ? new GridLength(0) : GridLength.Auto });
-        TextBox originalBox = new() { Header = "Original", Text = original, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 260 };
-        TextBox proposedBox = new() { Header = allowAccept ? "Proposal" : "Critique context", Text = proposal.ProposedText, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 260 };
-        comparison.Children.Add(originalBox);
-        Grid.SetColumn(proposedBox, sideBySide ? 1 : 0);
-        Grid.SetRow(proposedBox, sideBySide ? 0 : 1);
-        comparison.Children.Add(proposedBox);
-        StackPanel content = new() { Spacing = 10 };
-        content.Children.Add(new TextBlock
-        {
-            Text = $"{proposal.Summary}\n\nSpoken words: {originalWords} → {proposedWords}  ·  Cues: {originalParsed.Cues.Count} → {proposalParsed.Cues.Count}  ·  Estimated duration: {FormatDuration(SegmentRenderService.EstimateDuration(originalParsed.NarrationText))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposalParsed.NarrationText))}" +
-                (proposal.Warnings.Count == 0 ? string.Empty : $"\nWarnings: {string.Join("; ", proposal.Warnings)}"),
-            TextWrapping = TextWrapping.Wrap,
-        });
-        content.Children.Add(comparison);
+        WritingActivityPanel.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
+        WritingActivityRing.IsActive = isActive;
+        WritingActivityTitle.Text = title;
+        WritingActivityText.Text = message;
+        WritingActionButtons.IsHitTestVisible = !isActive;
+        WritingActionButtons.Opacity = isActive ? 0.55 : 1;
+        ApplyCustomWritingButton.IsEnabled = !isActive;
+        WritingProviderComboBox.IsEnabled = !isActive;
+        WritingModelComboBox.IsEnabled = !isActive;
+        if (isActive) WritingProposalInfoBar.IsOpen = false;
+    }
+
+    private void ShowWritingConfirmation(InfoBarSeverity severity, string title, string message)
+    {
+        WritingProposalInfoBar.Severity = severity;
+        WritingProposalInfoBar.Title = title;
+        WritingProposalInfoBar.Message = message;
+        WritingProposalInfoBar.IsOpen = true;
+    }
+
+    private static string WritingActionProgressTitle(WritingAction action) => action switch
+    {
+        WritingAction.ImproveClarity => "Improving clarity",
+        WritingAction.MakeConversational => "Making the narration conversational",
+        WritingAction.Shorten => "Shortening the narration",
+        WritingAction.Expand => "Expanding the narration",
+        WritingAction.FixGrammar => "Checking grammar",
+        WritingAction.Critique => "Critiquing the narration",
+        WritingAction.GenerateProductionCues => "Generating production cues",
+        WritingAction.RefineProductionCues => "Refining production cues",
+        WritingAction.Custom => "Applying your instruction",
+        WritingAction.ApplyCritique => "Revising from critique",
+        _ => "Working on your script",
+    };
+
+    private static string WritingActionDisplayName(WritingAction action) => action switch
+    {
+        WritingAction.ApplyCritique => "Revision from critique",
+        WritingAction.GenerateProductionCues => "Production-cue proposal",
+        WritingAction.RefineProductionCues => "Production-cue revision",
+        WritingAction.Custom => "Custom revision",
+        _ => WritingActionProgressTitle(action),
+    };
+
+    private async Task<bool> ShowWritingCritiqueAsync(string reviewedText, WritingProposal critique)
+    {
         ContentDialog dialog = new()
         {
             XamlRoot = XamlRoot,
-            Title = allowAccept ? "Review original and proposal" : "Writing critique",
-            Content = new ScrollViewer { Content = content, MaxHeight = 620 },
-            PrimaryButtonText = allowAccept ? "Accept proposal" : null,
-            CloseButtonText = allowAccept ? "Reject" : "Close",
-            DefaultButton = allowAccept ? ContentDialogButton.Close : ContentDialogButton.None,
+            Title = "Writing critique",
+            Content = CreateWritingCritiqueContent(reviewedText, critique),
+            PrimaryButtonText = "Revise from critique",
+            CloseButtonText = "Keep script as-is",
+            DefaultButton = ContentDialogButton.None,
         };
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
+
+    private FrameworkElement CreateWritingCritiqueContent(string reviewedText, WritingProposal critique)
+    {
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(reviewedText);
+        StackPanel content = new()
+        {
+            MaxWidth = 1120,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Spacing = 14,
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = "EDITORIAL READ",
+            FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+            FontSize = 11,
+            CharacterSpacing = 110,
+            Foreground = ThemeBrush("ActiveSignalBrush"),
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = critique.Summary,
+            FontSize = 15,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(CreateWritingMetrics(parsed, parsed));
+
+        if (critique.Warnings.Count > 0)
+        {
+            StackPanel warningList = new() { Spacing = 8 };
+            warningList.Children.Add(new TextBlock
+            {
+                Text = critique.Warnings.Count == 1 ? "1 EDITORIAL NOTE" : $"{critique.Warnings.Count} EDITORIAL NOTES",
+                FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+                FontSize = 11,
+                CharacterSpacing = 80,
+                Foreground = ThemeBrush("PickupBrush"),
+            });
+            foreach (string warning in critique.Warnings)
+            {
+                warningList.Children.Add(new TextBlock
+                {
+                    Text = $"•  {warning}",
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
+            content.Children.Add(new Border
+            {
+                Background = ThemeBrush("PanelBrush"),
+                BorderBrush = ThemeBrush("DividerBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14),
+                Child = warningList,
+            });
+        }
+
+        content.Children.Add(new TextBlock
+        {
+            Text = "Nothing has changed yet. Revise from critique creates a new proposal for you to compare and accept.",
+            FontSize = 13,
+            Foreground = ThemeBrush("MutedTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+        });
+        return new ScrollViewer
+        {
+            Content = content,
+            MaxHeight = Math.Max(380, Math.Min(700, ActualHeight - 220)),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+    }
+
+    private async Task<bool> ShowWritingDiffAsync(string original, WritingProposal proposal)
+    {
+        ParsedScriptDocument originalParsed = new ProductionScriptParser().Parse(original);
+        ParsedScriptDocument proposalParsed = new ProductionScriptParser().Parse(proposal.ProposedText);
+        StackPanel content = new()
+        {
+            MaxWidth = 1120,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Spacing = 12,
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = proposal.Summary,
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        content.Children.Add(CreateWritingMetrics(originalParsed, proposalParsed));
+        if (proposal.Warnings.Count > 0)
+        {
+            TextBlock warningText = new()
+            {
+                Text = string.Join("\n", proposal.Warnings.Select(warning => $"•  {warning}")),
+                FontSize = 13,
+                Foreground = ThemeBrush("PickupBrush"),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            content.Children.Add(new Border
+            {
+                Background = ThemeBrush("PanelBrush"),
+                BorderBrush = ThemeBrush("DividerBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12),
+                Child = new ScrollViewer
+                {
+                    Content = warningText,
+                    MaxHeight = 110,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                },
+            });
+        }
+        content.Children.Add(CreateWritingComparison(original, proposal.ProposedText));
+        ContentDialog dialog = new()
+        {
+            XamlRoot = XamlRoot,
+            Title = "Review original and proposal",
+            Content = content,
+            PrimaryButtonText = "Accept proposal",
+            CloseButtonText = "Reject",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private FrameworkElement CreateWritingComparison(string original, string proposed)
+    {
+        double reviewHeight = EstimateWritingComparisonHeight(original, proposed);
+        Grid sideBySide = new()
+        {
+            ColumnSpacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = Visibility.Collapsed,
+        };
+        sideBySide.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        sideBySide.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Border originalPane = CreateWritingReviewPane("Original", original);
+        Border proposedPane = CreateWritingReviewPane("Proposal", proposed);
+        sideBySide.Children.Add(originalPane);
+        Grid.SetColumn(proposedPane, 1);
+        sideBySide.Children.Add(proposedPane);
+
+        TabView proposalTabs = new TabView
+        {
+            IsAddTabButtonVisible = false,
+            TabWidthMode = TabViewWidthMode.Equal,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            Visibility = Visibility.Visible,
+        };
+        proposalTabs.TabItems.Add(CreateWritingReviewTab("Original", original, reviewHeight));
+        proposalTabs.TabItems.Add(CreateWritingReviewTab("Proposal", proposed, reviewHeight));
+
+        Grid comparisonHost = new()
+        {
+            Height = reviewHeight,
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        comparisonHost.Children.Add(sideBySide);
+        comparisonHost.Children.Add(proposalTabs);
+        comparisonHost.SizeChanged += (_, args) =>
+            ApplyWritingComparisonLayout(sideBySide, proposalTabs, args.NewSize.Width);
+        comparisonHost.Loaded += (_, _) =>
+            ApplyWritingComparisonLayout(sideBySide, proposalTabs, comparisonHost.ActualWidth);
+        return comparisonHost;
+    }
+
+    private static void ApplyWritingComparisonLayout(Grid sideBySide, TabView proposalTabs, double availableWidth)
+    {
+        bool showSideBySide = availableWidth >= 760;
+        sideBySide.Visibility = showSideBySide ? Visibility.Visible : Visibility.Collapsed;
+        proposalTabs.Visibility = showSideBySide ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static TabViewItem CreateWritingReviewTab(string title, string text, double reviewHeight)
+    {
+        Border reviewPane = CreateWritingReviewPane(string.Empty, text);
+        reviewPane.Height = Math.Max(180, reviewHeight - 48);
+        return new TabViewItem
+        {
+            Header = new TextBlock
+            {
+                Text = title,
+                FontSize = 13,
+                Foreground = ThemeBrush("ReadingTextBrush"),
+            },
+            IsClosable = false,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            Content = reviewPane,
+        };
+    }
+
+    private static double EstimateWritingComparisonHeight(string original, string proposed)
+    {
+        ProductionScriptParser parser = new();
+        ParsedScriptDocument originalParsed = parser.Parse(original);
+        ParsedScriptDocument proposalParsed = parser.Parse(proposed);
+        int words = Math.Max(originalParsed.NarrationWordCount, proposalParsed.NarrationWordCount);
+        int cues = Math.Max(originalParsed.Cues.Count, proposalParsed.Cues.Count);
+        return Math.Clamp(110 + (words * 1.6d) + (cues * 18d), 220, 440);
+    }
+
+    private static TextBlock CreateWritingMetrics(ParsedScriptDocument original, ParsedScriptDocument proposal) => new()
+    {
+        Text = $"{original.NarrationWordCount} → {proposal.NarrationWordCount} WORDS   ·   {original.Cues.Count} → {proposal.Cues.Count} CUES   ·   {FormatDuration(SegmentRenderService.EstimateDuration(original.NarrationText))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposal.NarrationText))}",
+        FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+        FontSize = 11,
+        CharacterSpacing = 45,
+        Foreground = ThemeBrush("MutedTextBrush"),
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    private static string BuildCritiqueRevisionInstruction(WritingProposal critique) =>
+        critique.Warnings.Count == 0
+            ? critique.Summary
+            : $"{critique.Summary}\n\nSpecific editorial notes:\n{string.Join("\n", critique.Warnings.Select(warning => $"- {warning}"))}";
+
+    private static Border CreateWritingReviewPane(string header, string text)
+    {
+        Grid layout = new()
+        {
+            RowSpacing = 8,
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+
+        if (!string.IsNullOrWhiteSpace(header))
+        {
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.Children.Add(new TextBlock
+            {
+                Text = header,
+                FontSize = 13,
+                Foreground = ThemeBrush("ReadingTextBrush"),
+            });
+        }
+
+        int contentRow = layout.RowDefinitions.Count;
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        TextBlock body = new()
+        {
+            Text = ToMultilineDisplayText(text),
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+            FontSize = 14,
+            Foreground = ThemeBrush("ReadingTextBrush"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+
+        ScrollViewer scroller = new()
+        {
+            Content = body,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        Grid.SetRow(scroller, contentRow);
+        layout.Children.Add(scroller);
+
+        return new Border
+        {
+            Background = ThemeBrush("BaseBrush"),
+            BorderBrush = ThemeBrush("DividerBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12),
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Child = layout,
+        };
+    }
+
+    private static string ToMultilineDisplayText(string text) =>
+        text.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+
+    private static Brush ThemeBrush(string key) => (Brush)Application.Current.Resources[key];
 
     private async Task<ChapterOutline?> ReviewOutlineAsync(ChapterOutline outline)
     {
@@ -1947,9 +2320,25 @@ public sealed partial class WorkbenchView : UserControl
     private void UpdateEditorStats()
     {
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(GetEditorText());
-        TimeSpan duration = SegmentRenderService.EstimateDuration(parsed.NarrationText);
+        TimeSpan estimate = SegmentRenderService.EstimateDuration(parsed.NarrationText);
+        string timing = $"EST. {FormatDuration(estimate)}";
+        if (_segment is not null)
+        {
+            string editorSourceHash = SourceTextHasher.Compute(parsed.NarrationText);
+            SegmentDurationProjection projection = NarrationDurationProjection.Resolve(
+                _segment with { SourceSha256 = editorSourceHash },
+                estimate);
+            if (projection.IsMeasured)
+            {
+                timing = $"LATEST TAKE {FormatDuration(projection.Duration)}  ·  EST. {FormatDuration(estimate)}";
+            }
+
+            TakeReviewStatusText.Text =
+                $"{FormatStatus(_segment.Status)}  ·  {_segment.RenderHistory.Count} {(_segment.RenderHistory.Count == 1 ? "TAKE" : "TAKES")}  ·  {timing}";
+        }
+
         string diagnostics = parsed.HasErrors ? $"  ·  {parsed.Diagnostics.Count} ISSUE{(parsed.Diagnostics.Count == 1 ? "" : "S")}" : string.Empty;
-        SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  EST. {FormatDuration(duration)}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}{diagnostics}";
+        SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  {timing}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}{diagnostics}";
     }
 
     private bool ValidateScriptForRender()

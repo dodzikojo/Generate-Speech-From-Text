@@ -250,9 +250,17 @@
                             </MenuFlyout>
                         </RichEditBox.ContextFlyout>
                     </RichEditBox>
-                    <Grid Grid.Row="3">
+                    <Grid Grid.Row="3" ColumnSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="ScriptPathText" Text="02-scripts" Style="{StaticResource UtilityLabelTextStyle}" />
+                        <TextBlock x:Name="ScriptPathText"
+                                   Text="02-scripts"
+                                   Style="{StaticResource UtilityLabelTextStyle}"
+                                   MinWidth="0"
+                                   MaxLines="1"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"
+                                   ToolTipService.ToolTip="{Binding Text, ElementName=ScriptPathText}" />
                         <Button Grid.Column="1" Content="Mark ready" Style="{StaticResource SignalButtonStyle}" Click="MarkReady_Click"
                                 AutomationProperties.AcceleratorKey="Control+Enter">
                             <Button.KeyboardAccelerators><KeyboardAccelerator Key="Enter" Modifiers="Control" /></Button.KeyboardAccelerators>
@@ -264,7 +272,13 @@
             <Border x:Name="DirectorPanel" Grid.Column="2" Style="{StaticResource StudioPanelStyle}" Padding="0"
                     AutomationProperties.Name="Writing assistant and voice director">
                 <TabView x:Name="DirectorTabs" IsAddTabButtonVisible="False" TabWidthMode="Equal">
-                    <TabViewItem Header="Writing assistant" IsClosable="False">
+                    <TabViewItem IsClosable="False" AutomationProperties.Name="Writing assistant">
+                        <TabViewItem.Header>
+                            <TextBlock Text="Writing assistant"
+                                       FontFamily="{StaticResource ReadingFont}"
+                                       FontSize="13"
+                                       Foreground="{ThemeResource ReadingTextBrush}" />
+                        </TabViewItem.Header>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="12" Padding="16,12,16,16">
                                 <StackPanel Spacing="3">
@@ -274,7 +288,7 @@
                                 <ComboBox x:Name="WritingProviderComboBox" Header="Provider" SelectionChanged="WritingProviderComboBox_SelectionChanged" />
                                 <ComboBox x:Name="WritingModelComboBox" Header="Exact model" />
                                 <TextBlock Text="Action" Style="{StaticResource UtilityLabelTextStyle}" />
-                                <Grid ColumnSpacing="6" RowSpacing="6">
+                                <Grid x:Name="WritingActionButtons" ColumnSpacing="6" RowSpacing="6">
                                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <Button Content="Improve clarity" Tag="ImproveClarity" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
@@ -286,24 +300,47 @@
                                     <Button Grid.Row="3" Content="Generate cues" Tag="GenerateProductionCues" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                     <Button Grid.Row="3" Grid.Column="1" Content="Refine cues" Tag="RefineProductionCues" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                 </Grid>
+                                <Border x:Name="WritingActivityPanel" Visibility="Collapsed"
+                                        Background="{ThemeResource PanelBrush}" BorderBrush="{ThemeResource DividerBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="10">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <ProgressRing x:Name="WritingActivityRing" Width="18" Height="18" IsActive="False"
+                                                      VerticalAlignment="Center" AutomationProperties.Name="AI writing request in progress" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock x:Name="WritingActivityTitle" Text="Working on your script"
+                                                       FontWeight="SemiBold" FontSize="13" />
+                                            <TextBlock x:Name="WritingActivityText" Text="Preparing the request…"
+                                                       Style="{StaticResource UtilityLabelTextStyle}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <InfoBar x:Name="WritingProposalInfoBar" IsOpen="False" IsClosable="True"
+                                         Severity="Informational" Title="Writing update" />
                                 <ToggleSwitch x:Name="GenerateProductionCuesToggle" Header="Generate production cues in AI chapter drafts"
                                               OffContent="Off" OnContent="On" Toggled="GenerateProductionCuesToggle_Toggled" />
                                 <TextBox x:Name="CustomWritingInstructionTextBox" Header="Custom instruction" TextWrapping="Wrap"
                                          PlaceholderText="Describe the change, then choose Apply custom." />
-                                <Button Content="Apply custom" Tag="Custom" Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
+                                <Button x:Name="ApplyCustomWritingButton" Content="Apply custom" Tag="Custom"
+                                        Click="WritingAction_Click" Style="{StaticResource QuietButtonStyle}" />
                                 <TextBlock Text="Selected references" Style="{StaticResource UtilityLabelTextStyle}" />
                                 <Button Content="Import local reference" Style="{StaticResource QuietButtonStyle}"
                                         HorizontalAlignment="Left" Click="ImportReference_Click" />
                                 <ListView x:Name="WritingReferencesList" MaxHeight="130" SelectionMode="Multiple"
                                           AutomationProperties.Name="Local references explicitly shared with the writing provider" />
-                                <InfoBar x:Name="WritingProposalInfoBar" IsOpen="False" IsClosable="True" Severity="Informational" Title="Proposal ready" />
                                 <ComboBox x:Name="WritingRevisionComboBox" Header="Local revision history" />
                                 <Button Content="Restore selected revision" Style="{StaticResource QuietButtonStyle}"
                                         Click="RestoreRevision_Click" />
                             </StackPanel>
                         </ScrollViewer>
                     </TabViewItem>
-                    <TabViewItem Header="Voice director" IsClosable="False">
+                    <TabViewItem IsClosable="False" AutomationProperties.Name="Voice director">
+                        <TabViewItem.Header>
+                            <TextBlock Text="Voice director"
+                                       FontFamily="{StaticResource ReadingFont}"
+                                       FontSize="13"
+                                       Foreground="{ThemeResource ReadingTextBrush}" />
+                        </TabViewItem.Header>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="14" Padding="16,12,16,16">
                                 <StackPanel Spacing="3">

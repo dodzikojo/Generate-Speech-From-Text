@@ -1,4 +1,5 @@
 using IssueLab.VoiceBench.Core;
+using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -40,9 +41,14 @@ public sealed partial class AssemblyView : UserControl
             AssemblyTitleText.Text = _project.Name;
             Dictionary<string, ChapterDocument> chapters = _project.Chapters.ToDictionary(item => item.ChapterId, StringComparer.Ordinal);
             Dictionary<string, SegmentDocument> segments = _project.Segments.ToDictionary(item => item.SegmentId, StringComparer.Ordinal);
+            IReadOnlyDictionary<string, TimeSpan> estimates = await NarrationDurationProjection.LoadEstimatesAsync(
+                App.Services.Session.RequireProjectRoot(),
+                _project.Segments);
             int included = 0;
             int approved = 0;
             int total = 0;
+            int measured = 0;
+            int estimated = 0;
             TimeSpan duration = TimeSpan.Zero;
             int number = 0;
             foreach (string chapterId in _project.ChapterOrder)
@@ -51,22 +57,29 @@ public sealed partial class AssemblyView : UserControl
                 number++;
                 if (chapter.IncludedInCompilation) included++;
                 List<SegmentDocument> ordered = chapter.SegmentOrder.Where(segments.ContainsKey).Select(id => segments[id]).ToList();
+                DurationProjectionSummary chapterTiming = NarrationDurationProjection.Summarize(
+                    ordered,
+                    estimates,
+                    _project.AudioStandard.PauseMilliseconds);
                 total += chapter.IncludedInCompilation ? ordered.Count : 0;
                 int chapterApproved = ordered.Count(IsAssemblyCurrent);
                 if (chapter.IncludedInCompilation)
                 {
                     approved += chapterApproved;
-                    duration += EstimateChapterDuration(ordered, _project.AudioStandard.PauseMilliseconds);
+                    duration += chapterTiming.Duration;
+                    measured += chapterTiming.MeasuredCount;
+                    estimated += chapterTiming.EstimatedCount;
                 }
 
                 MasterEligibility eligibility = MasterEligibilityEvaluator.Evaluate(_project, MasterScope.Chapter, chapter.ChapterId);
-                AssemblyChaptersList.Items.Add(CreateChapterCard(number, chapter, ordered, chapterApproved, eligibility));
+                AssemblyChaptersList.Items.Add(CreateChapterCard(number, chapter, ordered, chapterApproved, chapterTiming, eligibility));
             }
 
             if (included > 1) duration += TimeSpan.FromMilliseconds(_project.AudioStandard.ChapterPauseMilliseconds * (included - 1));
             IncludedCountText.Text = included.ToString(System.Globalization.CultureInfo.InvariantCulture);
             ApprovedCountText.Text = $"{approved} / {total}";
             DurationText.Text = FormatDuration(duration);
+            DurationBasisText.Text = $"{measured} measured  ·  {estimated} estimated";
             MasterEligibility compilation = MasterEligibilityEvaluator.Evaluate(_project);
             BuildCompilationButton.IsEnabled = compilation.CanBuild;
             if (!compilation.CanBuild)
@@ -94,6 +107,7 @@ public sealed partial class AssemblyView : UserControl
         ChapterDocument chapter,
         IReadOnlyList<SegmentDocument> segments,
         int approved,
+        DurationProjectionSummary timing,
         MasterEligibility eligibility)
     {
         Grid content = new() { Padding = new Thickness(16), ColumnSpacing = 12, RowSpacing = 8 };
@@ -109,7 +123,7 @@ public sealed partial class AssemblyView : UserControl
         title.Children.Add(heading);
         TextBlock metadata = new()
         {
-            Text = $"{approved} / {segments.Count} APPROVED  ·  {FormatDuration(EstimateChapterDuration(segments, _project!.AudioStandard.PauseMilliseconds))}",
+            Text = $"{approved} / {segments.Count} APPROVED  ·  {FormatDuration(timing.Duration)} EXPECTED  ·  {timing.MeasuredCount} MEASURED / {timing.EstimatedCount} ESTIMATED",
         };
         metadata.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
         title.Children.Add(metadata);
@@ -232,20 +246,6 @@ public sealed partial class AssemblyView : UserControl
             string.Equals(render.SourceSha256, segment.SourceSha256, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(render.ApprovalSourceSha256, segment.SourceSha256, StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(render.ProcessedAudioRelativePath);
-    }
-
-    private static TimeSpan EstimateChapterDuration(IReadOnlyList<SegmentDocument> segments, int pauseMilliseconds)
-    {
-        TimeSpan duration = TimeSpan.Zero;
-        foreach (SegmentDocument segment in segments)
-        {
-            RenderRecord? render = segment.ApprovedRenderId is Guid id
-                ? segment.RenderHistory.SingleOrDefault(item => item.RenderId == id)
-                : null;
-            duration += render?.Duration ?? TimeSpan.Zero;
-        }
-        if (segments.Count > 1) duration += TimeSpan.FromMilliseconds(pauseMilliseconds * (segments.Count - 1));
-        return duration;
     }
 
     private static string FormatDuration(TimeSpan duration) =>

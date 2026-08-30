@@ -38,7 +38,11 @@
                 <StackPanel Spacing="3"><TextBlock x:Name="ApprovedCountText" Text="0 / 0" Style="{StaticResource StudioHeadingTextStyle}" /><TextBlock Text="APPROVED SEGMENTS" Style="{StaticResource UtilityLabelTextStyle}" /></StackPanel>
             </Border>
             <Border x:Name="DurationStat" Grid.Column="2" Style="{StaticResource StudioPanelStyle}">
-                <StackPanel Spacing="3"><TextBlock x:Name="DurationText" Text="00:00" Style="{StaticResource StudioHeadingTextStyle}" /><TextBlock Text="ESTIMATED DURATION" Style="{StaticResource UtilityLabelTextStyle}" /></StackPanel>
+                <StackPanel Spacing="3">
+                    <TextBlock x:Name="DurationText" Text="00:00" Style="{StaticResource StudioHeadingTextStyle}" />
+                    <TextBlock Text="EXPECTED DURATION" Style="{StaticResource UtilityLabelTextStyle}" />
+                    <TextBlock x:Name="DurationBasisText" Text="0 measured  ·  0 estimated" Style="{StaticResource UtilityLabelTextStyle}" />
+                </StackPanel>
             </Border>
         </Grid>
 
