@@ -5,6 +5,8 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/src/">
+    <Project Path="src/VoiceBench.Application/VoiceBench.Application.csproj" />
+    <Project Path="src/VoiceBench.Mcp/VoiceBench.Mcp.csproj" />
     <Project Path="src/VoiceBench.App/VoiceBench.App.csproj">
       <Platform Project="x64" />
       <Deploy />
@@ -14,6 +16,8 @@
     <Project Path="src/VoiceBench.Infrastructure/VoiceBench.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/VoiceBench.Application.Tests/VoiceBench.Application.Tests.csproj" />
+    <Project Path="tests/VoiceBench.Mcp.Tests/VoiceBench.Mcp.Tests.csproj" />
     <Project Path="tests/VoiceBench.App.Tests/VoiceBench.App.Tests.csproj" />
     <Project Path="tests/VoiceBench.Core.Tests/VoiceBench.Core.Tests.csproj" />
     <Project Path="tests/VoiceBench.Infrastructure.Tests/VoiceBench.Infrastructure.Tests.csproj" />

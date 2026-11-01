@@ -7,6 +7,7 @@ It combines a packaged WinUI 3 desktop app with a small automation-friendly CLI.
 
 - Read `docs/superpowers/specs/2026-08-26-voicebench-design.md` before changing product behavior.
 - Read `docs/superpowers/plans/2026-08-26-voicebench-execution.md` before starting a new slice.
+- Read `docs/superpowers/MEMORY.md` for current program status and verified resume pointers.
 - Treat Markdown/text files under a project's `02-scripts` directory as canonical content.
 - Keep manifest paths relative to the project root so folders remain movable.
 - Never put provider credentials, submitted text, or secret-bearing HTTP payloads in logs.
@@ -45,12 +46,15 @@ change is not complete until the packaged app has also been launched and inspect
 
 - `VoiceBench.Core` owns versioned contracts and business rules; it has no provider or UI dependency.
 - `VoiceBench.Infrastructure` owns filesystem, HTTP providers, Windows credentials, processes, and FFmpeg.
+- `VoiceBench.Application` owns desktop automation commands, revisioned draft rules, project ownership, and durable operations.
+- `VoiceBench.Mcp` is the packaged local stdio companion; it communicates through the same-user named-pipe bridge and never hosts HTTP.
 - `VoiceBench.Cli` and `VoiceBench.App` are composition roots over the same application services.
 - Provider-specific directions and pronunciation substitutions belong in `03-render-copies`.
 - Raw provider audio is immutable. New attempts always create new versioned files.
 - No provider/model fallback is allowed without an explicit operator choice.
 - Approved text changes mark matching renders stale and block mastering.
 - Render jobs are journaled; recovered `InProgress` jobs become `Interrupted`.
+- Local MCP setup and runtime checks are documented in `docs/local-mcp.md`. The installed alias is `voicebench-mcp.exe`.
 
 ## Tests and fixtures
 

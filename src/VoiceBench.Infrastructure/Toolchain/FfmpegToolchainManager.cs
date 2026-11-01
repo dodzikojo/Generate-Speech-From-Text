@@ -48,7 +48,8 @@ public sealed class FfmpegToolchainManager(HttpClient httpClient, string? toolsR
                 release.DownloadUri,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"The pinned FFmpeg download is unavailable (HTTP {(int)response.StatusCode}). Select an existing FFmpeg in Settings, or install an updated VoiceBench package.");
 
             await using (FileStream output = new(
                 archivePath,

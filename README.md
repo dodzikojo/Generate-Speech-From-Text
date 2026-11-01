@@ -11,6 +11,11 @@ Google Gemini and OpenAI speech and writing generation sit behind provider-neutr
 FFmpeg is downloaded and verified on first use for mastering. AI writing is outline-first,
 uses only explicitly selected local references, and always requires review before files change.
 
+The installed app also includes a local `voicebench-mcp.exe` server for controlling the
+live desktop workspace from Codex or another stdio MCP client. See
+[Local MCP setup and workflows](docs/local-mcp.md) for configuration, revision-guarded
+editing, audio jobs, resources, and the installation check.
+
 ## Prerequisites
 
 - Windows 11 x64 with Developer Mode enabled.
