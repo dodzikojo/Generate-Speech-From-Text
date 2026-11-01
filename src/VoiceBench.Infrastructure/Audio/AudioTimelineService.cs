@@ -126,6 +126,10 @@ public sealed class AudioTimelineService(
             }
         }
         var orderedClips = clips.OrderBy(c => c.StartFrame).ThenBy(c => c.Track.Order).ThenBy(c => c.ClipId).ToArray();
+        var chapterRegions = graph.Timelines.Where(item => item.Timeline.Scope == AudioTimelineScope.Chapter && item.Timeline.ChapterId is not null)
+            .Select(item => new MixChapterRegion(item.Timeline.ChapterId!,graph.Project.Chapters.Single(chapter => chapter.ChapterId == item.Timeline.ChapterId).Title,
+                TimelineTime.ToFrames(item.OffsetSeconds),TimelineTime.ToFrames(TimelineDuration(item.Timeline))))
+            .OrderBy(region => region.StartFrame).ToArray();
         double duration = graph.DurationSeconds;
         if (duration <= 0 && orderedClips.Length > 0) duration = orderedClips.Max(c => c.StartSeconds + c.DurationSeconds);
         return new MixRenderPlan
@@ -133,6 +137,7 @@ public sealed class AudioTimelineService(
             ProjectId = graph.Project.ProjectId, Scope = scope, ChapterId = chapterId, Revision = graph.Requested.Revision,
             CreatedAt = _timeProvider.GetUtcNow(), OutputStandard = graph.Project.MixOutputStandard with { },
             Clips = Array.AsReadOnly(orderedClips), Markers = Array.AsReadOnly(markers.OrderBy(m => m.PositionSeconds).ToArray()),
+            ChapterRegions = Array.AsReadOnly(chapterRegions),
             Transcript = Array.AsReadOnly(CoalesceTranscript(transcript, transcriptSources).ToArray()), DurationSeconds = duration,
         };
     }

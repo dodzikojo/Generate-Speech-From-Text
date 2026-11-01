@@ -10,6 +10,43 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Audio;
 public sealed class AudioTimelineServiceTests
 {
     [Fact]
+    public async Task Compilation_regions_freeze_included_chapter_order_offsets_and_durations_beyond_short_overlays()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await repository.CreateAsync(directory.Root,"Chapter context");
+        var asset = new AudioAssetRecord { RelativePath = "01-source/overlay.wav",Sha256 = Hash([4,5]),DurationSeconds = 3,SampleRate = 48000,Channels = 2 };
+        await File.WriteAllBytesAsync(Path.Combine(directory.Root,asset.RelativePath),[4,5]);
+        var track = new AudioTrackDocument { Kind = AudioTrackKind.Music };
+        project = project with
+        {
+            AudioStandard = project.AudioStandard with { ChapterPauseMilliseconds = 1500 },
+            ChapterOrder = ["b","excluded","archived","a"],
+            Chapters = [new() { ChapterId = "a",Title = "First" },new() { ChapterId = "b",Title = "Second" },
+                new() { ChapterId = "excluded",IncludedInCompilation = false },new() { ChapterId = "archived",Status = ChapterStatus.Archived }],
+            AudioAssets = [asset],AudioTimelines =
+            [new() { Scope = AudioTimelineScope.Chapter,ChapterId = "a",EndMarkerSeconds = 5 },
+             new() { Scope = AudioTimelineScope.Chapter,ChapterId = "b",EndMarkerSeconds = 7 },
+             new() { Scope = AudioTimelineScope.Compilation,Tracks = [track],Clips = [new() { TrackId = track.TrackId,AssetId = asset.AssetId,AssetSha256 = asset.Sha256,DurationSeconds = 3 }] }],
+        };
+        await repository.SaveAsync(directory.Root,project);
+        string manifest = await File.ReadAllTextAsync(Path.Combine(directory.Root,VoiceBenchProjectLayout.ManifestFileName));
+        var service = new AudioTimelineService(repository);
+        var plan = await service.BuildPreviewPlanAsync(directory.Root,AudioTimelineScope.Compilation);
+        Assert.Equal(new[] { "b","a" },plan.ChapterRegions.Select(region => region.ChapterId));
+        Assert.Equal(new[] { "Second","First" },plan.ChapterRegions.Select(region => region.Title));
+        Assert.Equal(new[] { 0L,TimelineTime.ToFrames(8.5) },plan.ChapterRegions.Select(region => region.StartFrame));
+        Assert.Equal(new[] { TimelineTime.ToFrames(7),TimelineTime.ToFrames(5) },plan.ChapterRegions.Select(region => region.DurationFrames));
+        Assert.Equal(13.5,plan.DurationSeconds);
+        Assert.Equal(AudioTrackKind.Music,Assert.Single(plan.Clips).Track.Kind);
+        Assert.Equal(manifest,await File.ReadAllTextAsync(Path.Combine(directory.Root,VoiceBenchProjectLayout.ManifestFileName)));
+        var chapter = await service.BuildPreviewPlanAsync(directory.Root,AudioTimelineScope.Chapter,"a");
+        Assert.Equal(new MixChapterRegion("a","First",0,TimelineTime.ToFrames(5)),Assert.Single(chapter.ChapterRegions));
+        await repository.SaveAsync(directory.Root,project with { ChapterOrder = ["a","b"],Chapters = project.Chapters.Select(item => item with { Title = "Renamed" }).ToList() });
+        Assert.Equal("Second",plan.ChapterRegions[0].Title);
+    }
+
+    [Fact]
     public async Task Batch_is_one_undoable_command_and_stale_revision_is_rejected()
     {
         using TemporaryDirectory directory = new();

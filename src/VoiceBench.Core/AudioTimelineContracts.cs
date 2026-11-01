@@ -188,6 +188,12 @@ public sealed record MixEligibilityResult(IReadOnlyList<MixEligibilityIssue> Iss
     public bool CanExport => Issues.Count == 0;
 }
 
+public sealed record MixChapterRegion(string ChapterId,string Title,long StartFrame,long DurationFrames)
+{
+    [JsonIgnore] public double StartSeconds => TimelineTime.ToSeconds(StartFrame);
+    [JsonIgnore] public double DurationSeconds => TimelineTime.ToSeconds(DurationFrames);
+}
+
 /// <summary>Frozen graph; no project state is consulted while rendering it.</summary>
 public sealed record MixRenderPlan
 {
@@ -200,6 +206,7 @@ public sealed record MixRenderPlan
     public MixOutputStandard OutputStandard { get; init; } = MixOutputStandard.Default;
     public IReadOnlyList<MixRenderClip> Clips { get; init; } = Array.Empty<MixRenderClip>();
     public IReadOnlyList<TimelineMarker> Markers { get; init; } = Array.Empty<TimelineMarker>();
+    public IReadOnlyList<MixChapterRegion> ChapterRegions { get; init; } = Array.Empty<MixChapterRegion>();
     public IReadOnlyList<MixTranscriptEntry> Transcript { get; init; } = Array.Empty<MixTranscriptEntry>();
     public long DurationFrames { get; init; }
     [JsonIgnore]
