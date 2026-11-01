@@ -14,6 +14,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="#F49B52" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="#58C58B" />
             <SolidColorBrush x:Key="FailureBrush" Color="#EF6A6A" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="#B39DDB" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="#AAB0BC" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="BaseBrush" Color="#0E1014" />
@@ -26,6 +28,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="#F49B52" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="#58C58B" />
             <SolidColorBrush x:Key="FailureBrush" Color="#EF6A6A" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="#B39DDB" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="#AAB0BC" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="BaseBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -38,6 +42,8 @@
             <SolidColorBrush x:Key="PickupBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="ApprovalBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="FailureBrush" Color="{ThemeResource SystemColorHotlightColor}" />
+            <SolidColorBrush x:Key="CueNoteBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="CueCustomBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
@@ -50,7 +56,7 @@
 
     <Style x:Key="StudioHeadingTextStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="14" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="CharacterSpacing" Value="90" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
@@ -58,7 +64,7 @@
 
     <Style x:Key="PageTitleTextStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
-        <Setter Property="FontSize" Value="28" />
+        <Setter Property="FontSize" Value="24" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="CharacterSpacing" Value="20" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
@@ -66,14 +72,14 @@
 
     <Style x:Key="UtilityLabelTextStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource UtilityFont}" />
-        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontSize" Value="10" />
         <Setter Property="CharacterSpacing" Value="80" />
         <Setter Property="Foreground" Value="{ThemeResource MutedTextBrush}" />
     </Style>
 
     <Style x:Key="ReadingTextStyle" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="14" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
     </Style>
@@ -88,6 +94,7 @@
 
     <Style x:Key="SignalButtonStyle" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Background" Value="{ThemeResource ActiveSignalBrush}" />
         <Setter Property="Foreground" Value="#081014" />
@@ -99,6 +106,7 @@
 
     <Style x:Key="QuietButtonStyle" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Background" Value="{ThemeResource PanelRaisedBrush}" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource DividerBrush}" />

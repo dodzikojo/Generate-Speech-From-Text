@@ -29,7 +29,39 @@ public sealed class AssemblySnapshotServiceTests
         Assert.Contains("Say V B.", submitted, StringComparison.Ordinal);
         RenderRecord persisted = updated.Segments.Single().RenderHistory.Single();
         Assert.NotNull(persisted.CleanSourceRelativePath);
+        Assert.NotNull(persisted.AuthoringSourceRelativePath);
         Assert.NotNull(persisted.SubmittedTextRelativePath);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_AllowsLatestGuidanceToDifferFromApprovedAuthoringSnapshot()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository repository = new();
+        VoiceBenchProjectDocument project = await CreateLegacyApprovedProjectAsync(repository, directory.Root);
+        AssemblySnapshotService service = new(repository);
+        (project, _) = await service.ResolveAsync(directory.Root, project, MasterScope.Compilation, null);
+        SegmentDocument segment = Assert.Single(project.Segments);
+        const string revisedAuthoring = "@visual: Show the VoiceBench project.\n\nSay VoiceBench.";
+        await File.WriteAllTextAsync(
+            VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, segment.ScriptRelativePath),
+            revisedAuthoring);
+        segment = SegmentStateRules.WithSourceHashes(
+            segment,
+            SourceTextHasher.Compute("Say VoiceBench."),
+            SourceTextHasher.Compute(revisedAuthoring));
+        project = project with { Segments = [segment] };
+        await repository.SaveAsync(directory.Root, project);
+
+        (VoiceBenchProjectDocument updated, IReadOnlyList<AlignedTakeSnapshot> takes) = await service.ResolveAsync(
+            directory.Root,
+            project,
+            MasterScope.Compilation,
+            null);
+
+        Assert.Single(takes);
+        Assert.Equal(SegmentStatus.Approved, Assert.Single(updated.Segments).Status);
+        Assert.Equal(SourceTextHasher.Compute("Say VoiceBench."), updated.Segments[0].SourceSha256);
     }
 
     [Fact]

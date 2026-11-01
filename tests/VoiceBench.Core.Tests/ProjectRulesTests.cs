@@ -38,6 +38,26 @@ public sealed class ProjectRulesTests
     }
 
     [Fact]
+    public void Cue_only_change_updates_authoring_hash_without_staling_approved_audio()
+    {
+        string narrationHash = SourceTextHasher.Compute("Original");
+        SegmentDocument segment = CreateApprovedSegment(narrationHash) with
+        {
+            AuthoringSha256 = SourceTextHasher.Compute("@visual: First\nOriginal"),
+        };
+
+        SegmentDocument changed = SegmentStateRules.WithSourceHashes(
+            segment,
+            narrationHash,
+            SourceTextHasher.Compute("@visual: Updated\nOriginal"));
+
+        Assert.Equal(SegmentStatus.Approved, changed.Status);
+        Assert.Equal(segment.ApprovedRenderId, changed.ApprovedRenderId);
+        Assert.Equal(RenderStatus.Approved, Assert.Single(changed.RenderHistory).Status);
+        Assert.NotEqual(segment.AuthoringSha256, changed.AuthoringSha256);
+    }
+
+    [Fact]
     public void Stale_take_requires_explicit_reapproval()
     {
         var originalHash = SourceTextHasher.Compute("Original");

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Credentials;
 using IssueLab.VoiceBench.Infrastructure.Projects;
@@ -12,7 +13,10 @@ public sealed record SegmentRenderResult(
     RenderRecord Render,
     string RenderCopyRelativePath,
     TimeSpan EstimatedDuration,
-    bool ExceedsFourMinuteGuidance);
+    bool ExceedsFourMinuteGuidance)
+{
+    public WordAlignmentRecord? Alignment { get; init; }
+}
 
 public sealed class SegmentRenderService
 {
@@ -23,6 +27,7 @@ public sealed class SegmentRenderService
     private readonly ImmutableRenderStore _renderStore;
     private readonly TimeProvider _timeProvider;
     private readonly Func<Guid> _createRenderId;
+    private readonly IWordAlignmentService? _wordAlignment;
 
     public SegmentRenderService(
         IProjectRepository projects,
@@ -31,7 +36,8 @@ public sealed class SegmentRenderService
         IRenderQueue queue,
         ImmutableRenderStore renderStore,
         TimeProvider? timeProvider = null,
-        Func<Guid>? createRenderId = null)
+        Func<Guid>? createRenderId = null,
+        IWordAlignmentService? wordAlignment = null)
     {
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
         _providers = providers ?? throw new ArgumentNullException(nameof(providers));
@@ -40,6 +46,7 @@ public sealed class SegmentRenderService
         _renderStore = renderStore ?? throw new ArgumentNullException(nameof(renderStore));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _createRenderId = createRenderId ?? Guid.NewGuid;
+        _wordAlignment = wordAlignment;
     }
 
     public async Task<SegmentRenderResult> RenderAsync(
@@ -66,13 +73,22 @@ public sealed class SegmentRenderService
 
         var scriptPath = VoiceBenchProjectLayout.ResolveRelativePath(root, originalSegment.ScriptRelativePath);
         var canonicalText = await File.ReadAllTextAsync(scriptPath, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(canonicalText))
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(canonicalText);
+        if (parsed.HasErrors)
         {
-            throw new InvalidDataException($"Segment '{segmentId}' has an empty canonical script.");
+            throw new InvalidDataException(string.Join(
+                " ",
+                parsed.Diagnostics.Select(item => $"Line {item.SourceLine}: {item.Message}")));
         }
 
-        var sourceHash = SourceTextHasher.Compute(canonicalText);
-        var currentSegment = SegmentStateRules.WithSourceHash(originalSegment, sourceHash);
+        if (string.IsNullOrWhiteSpace(parsed.NarrationText))
+        {
+            throw new InvalidDataException($"Segment '{segmentId}' contains no narration to render.");
+        }
+
+        string sourceHash = SourceTextHasher.Compute(parsed.NarrationText);
+        string authoringHash = SourceTextHasher.Compute(canonicalText);
+        var currentSegment = SegmentStateRules.WithSourceHashes(originalSegment, sourceHash, authoringHash);
         var presetId = currentSegment.VoicePresetId ?? project.DefaultVoicePresetId;
         if (string.IsNullOrWhiteSpace(presetId))
         {
@@ -105,7 +121,8 @@ public sealed class SegmentRenderService
         }
 
         var directions = CombineDirections(preset.Directions, currentSegment.Directions);
-        var submittedText = LexiconSubstitution.Apply(canonicalText, project.Lexicon);
+        PreparedSpeechText prepared = LexiconSubstitution.Prepare(parsed, project.Lexicon);
+        string submittedText = prepared.Text;
         var estimatedTokens = EstimateInputTokens(submittedText, directions);
         if (estimatedTokens > model.MaxInputTokens)
         {
@@ -134,19 +151,24 @@ public sealed class SegmentRenderService
         var firstTakeNumber = currentSegment.RenderHistory.Count == 0
             ? 1
             : currentSegment.RenderHistory.Max(render => render.TakeNumber) + 1;
+        var renderId = _createRenderId();
         var renderCopy = await WriteRenderCopyAsync(
             root,
             currentSegment,
             preset,
             directions,
             canonicalText,
+            parsed.NarrationText,
             submittedText,
             sourceHash,
+            authoringHash,
+            renderId,
+            prepared,
+            parsed.NarrationWordCount,
             firstTakeNumber,
             cancellationToken).ConfigureAwait(false);
         var takeNumber = renderCopy.TakeNumber;
         var createdAt = _timeProvider.GetUtcNow();
-        var renderId = _createRenderId();
         var baseRecord = new RenderRecord
         {
             RenderId = renderId,
@@ -155,11 +177,14 @@ public sealed class SegmentRenderService
             ModelId = preset.ModelId,
             Voice = preset.Voice,
             SourceSha256 = sourceHash,
+            AuthoringSourceSha256 = authoringHash,
             SubmittedTextSha256 = SourceTextHasher.Compute(submittedText),
             DirectionsSha256 = SourceTextHasher.Compute(directions ?? string.Empty),
             CreatedAt = createdAt,
             CleanSourceRelativePath = renderCopy.CleanSourceRelativePath,
+            AuthoringSourceRelativePath = renderCopy.AuthoringSourceRelativePath,
             SubmittedTextRelativePath = renderCopy.RelativePath,
+            SubmittedTextMapRelativePath = renderCopy.SubmittedMapRelativePath,
         };
 
         var queueJob = await _queue.EnqueueAsync(
@@ -221,12 +246,36 @@ public sealed class SegmentRenderService
             manifestRecorded = true;
             await _queue.CompleteAsync(queueJob.JobId, rawRelativePath, cancellationToken).ConfigureAwait(false);
 
+            WordAlignmentRecord? alignment = null;
+            if (_wordAlignment is not null)
+            {
+                try
+                {
+                    alignment = await _wordAlignment.AlignAsync(
+                        root,
+                        currentSegment.SegmentId,
+                        record.RenderId,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // The audio render is already durable. Cancellation stops only the secondary alignment pass.
+                }
+                catch
+                {
+                    // Alignment is deliberately non-fatal; the generated take remains valid and playable.
+                }
+            }
+
             var estimatedDuration = EstimateDuration(submittedText);
             return new SegmentRenderResult(
                 record,
                 renderCopy.RelativePath,
                 estimatedDuration,
-                estimatedDuration > TimeSpan.FromMinutes(4));
+                estimatedDuration > TimeSpan.FromMinutes(4))
+            {
+                Alignment = alignment,
+            };
         }
         catch (OperationCanceledException)
         {
@@ -351,6 +400,8 @@ public sealed class SegmentRenderService
     private sealed record RenderCopyPaths(
         string RelativePath,
         string CleanSourceRelativePath,
+        string AuthoringSourceRelativePath,
+        string SubmittedMapRelativePath,
         int TakeNumber);
 
     private static async Task<RenderCopyPaths> WriteRenderCopyAsync(
@@ -358,9 +409,14 @@ public sealed class SegmentRenderService
         SegmentDocument segment,
         VoicePreset preset,
         string? directions,
-        string canonicalText,
+        string authoringText,
+        string narrationText,
         string submittedText,
         string sourceHash,
+        string authoringHash,
+        Guid renderId,
+        PreparedSpeechText prepared,
+        int narrationWordCount,
         int firstTakeNumber,
         CancellationToken cancellationToken)
     {
@@ -368,6 +424,10 @@ public sealed class SegmentRenderService
         Directory.CreateDirectory(directory);
         var safeSegmentId = MakeSafeFileName(segment.SegmentId);
         var safeProviderId = MakeSafeFileName(preset.ProviderId);
+        var generatedSegmentDirectory = VoiceBenchProjectLayout.ResolveRelativePath(
+            projectRoot,
+            $"{VoiceBenchProjectLayout.SegmentsDirectory}/{safeSegmentId}");
+        Directory.CreateDirectory(generatedSegmentDirectory);
 
         for (var takeNumber = firstTakeNumber; takeNumber <= 999_999; takeNumber++)
         {
@@ -377,39 +437,94 @@ public sealed class SegmentRenderService
             var cleanSourcePath = Path.Combine(
                 directory,
                 $"{safeSegmentId}--take-{takeNumber:0000}--{safeProviderId}.clean.md");
+            var authoringSourcePath = Path.Combine(
+                directory,
+                $"{safeSegmentId}--take-{takeNumber:0000}--{safeProviderId}.authoring.md");
+            var submittedMapPath = Path.Combine(
+                generatedSegmentDirectory,
+                $"{safeSegmentId}--take-{takeNumber:0000}--{safeProviderId}.submitted-map.json");
             var content = BuildRenderCopy(
                 segment,
                 preset,
                 directions,
                 submittedText,
                 sourceHash,
+                authoringHash,
                 takeNumber);
 
+            bool submittedCreated = false;
+            bool cleanCreated = false;
+            bool authoringCreated = false;
+            bool mapCreated = false;
             try
             {
                 await WriteImmutableTextAsync(path, content, cancellationToken).ConfigureAwait(false);
-                try
+                submittedCreated = true;
+                await WriteImmutableTextAsync(cleanSourcePath, narrationText, cancellationToken).ConfigureAwait(false);
+                cleanCreated = true;
+                await WriteImmutableTextAsync(authoringSourcePath, authoringText, cancellationToken).ConfigureAwait(false);
+                authoringCreated = true;
+                SubmittedTextMapDocument map = new()
                 {
-                    await WriteImmutableTextAsync(cleanSourcePath, canonicalText, cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    File.Delete(path);
-                    throw;
-                }
+                    RenderId = renderId,
+                    SourceSha256 = sourceHash,
+                    SubmittedTextSha256 = SourceTextHasher.Compute(submittedText),
+                    SubmittedText = submittedText,
+                    TotalNarrationWordCount = narrationWordCount,
+                    Words = [.. prepared.Words],
+                };
+                await WriteImmutableJsonAsync(submittedMapPath, map, cancellationToken).ConfigureAwait(false);
+                mapCreated = true;
 
                 return new RenderCopyPaths(
                     VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, path)),
                     VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, cleanSourcePath)),
+                    VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, authoringSourcePath)),
+                    VoiceBenchProjectLayout.ToManifestPath(Path.GetRelativePath(projectRoot, submittedMapPath)),
                     takeNumber);
             }
-            catch (IOException) when (File.Exists(path) || File.Exists(cleanSourcePath))
+            catch (IOException)
             {
-                // Keep every earlier render copy immutable and advance the take number.
+                bool collision = (!submittedCreated && File.Exists(path))
+                    || (!cleanCreated && File.Exists(cleanSourcePath))
+                    || (!authoringCreated && File.Exists(authoringSourcePath))
+                    || (!mapCreated && File.Exists(submittedMapPath));
+                if (submittedCreated) File.Delete(path);
+                if (cleanCreated) File.Delete(cleanSourcePath);
+                if (authoringCreated) File.Delete(authoringSourcePath);
+                if (mapCreated) File.Delete(submittedMapPath);
+                if (!collision) throw;
+                // Keep every earlier render artifact immutable and advance the take number.
+            }
+            catch
+            {
+                if (submittedCreated) File.Delete(path);
+                if (cleanCreated) File.Delete(cleanSourcePath);
+                if (authoringCreated) File.Delete(authoringSourcePath);
+                if (mapCreated) File.Delete(submittedMapPath);
+                throw;
             }
         }
 
         throw new IOException($"No render-copy version slot is available for segment '{segment.SegmentId}'.");
+    }
+
+    private static async Task WriteImmutableJsonAsync<T>(
+        string path,
+        T value,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream stream = new(
+            path,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.Read,
+            bufferSize: 16 * 1024,
+            FileOptions.Asynchronous | FileOptions.WriteThrough);
+        await JsonSerializer.SerializeAsync(stream, value, ProjectJson.SerializerOptions, cancellationToken)
+            .ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        stream.Flush(flushToDisk: true);
     }
 
     private static async Task WriteImmutableTextAsync(
@@ -438,6 +553,7 @@ public sealed class SegmentRenderService
         string? directions,
         string submittedText,
         string sourceHash,
+        string authoringHash,
         int takeNumber) => $$"""
         # VoiceBench render copy
 
@@ -447,6 +563,7 @@ public sealed class SegmentRenderService
         - Model: {{preset.ModelId}}
         - Voice: {{preset.Voice}}
         - Source SHA-256: {{sourceHash}}
+        - Authoring SHA-256: {{authoringHash}}
 
         ## Directions
 

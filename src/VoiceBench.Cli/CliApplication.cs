@@ -148,6 +148,10 @@ public sealed class CliApplication(
         SpeechProviderRegistry providers = new(
             [new OpenAiSpeechProvider(httpClient), new GeminiSpeechProvider(httpClient)]);
         ProviderCredentialResolver credentials = new(new WindowsCredentialStore());
+        WordAlignmentProviderRegistry alignmentProviders = new(
+            [new OpenAiWordAlignmentProvider(httpClient), new GeminiWordAlignmentProvider(httpClient)]);
+        FileWordAlignmentService alignments = new(projects, alignmentProviders, credentials);
+        _ = await alignments.RecoverInterruptedAsync(folder, cancellationToken).ConfigureAwait(false);
         string journalPath = Path.Combine(Path.GetFullPath(folder), ".voicebench", "render-queue.json");
         using FileRenderQueue queue = new(journalPath);
         _ = await queue.RecoverInterruptedAsync(cancellationToken).ConfigureAwait(false);
@@ -156,7 +160,8 @@ public sealed class CliApplication(
             providers,
             credentials,
             queue,
-            new ImmutableRenderStore());
+            new ImmutableRenderStore(),
+            wordAlignment: alignments);
 
         IReadOnlyList<string> segmentIds;
         if (segmentId is not null)
@@ -182,6 +187,14 @@ public sealed class CliApplication(
             SegmentRenderResult rendered = await renderer.RenderAsync(folder, id, cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(
                 $"Rendered {id} take {rendered.Render.TakeNumber}: {rendered.Render.RawAudioRelativePath}").ConfigureAwait(false);
+            if (rendered.Alignment is not null)
+            {
+                await output.WriteLineAsync(
+                    rendered.Alignment.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial
+                        ? $"Word alignment: {rendered.Alignment.Status} ({rendered.Alignment.Coverage:P0})"
+                        : $"Word alignment: {rendered.Alignment.Status} ({rendered.Alignment.FailureCode})")
+                    .ConfigureAwait(false);
+            }
             if (rendered.ExceedsFourMinuteGuidance)
             {
                 await output.WriteLineAsync(

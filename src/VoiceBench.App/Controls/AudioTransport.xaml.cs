@@ -7,6 +7,20 @@ using Windows.Media.Playback;
 
 namespace IssueLab.VoiceBench.App.Controls;
 
+public enum AudioTransportState
+{
+    Ready,
+    Playing,
+    Paused,
+    Ended,
+    Failed,
+    Cleared,
+}
+
+public sealed record AudioPositionChangedEventArgs(TimeSpan Position, bool IsPlaying);
+
+public sealed record AudioTransportStateChangedEventArgs(AudioTransportState State);
+
 public sealed partial class AudioTransport : UserControl
 {
     private readonly DispatcherTimer _positionTimer;
@@ -21,7 +35,7 @@ public sealed partial class AudioTransport : UserControl
     {
         InitializeComponent();
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
-        _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _positionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         _positionTimer.Tick += PositionTimer_Tick;
         Loaded += AudioTransport_Loaded;
         Unloaded += AudioTransport_Unloaded;
@@ -33,6 +47,10 @@ public sealed partial class AudioTransport : UserControl
         false);
 
     public event EventHandler? PlaybackStarted;
+
+    public event EventHandler<AudioPositionChangedEventArgs>? PlaybackPositionChanged;
+
+    public event EventHandler<AudioTransportStateChangedEventArgs>? PlaybackStateChanged;
 
     public bool HasAudio => _sourcePath is not null;
 
@@ -80,6 +98,7 @@ public sealed partial class AudioTransport : UserControl
         PlaybackStateText.Text = "Render or select a take to listen";
         CurrentTimeText.Text = "00:00";
         DurationText.Text = "00:00";
+        RaiseState(AudioTransportState.Cleared);
     }
 
     public void Pause()
@@ -191,6 +210,7 @@ public sealed partial class AudioTransport : UserControl
         {
             _positionTimer.Stop();
             sender.PlaybackSession.Position = TimeSpan.Zero;
+            RaiseState(AudioTransportState.Ended);
             UpdatePositionUi(TimeSpan.Zero);
             SetPlaybackState("READY", isPlaying: false);
         });
@@ -201,6 +221,7 @@ public sealed partial class AudioTransport : UserControl
             _positionTimer.Stop();
             SetPlaybackState("PLAYBACK FAILED", isPlaying: false);
             PlaybackStateText.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FailureBrush"];
+            RaiseState(AudioTransportState.Failed);
         });
 
     private void PlaybackSession_PlaybackStateChanged(MediaPlaybackSession sender, object args) =>
@@ -211,6 +232,7 @@ public sealed partial class AudioTransport : UserControl
                 case MediaPlaybackState.Playing:
                     _positionTimer.Start();
                     SetPlaybackState("PLAYING", isPlaying: true);
+                    RaiseState(AudioTransportState.Playing);
                     break;
                 case MediaPlaybackState.Buffering:
                 case MediaPlaybackState.Opening:
@@ -220,6 +242,7 @@ public sealed partial class AudioTransport : UserControl
                 default:
                     _positionTimer.Stop();
                     SetPlaybackState(_sourcePath is null ? "NO AUDIO" : "READY", isPlaying: false);
+                    RaiseState(_sourcePath is null ? AudioTransportState.Cleared : AudioTransportState.Paused);
                     break;
             }
         });
@@ -239,6 +262,7 @@ public sealed partial class AudioTransport : UserControl
         DurationText.Text = FormatTime(_knownDuration);
         CurrentTimeText.Text = "00:00";
         SetPlaybackState(hasAudio ? "READY" : "NO AUDIO", isPlaying: false);
+        RaiseState(hasAudio ? AudioTransportState.Ready : AudioTransportState.Cleared);
     }
 
     private void SetPlaybackState(string state, bool isPlaying)
@@ -260,7 +284,15 @@ public sealed partial class AudioTransport : UserControl
         PositionSlider.Value = Math.Clamp(bounded.TotalSeconds, 0, PositionSlider.Maximum);
         _updatingPosition = false;
         CurrentTimeText.Text = FormatTime(bounded);
+        PlaybackPositionChanged?.Invoke(
+            this,
+            new AudioPositionChangedEventArgs(
+                bounded,
+                _player?.PlaybackSession.PlaybackState == MediaPlaybackState.Playing));
     }
+
+    private void RaiseState(AudioTransportState state) =>
+        PlaybackStateChanged?.Invoke(this, new AudioTransportStateChangedEventArgs(state));
 
     private void DisposePlayer()
     {

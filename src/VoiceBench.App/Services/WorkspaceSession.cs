@@ -6,7 +6,8 @@ namespace IssueLab.VoiceBench.App.Services;
 
 public sealed class WorkspaceSession(
     IProjectRepository projects,
-    FileRecentProjectCatalog recentProjects)
+    FileRecentProjectCatalog recentProjects,
+    IAuthoringTransactionManager? authoringTransactions = null)
 {
     public string? ProjectRoot { get; private set; }
 
@@ -39,6 +40,10 @@ public sealed class WorkspaceSession(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         string root = Path.GetFullPath(projectRoot);
+        if (authoringTransactions is not null)
+        {
+            await authoringTransactions.RecoverInterruptedAsync(root, cancellationToken);
+        }
         VoiceBenchProjectDocument project = await projects.LoadAsync(root, cancellationToken);
         await TryRecordRecentAsync(root, project.Name, cancellationToken);
         Activate(root, project);
@@ -67,12 +72,16 @@ public sealed class WorkspaceSession(
 
             try
             {
+                if (authoringTransactions is not null)
+                {
+                    await authoringTransactions.RecoverInterruptedAsync(entry.ProjectRoot, cancellationToken);
+                }
                 VoiceBenchProjectDocument project = await projects.LoadAsync(entry.ProjectRoot, cancellationToken);
                 Activate(entry.ProjectRoot, project, notifyActivated: false);
                 return true;
             }
             catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException or JsonException or ProjectSchemaException)
+                exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ProjectSchemaException)
             {
                 System.Diagnostics.Debug.WriteLine(exception);
             }
@@ -84,6 +93,10 @@ public sealed class WorkspaceSession(
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         string root = RequireProjectRoot();
+        if (authoringTransactions is not null)
+        {
+            await authoringTransactions.RecoverInterruptedAsync(root, cancellationToken);
+        }
         Project = await projects.LoadAsync(root, cancellationToken);
         ProjectChanged?.Invoke(this, EventArgs.Empty);
     }

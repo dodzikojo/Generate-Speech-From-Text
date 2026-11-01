@@ -134,6 +134,60 @@ public sealed class OneToTwoProjectDocumentMigration : IProjectDocumentMigration
     }
 }
 
+public sealed class TwoToThreeProjectDocumentMigration : IProjectDocumentMigration
+{
+    public int FromSchemaVersion => 2;
+
+    public int ToSchemaVersion => 3;
+
+    public JsonObject Migrate(JsonObject source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        JsonObject result = (JsonObject)source.DeepClone();
+        JsonArray segments = result["segments"] as JsonArray ?? [];
+        foreach (JsonObject segment in segments.OfType<JsonObject>())
+        {
+            JsonNode? sourceHash = segment["sourceSha256"]?.DeepClone();
+            segment["authoringSha256"] ??= sourceHash;
+            JsonArray renders = segment["renderHistory"] as JsonArray ?? [];
+            foreach (JsonObject render in renders.OfType<JsonObject>())
+            {
+                render["authoringSourceSha256"] ??= render["sourceSha256"]?.DeepClone();
+                render["authoringSourceRelativePath"] ??= render["cleanSourceRelativePath"]?.DeepClone();
+            }
+        }
+
+        JsonObject writingProfile = result["writingProfile"] as JsonObject ?? new JsonObject();
+        writingProfile["generateProductionCues"] ??= false;
+        result["writingProfile"] = writingProfile;
+        return result;
+    }
+}
+
+public sealed class ThreeToFourProjectDocumentMigration : IProjectDocumentMigration
+{
+    public int FromSchemaVersion => 3;
+
+    public int ToSchemaVersion => 4;
+
+    public JsonObject Migrate(JsonObject source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        JsonObject result = (JsonObject)source.DeepClone();
+        JsonArray segments = result["segments"] as JsonArray ?? [];
+        foreach (JsonObject segment in segments.OfType<JsonObject>())
+        {
+            JsonArray renders = segment["renderHistory"] as JsonArray ?? [];
+            foreach (JsonObject render in renders.OfType<JsonObject>())
+            {
+                render["alignmentHistory"] ??= new JsonArray();
+            }
+        }
+
+        return result;
+    }
+}
+
 public static class ProjectJson
 {
     public static JsonSerializerOptions SerializerOptions { get; } = CreateOptions();

@@ -58,6 +58,7 @@ public sealed class ChapterAuthoringService(
                 string fileName = ScriptSegmentNaming.CreateFileName(index + 1, item.Title, segmentId);
                 string temporaryPath = Path.Combine(temporaryDirectory, fileName);
                 await File.WriteAllTextAsync(temporaryPath, item.Text, cancellationToken).ConfigureAwait(false);
+                ParsedScriptDocument parsed = new ProductionScriptParser().Parse(item.Text);
                 string relativePath = VoiceBenchProjectLayout.ToManifestPath(
                     Path.Combine(chapterRelativeDirectory, fileName));
                 newSegments.Add(new SegmentDocument
@@ -66,7 +67,8 @@ public sealed class ChapterAuthoringService(
                     ChapterId = chapterId,
                     Title = item.Title.Trim(),
                     ScriptRelativePath = relativePath,
-                    SourceSha256 = SourceTextHasher.Compute(item.Text),
+                    SourceSha256 = SourceTextHasher.Compute(parsed.NarrationText),
+                    AuthoringSha256 = SourceTextHasher.Compute(item.Text),
                     Status = SegmentStatus.Draft,
                 });
             }
@@ -125,13 +127,15 @@ public sealed class ChapterAuthoringService(
         await File.WriteAllTextAsync(fullPath, text, cancellationToken).ConfigureAwait(false);
         try
         {
+            ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
             SegmentDocument segment = new()
             {
                 SegmentId = segmentId,
                 ChapterId = chapterId,
                 Title = title.Trim(),
                 ScriptRelativePath = relativePath,
-                SourceSha256 = SourceTextHasher.Compute(text),
+                SourceSha256 = SourceTextHasher.Compute(parsed.NarrationText),
+                AuthoringSha256 = SourceTextHasher.Compute(text),
             };
             List<ChapterDocument> chapters = [.. project.Chapters];
             chapters[chapterIndex] = chapter with { SegmentOrder = [.. chapter.SegmentOrder, segmentId] };
@@ -222,6 +226,7 @@ public sealed class ChapterAuthoringService(
         List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, [segment]);
         try
         {
+            RemoveEmptyScriptDirectories(moved);
             await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
             return updated;
         }
@@ -253,6 +258,7 @@ public sealed class ChapterAuthoringService(
         List<TrashedScript> moved = MoveScriptsToTrash(projectRoot, removedSegments);
         try
         {
+            RemoveEmptyScriptDirectories(moved);
             await repository.SaveAsync(projectRoot, updated, cancellationToken).ConfigureAwait(false);
             return updated;
         }
@@ -267,7 +273,7 @@ public sealed class ChapterAuthoringService(
         string projectRoot,
         string segmentId,
         int cursor,
-        string expectedSourceSha256,
+        string expectedAuthoringSha256,
         CancellationToken cancellationToken = default)
     {
         VoiceBenchProjectDocument project = await repository.LoadAsync(projectRoot, cancellationToken).ConfigureAwait(false);
@@ -276,7 +282,7 @@ public sealed class ChapterAuthoringService(
         SegmentDocument segment = project.Segments[segmentIndex];
         string originalPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, segment.ScriptRelativePath);
         string originalText = await File.ReadAllTextAsync(originalPath, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(SourceTextHasher.Compute(originalText), expectedSourceSha256, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(SourceTextHasher.Compute(originalText), expectedAuthoringSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The script changed after the split position was chosen.");
         }
@@ -286,11 +292,19 @@ public sealed class ChapterAuthoringService(
             throw new InvalidOperationException("Place the split cursor inside the segment text.");
         }
 
+        ParsedScriptDocument originalParsed = new ProductionScriptParser().Parse(originalText);
+        if (originalParsed.Cues.Any(cue => cursor > cue.SourceStart && cursor < cue.SourceStart + cue.SourceLength))
+        {
+            throw new InvalidOperationException("Move the split cursor before or after the production cue line.");
+        }
+
         string first = originalText[..cursor].TrimEnd();
         string second = originalText[cursor..].TrimStart();
-        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second))
+        ParsedScriptDocument firstParsed = new ProductionScriptParser().Parse(first);
+        ParsedScriptDocument secondParsed = new ProductionScriptParser().Parse(second);
+        if (string.IsNullOrWhiteSpace(firstParsed.NarrationText) || string.IsNullOrWhiteSpace(secondParsed.NarrationText))
         {
-            throw new InvalidOperationException("A split cannot create an empty segment.");
+            throw new InvalidOperationException("Both sides of a split must contain narration, not only production cues.");
         }
 
         int chapterIndex = project.Chapters.FindIndex(chapter => chapter.ChapterId == segment.ChapterId);
@@ -313,14 +327,18 @@ public sealed class ChapterAuthoringService(
                 await writer.WriteAsync(second.AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
-            SegmentDocument firstSegment = SegmentStateRules.WithSourceHash(segment, SourceTextHasher.Compute(first));
+            SegmentDocument firstSegment = SegmentStateRules.WithSourceHashes(
+                segment,
+                SourceTextHasher.Compute(firstParsed.NarrationText),
+                SourceTextHasher.Compute(first));
             SegmentDocument secondSegment = new()
             {
                 SegmentId = newSegmentId,
                 ChapterId = segment.ChapterId,
                 Title = newTitle,
                 ScriptRelativePath = newRelativePath,
-                SourceSha256 = SourceTextHasher.Compute(second),
+                SourceSha256 = SourceTextHasher.Compute(secondParsed.NarrationText),
+                AuthoringSha256 = SourceTextHasher.Compute(second),
                 VoicePresetId = segment.VoicePresetId,
                 Directions = segment.Directions,
             };
@@ -433,7 +451,7 @@ public sealed class ChapterAuthoringService(
         int index = project.Segments.FindIndex(segment => segment.SegmentId == segmentId);
         if (index < 0) throw new InvalidOperationException($"Segment '{segmentId}' does not exist.");
         SegmentDocument segment = project.Segments[index];
-        if (!string.Equals(segment.SourceSha256, expectedSourceSha256, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(segment.AuthoringSha256, expectedSourceSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The segment changed after the AI proposal was created. Generate a new proposal.");
         }
@@ -445,6 +463,8 @@ public sealed class ChapterAuthoringService(
         {
             throw new InvalidOperationException("The script was edited externally after the AI proposal was created.");
         }
+
+        WritingProposalRules.Validate(previousText, proposal.ProposedText, action);
 
         Guid revisionId = Guid.NewGuid();
         string stamp = _timeProvider.GetUtcNow().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
@@ -465,7 +485,14 @@ public sealed class ChapterAuthoringService(
             await File.WriteAllTextAsync(temporaryScriptPath, proposal.ProposedText, cancellationToken).ConfigureAwait(false);
             File.Move(temporaryScriptPath, scriptPath, overwrite: true);
 
+            ParsedScriptDocument parsed = new ProductionScriptParser().Parse(proposal.ProposedText);
+            if (parsed.HasErrors)
+            {
+                throw new InvalidDataException(string.Join(" ", parsed.Diagnostics.Select(item => item.Message)));
+            }
+
             string acceptedHash = SourceTextHasher.Compute(proposal.ProposedText);
+            string narrationHash = SourceTextHasher.Compute(parsed.NarrationText);
             WritingRevisionRecord revision = new()
             {
                 RevisionId = revisionId,
@@ -478,7 +505,7 @@ public sealed class ChapterAuthoringService(
                 PreviousSha256 = diskHash,
                 AcceptedSha256 = acceptedHash,
             };
-            SegmentDocument updatedSegment = SegmentStateRules.WithSourceHash(segment, acceptedHash) with
+            SegmentDocument updatedSegment = SegmentStateRules.WithSourceHashes(segment, narrationHash, acceptedHash) with
             {
                 WritingRevisions = [.. segment.WritingRevisions, revision],
             };
@@ -518,7 +545,7 @@ public sealed class ChapterAuthoringService(
         return await ApplyWritingProposalAsync(
             projectRoot,
             segmentId,
-            segment.SourceSha256,
+            segment.AuthoringSha256,
             new WritingProposal(restored, "Restored a local writing revision", []),
             WritingAction.Custom,
             "local",
@@ -620,6 +647,20 @@ public sealed class ChapterAuthoringService(
             if (!File.Exists(item.TrashPath)) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(item.OriginalPath)!);
             File.Move(item.TrashPath, item.OriginalPath, overwrite: true);
+        }
+    }
+
+    private static void RemoveEmptyScriptDirectories(IEnumerable<TrashedScript> moved)
+    {
+        foreach (string directory in moved
+                     .Select(item => Path.GetDirectoryName(item.OriginalPath))
+                     .OfType<string>()
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+            }
         }
     }
 

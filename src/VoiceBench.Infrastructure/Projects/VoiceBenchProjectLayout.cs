@@ -14,8 +14,11 @@ public static class VoiceBenchProjectLayout
     public const string SegmentsDirectory = "04-generated-audio/segments";
     public const string MastersDirectory = "05-masters";
     public const string TranscriptsDirectory = "06-exports/transcripts";
+    public const string ProductionScriptsDirectory = "06-exports/production-scripts";
     public const string CueSheetsDirectory = "06-exports/cue-sheets";
     public const string ReportsDirectory = "07-reports";
+    public const string InternalDirectory = ".voicebench";
+    public const string AuthoringTransactionsDirectory = ".voicebench/authoring-transactions";
 
     public static IReadOnlyList<string> RequiredDirectories { get; } =
     [
@@ -29,6 +32,7 @@ public static class VoiceBenchProjectLayout
         SegmentsDirectory,
         MastersDirectory,
         TranscriptsDirectory,
+        ProductionScriptsDirectory,
         CueSheetsDirectory,
         ReportsDirectory,
     ];

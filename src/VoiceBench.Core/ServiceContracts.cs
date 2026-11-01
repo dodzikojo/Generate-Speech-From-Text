@@ -113,6 +113,26 @@ public interface IAudioMasteringService
         CancellationToken cancellationToken = default);
 }
 
+public sealed record ProductionExportRequest(
+    string ProjectRoot,
+    string Name,
+    MasterScope Scope = MasterScope.Compilation,
+    string? ChapterId = null);
+
+public sealed record ProductionExportResult(
+    string ProductionScriptRelativePath,
+    string CueSheetMarkdownRelativePath,
+    string CueSheetCsvRelativePath,
+    int SegmentCount,
+    int CueCount);
+
+public interface IProductionExportService
+{
+    Task<ProductionExportResult> ExportAsync(
+        ProductionExportRequest request,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record ToolchainResolution(
     string ToolName,
     string? ExecutablePath,

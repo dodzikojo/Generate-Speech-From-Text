@@ -17,9 +17,10 @@ public sealed class SegmentRenderServiceTests
         var repository = new FileProjectRepository(new FixedTimeProvider());
         var project = await repository.CreateAsync(directory.Root, "Training narration");
         var scriptRelativePath = "02-scripts/001-introduction--abc123.md";
+        const string authoringText = "@visual: Show the clash dashboard.\n\nClashWise keeps BIM coordination clear.\n\n@action: Select the Level 02 filter.";
         await File.WriteAllTextAsync(
             Path.Combine(directory.Root, scriptRelativePath),
-            "ClashWise keeps BIM coordination clear.");
+            authoringText);
         var segment = new SegmentDocument
         {
             SegmentId = "introduction",
@@ -28,6 +29,7 @@ public sealed class SegmentRenderServiceTests
             ScriptRelativePath = scriptRelativePath,
             Status = SegmentStatus.Ready,
             SourceSha256 = SourceTextHasher.Compute("ClashWise keeps BIM coordination clear."),
+            AuthoringSha256 = SourceTextHasher.Compute(authoringText),
             Directions = "Pause after the product name.",
         };
         var preset = new VoicePreset
@@ -70,6 +72,7 @@ public sealed class SegmentRenderServiceTests
             Path.Combine(directory.Root, "07-reports", "render-queue.json"),
             new FixedTimeProvider(),
             () => Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"));
+        var alignments = new RecordingWordAlignmentService();
         var service = new SegmentRenderService(
             repository,
             new SpeechProviderRegistry([provider]),
@@ -77,7 +80,8 @@ public sealed class SegmentRenderServiceTests
             queue,
             new ImmutableRenderStore(),
             new FixedTimeProvider(),
-            () => Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"));
+            () => Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            alignments);
 
         var result = await service.RenderAsync(directory.Root, segment.SegmentId);
 
@@ -93,9 +97,18 @@ public sealed class SegmentRenderServiceTests
         Assert.True(File.Exists(Path.Combine(directory.Root, result.Render.RawAudioRelativePath)));
         Assert.Equal(result.RenderCopyRelativePath, result.Render.SubmittedTextRelativePath);
         Assert.NotNull(result.Render.CleanSourceRelativePath);
+        Assert.NotNull(result.Render.AuthoringSourceRelativePath);
+        Assert.NotNull(result.Render.SubmittedTextMapRelativePath);
+        Assert.StartsWith("04-generated-audio/segments/introduction/", result.Render.SubmittedTextMapRelativePath, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(directory.Root, result.Render.SubmittedTextMapRelativePath!)));
         Assert.Equal(
             "ClashWise keeps BIM coordination clear.",
             await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.CleanSourceRelativePath!)));
+        Assert.Equal(
+            authoringText,
+            await File.ReadAllTextAsync(Path.Combine(directory.Root, result.Render.AuthoringSourceRelativePath!)));
+        Assert.Equal(SourceTextHasher.Compute(authoringText), result.Render.AuthoringSourceSha256);
+        Assert.DoesNotContain("@visual", provider.Request?.Text, StringComparison.Ordinal);
 
         var reloaded = await repository.LoadAsync(directory.Root);
         var rendered = Assert.Single(reloaded.Segments);
@@ -103,6 +116,9 @@ public sealed class SegmentRenderServiceTests
         Assert.Equal(RenderStatus.Generated, Assert.Single(rendered.RenderHistory).Status);
         Assert.Equal("dddddddd-dddd-dddd-dddd-dddddddddddd", result.Render.RenderId.ToString());
         Assert.Equal(RenderJobStatus.Completed, Assert.Single(await queue.GetJobsAsync()).Status);
+        Assert.Equal(segment.SegmentId, alignments.Call?.SegmentId);
+        Assert.Equal(result.Render.RenderId, alignments.Call?.RenderId);
+        Assert.Equal(WordAlignmentStatus.Partial, result.Alignment?.Status);
     }
 
     [Fact]
@@ -230,7 +246,7 @@ public sealed class SegmentRenderServiceTests
                     "gpt-4o-mini-tts",
                     "GPT-4o mini TTS",
                     2_000,
-                    ["marin"]),
+                    [new SpeechVoiceDescriptor("marin", "Marin", ["Recommended"])]),
             ]);
 
         public SpeechSynthesisRequest? Request { get; private set; }
@@ -271,5 +287,28 @@ public sealed class SegmentRenderServiceTests
 
         public Task DeleteAsync(string providerId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class RecordingWordAlignmentService : IWordAlignmentService
+    {
+        public (string SegmentId, Guid RenderId)? Call { get; private set; }
+
+        public Task<WordAlignmentRecord> AlignAsync(
+            string projectRoot,
+            string segmentId,
+            Guid renderId,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.True(Directory.EnumerateFiles(projectRoot, "*.wav", SearchOption.AllDirectories).Any());
+            Call = (segmentId, renderId);
+            return Task.FromResult(new WordAlignmentRecord
+            {
+                Status = WordAlignmentStatus.Partial,
+                Coverage = 0.5,
+            });
+        }
+
+        public Task<int> RecoverInterruptedAsync(string projectRoot, CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 }

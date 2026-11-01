@@ -10,6 +10,7 @@ public sealed record AlignedTakeSnapshot(
     SegmentDocument Segment,
     RenderRecord Render,
     string CleanSourceRelativePath,
+    string? AuthoringSourceRelativePath,
     string SubmittedTextRelativePath);
 
 public sealed class AssemblySnapshotService(IProjectRepository repository)
@@ -64,6 +65,7 @@ public sealed class AssemblySnapshotService(IProjectRepository repository)
                 segment,
                 aligned,
                 aligned.CleanSourceRelativePath!,
+                aligned.AuthoringSourceRelativePath,
                 aligned.SubmittedTextRelativePath!));
         }
 
@@ -85,23 +87,31 @@ public sealed class AssemblySnapshotService(IProjectRepository repository)
     {
         string canonicalPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, segment.ScriptRelativePath);
         string canonicalText = await File.ReadAllTextAsync(canonicalPath, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(SourceTextHasher.Compute(canonicalText), segment.SourceSha256, StringComparison.OrdinalIgnoreCase))
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(canonicalText);
+        if (parsed.HasErrors)
         {
-            throw RerenderRequired(segment, "the canonical script changed outside VoiceBench");
+            throw RerenderRequired(segment, "its production-cue syntax is invalid");
+        }
+
+        if (!string.Equals(SourceTextHasher.Compute(parsed.NarrationText), segment.SourceSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw RerenderRequired(segment, "the canonical narration changed outside VoiceBench");
         }
 
         bool cleanExists = await ValidateCleanSnapshotAsync(projectRoot, segment, render, cancellationToken)
             .ConfigureAwait(false);
         bool submittedExists = await ValidateSubmittedSnapshotAsync(projectRoot, segment, render, cancellationToken)
             .ConfigureAwait(false);
-        if (cleanExists && submittedExists) return (render, false);
+        bool authoringExists = await ValidateAuthoringSnapshotAsync(projectRoot, segment, render, cancellationToken)
+            .ConfigureAwait(false);
+        if (cleanExists && submittedExists && authoringExists) return (render, false);
 
-        if (!string.Equals(SourceTextHasher.Compute(canonicalText), render.SourceSha256, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(SourceTextHasher.Compute(parsed.NarrationText), render.SourceSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw RerenderRequired(segment, "its clean source snapshot is missing and the current script no longer matches");
         }
 
-        string submittedText = LexiconSubstitution.Apply(canonicalText, project.Lexicon);
+        string submittedText = LexiconSubstitution.Apply(parsed.NarrationText, project.Lexicon);
         if (string.IsNullOrWhiteSpace(render.SubmittedTextSha256) ||
             !string.Equals(SourceTextHasher.Compute(submittedText), render.SubmittedTextSha256, StringComparison.OrdinalIgnoreCase))
         {
@@ -123,11 +133,29 @@ public sealed class AssemblySnapshotService(IProjectRepository repository)
             Path.Combine(VoiceBenchProjectLayout.RenderCopiesDirectory, $"{baseName}.clean.md"));
         string submittedRelativePath = render.SubmittedTextRelativePath ?? VoiceBenchProjectLayout.ToManifestPath(
             Path.Combine(VoiceBenchProjectLayout.RenderCopiesDirectory, $"{baseName}.submitted.md"));
+        string? authoringRelativePath = render.AuthoringSourceRelativePath;
+        string authoringHash = string.IsNullOrWhiteSpace(render.AuthoringSourceSha256)
+            ? render.SourceSha256
+            : render.AuthoringSourceSha256;
+        bool canBackfillAuthoring = string.Equals(
+            SourceTextHasher.Compute(canonicalText),
+            authoringHash,
+            StringComparison.OrdinalIgnoreCase);
+        if (!authoringExists && canBackfillAuthoring)
+        {
+            authoringRelativePath ??= VoiceBenchProjectLayout.ToManifestPath(
+                Path.Combine(VoiceBenchProjectLayout.RenderCopiesDirectory, $"{baseName}.authoring.md"));
+            await WriteBackfillAsync(
+                VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, authoringRelativePath),
+                canonicalText,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (!cleanExists)
         {
             await WriteBackfillAsync(
                 VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, cleanRelativePath),
-                canonicalText,
+                parsed.NarrationText,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -143,8 +171,31 @@ public sealed class AssemblySnapshotService(IProjectRepository repository)
         return (render with
         {
             CleanSourceRelativePath = cleanRelativePath,
+            AuthoringSourceRelativePath = authoringRelativePath,
+            AuthoringSourceSha256 = authoringHash,
             SubmittedTextRelativePath = submittedRelativePath,
         }, true);
+    }
+
+    private static async Task<bool> ValidateAuthoringSnapshotAsync(
+        string projectRoot,
+        SegmentDocument segment,
+        RenderRecord render,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(render.AuthoringSourceRelativePath)) return false;
+        string path = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, render.AuthoringSourceRelativePath);
+        if (!File.Exists(path)) return false;
+        string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        string expected = string.IsNullOrWhiteSpace(render.AuthoringSourceSha256)
+            ? render.SourceSha256
+            : render.AuthoringSourceSha256;
+        if (!string.Equals(SourceTextHasher.Compute(text), expected, StringComparison.OrdinalIgnoreCase))
+        {
+            throw RerenderRequired(segment, "its authoring snapshot does not match the recorded authoring hash");
+        }
+
+        return true;
     }
 
     private static async Task<bool> ValidateCleanSnapshotAsync(

@@ -25,7 +25,10 @@ public static class ExternalEditCoordinator
         string diskText)
     {
         string diskHash = SourceTextHasher.Compute(diskText);
-        if (string.Equals(diskHash, segment.SourceSha256, StringComparison.OrdinalIgnoreCase))
+        string recordedAuthoringHash = string.IsNullOrWhiteSpace(segment.AuthoringSha256)
+            ? segment.SourceSha256
+            : segment.AuthoringSha256;
+        if (string.Equals(diskHash, recordedAuthoringHash, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -35,7 +38,7 @@ public static class ExternalEditCoordinator
                 segment.SegmentId,
                 diskText,
                 editorText,
-                segment.SourceSha256,
+                recordedAuthoringHash,
                 diskHash)
             : null;
     }

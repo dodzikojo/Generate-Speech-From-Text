@@ -54,6 +54,44 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Studio_density_is_compact_and_cue_colors_survive_editor_visual_states()
+    {
+        string themePath = RepositoryPaths.App("Styles/VoiceBenchTheme.xaml");
+        XDocument theme = XDocument.Load(themePath);
+        string shell = File.ReadAllText(RepositoryPaths.App("MainWindow.xaml"));
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        string FontSizeFor(string styleKey)
+        {
+            XElement style = theme.Descendants().Single(element =>
+                element.Name.LocalName == "Style" &&
+                string.Equals((string?)element.Attribute(XamlNamespace + "Key"), styleKey, StringComparison.Ordinal));
+            return (string?)style.Elements().Single(element =>
+                element.Name.LocalName == "Setter" &&
+                string.Equals((string?)element.Attribute("Property"), "FontSize", StringComparison.Ordinal)).Attribute("Value")
+                ?? throw new InvalidOperationException($"{styleKey} has no FontSize setter.");
+        }
+
+        Assert.Equal("24", FontSizeFor("PageTitleTextStyle"));
+        Assert.Equal("14", FontSizeFor("StudioHeadingTextStyle"));
+        Assert.Equal("14", FontSizeFor("ReadingTextStyle"));
+        Assert.Equal("10", FontSizeFor("UtilityLabelTextStyle"));
+        Assert.Equal("13", FontSizeFor("SignalButtonStyle"));
+        Assert.Equal("13", FontSizeFor("QuietButtonStyle"));
+        Assert.Contains("FontSize=\"15\"", workbench, StringComparison.Ordinal);
+        Assert.DoesNotContain("FontSize=\"18\"", workbench, StringComparison.Ordinal);
+
+        Assert.Contains("PointerEntered=\"ScriptTextBox_PointerStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("PointerExited=\"ScriptTextBox_PointerStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("GotFocus=\"ScriptTextBox_FocusStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("LostFocus=\"ScriptTextBox_FocusStateChanged\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("private void ScriptTextBox_PointerStateChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("private void ScriptTextBox_FocusStateChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("IsPaneOpen=\"False\"", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Main_window_exposes_all_five_studio_sections()
     {
         var document = XDocument.Load(RepositoryPaths.App("MainWindow.xaml"));
@@ -105,6 +143,17 @@ public sealed class XamlContractTests
         Assert.Contains("SegmentStatus.PickupRequired", codeBehind, StringComparison.Ordinal);
         Assert.Contains("DirectorPanel.(Grid.Row)", source, StringComparison.Ordinal);
         Assert.Contains("CompactSegmentPicker", source, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WorkbenchHeaderActions\"", source, StringComparison.Ordinal);
+        Assert.Contains("IsDynamicOverflowEnabled=\"True\"", source, StringComparison.Ordinal);
+        Assert.Contains("Value=\"0.8*\"", source, StringComparison.Ordinal);
+        Assert.Contains("Value=\"0.7*\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Target=\"DirectorRow.Height\" Value=\"380\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Target=\"DirectorRow.Height\" Value=\"360\"", source, StringComparison.Ordinal);
+        Assert.Contains("ApplyWorkspacePanelLayout(width, height)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("GridUnitType.Star", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextChanged=\"DirectionTextBox_TextChanged\"", source, StringComparison.Ordinal);
+        Assert.Contains("_directionsDirty", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Directions = normalizedDirections", codeBehind, StringComparison.Ordinal);
 
         var triggerWidths = document.Descendants()
             .Where(element => element.Name.LocalName == "AdaptiveTrigger")
@@ -116,6 +165,153 @@ public sealed class XamlContractTests
         Assert.True(source.Split("AutomationProperties.Name=", StringSplitOptions.None).Length > 8,
             "Semantic Workbench regions and icon-only controls need explicit accessible names.");
         Assert.True(document.Descendants().Count(element => element.Name.LocalName == "KeyboardAccelerator") >= 4);
+    }
+
+    [Fact]
+    public void Workbench_authoring_editor_supports_plain_text_production_cues()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("<RichEditBox", xaml, StringComparison.Ordinal);
+        Assert.Contains("ClipboardCopyFormat=\"PlainText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Background=\"{ThemeResource BaseBrush}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Foreground=\"{ThemeResource ReadingTextBrush}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("InsertCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("InsertCustomCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChangeCueType_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChangeCustomCueType_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ConvertLineToCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("ConvertLineToCustomCue_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("RemoveCueMarker_Click", xaml, StringComparison.Ordinal);
+        Assert.Contains("Generate production cues", xaml, StringComparison.Ordinal);
+        Assert.Contains("Refine cues", xaml, StringComparison.Ordinal);
+        Assert.Contains("ProductionScriptParser", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyCueFormatting", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("text.Length == 0", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("exception is UnauthorizedAccessException or COMException", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormattingRetryCount", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextGetOptions.None", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextSetOptions.None", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("bool wasEnabled = ScriptTextBox.IsEnabled", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("bool wasReadOnly = ScriptTextBox.IsReadOnly", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = true", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = false", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = wasReadOnly", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = wasEnabled", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(currentText, _lastEditorText", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("DispatcherQueue.CreateTimer()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromMilliseconds(150)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.IsRepeating = false", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.Stop()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_cueFormatTimer.Start()", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("BackgroundColor =", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workbench_status_overlay_and_editor_text_size_do_not_disrupt_the_workspace()
+    {
+        string path = RepositoryPaths.App("Views/WorkbenchView.xaml");
+        string xaml = File.ReadAllText(path);
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        XDocument document = XDocument.Load(path);
+
+        XElement status = document.Descendants()
+            .Single(element => (string?)element.Attribute(XamlNamespace + "Name") == "WorkbenchInfoBar");
+        Assert.Equal("WorkbenchRoot", (string?)status.Parent?.Attribute(XamlNamespace + "Name"));
+        Assert.Equal("Top", (string?)status.Attribute("VerticalAlignment"));
+        Assert.Equal("20", (string?)status.Attribute("Canvas.ZIndex"));
+        Assert.Contains("WorkbenchInfoBar.Width = Math.Max", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Target=\"WorkbenchHeaderActions.(Grid.Row)\" Value=\"0\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Target=\"WorkbenchHeaderActions.(Grid.Column)\" Value=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Target=\"PanelVisibilityControls.(Grid.Column)\" Value=\"2\"", xaml, StringComparison.Ordinal);
+
+        Assert.Contains("x:Name=\"EditorFontSizeButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"EditorFontSizeSlider\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Minimum=\"12\" Maximum=\"24\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Workbench.EditorFontSize", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplicationData.Current.LocalSettings.Values[EditorFontSizeSetting]", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.FontSize = fontSize", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("QueueCueFormatting()", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workbench_editor_console_keeps_tools_compact_and_split_transaction_current()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("IsDynamicOverflowEnabled=\"True\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ClosedDisplayMode=\"Compact\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Label=\"Pronunciation\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Label=\"Split\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("x:Name=\"ScriptEditorActions\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<RichEditBox x:Name=\"ScriptTextBox\" Grid.Row=\"2\"", xaml, StringComparison.Ordinal);
+
+        Assert.Contains("_suppressProjectChangedReload", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Interlocked.Increment(ref _projectChangeVersion)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("version != _projectChangeVersion", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string originalSegmentId = _segment.SegmentId", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("chapter.SegmentOrder.IndexOf(originalSegmentId)", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workbench_director_tabs_and_script_footer_keep_their_labels_readable()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+
+        Assert.Contains("<TabViewItem.Header>", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Writing assistant\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Voice director\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Foreground=\"{ThemeResource ReadingTextBrush}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ScriptPathText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextTrimming=\"CharacterEllipsis\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MaxLines=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTipService.ToolTip=\"{Binding Text, ElementName=ScriptPathText}\"", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Writing_proposal_preview_uses_selectable_wrapped_text_panes()
+    {
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("CreateWritingReviewPane(\"Original\", original)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Text = ToMultilineDisplayText(text)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains(".Replace(\"\\n\", Environment.NewLine, StringComparison.Ordinal)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("IsTextSelectionEnabled = true", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("VerticalScrollBarVisibility = ScrollBarVisibility.Auto", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("CreateWritingDiffTextBox", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Writing_critique_is_actionable_and_long_reviews_are_responsive()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"WritingActivityPanel\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActivityRing\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActivityText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WritingActionButtons\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Revise from critique", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("WritingAction.ApplyCritique", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingCritiqueContent", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingComparison", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("new TabView", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("comparisonHost.SizeChanged", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyWritingComparisonLayout", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("EstimateWritingComparisonHeight", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("CreateWritingReviewTab(\"Proposal\", proposed, reviewHeight)", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("ActualHeight - 360", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("MaxWidth = 1120", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("Width = WritingReviewWidth()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("SetWritingActivity(", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ShowWritingConfirmation(", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Proposal rejected", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("FontSize = 14", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Nothing has changed yet", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -152,6 +348,8 @@ public sealed class XamlContractTests
         string workbenchCode = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
         Assert.Contains("Use as project voice", workbench, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateSelectedVoicePreset", workbenchCode, StringComparison.Ordinal);
+        Assert.Contains("ProjectVoiceSelectionRules.SetProjectVoice", workbenchCode, StringComparison.Ordinal);
+        Assert.Contains("ProjectVoiceSelectionRules.SetProjectVoice", File.ReadAllText(RepositoryPaths.App("Views/VoiceLabView.xaml.cs")), StringComparison.Ordinal);
         Assert.DoesNotContain("A/B audition required", workbench, StringComparison.Ordinal);
         Assert.DoesNotContain("has not completed the project A/B audition", workbenchCode, StringComparison.Ordinal);
 
@@ -183,6 +381,8 @@ public sealed class XamlContractTests
         Assert.Contains("PopulateProviderControls", workbench, StringComparison.Ordinal);
         Assert.Contains("ProviderComboBox_SelectionChanged", workbench, StringComparison.Ordinal);
         Assert.Contains("ModelComboBox_SelectionChanged", workbench, StringComparison.Ordinal);
+        Assert.Contains("VoiceComboBoxItemFactory.Create", voiceLab, StringComparison.Ordinal);
+        Assert.Contains("VoiceComboBoxItemFactory.Create", workbench, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -216,6 +416,35 @@ public sealed class XamlContractTests
     }
 
     [Fact]
+    public void Take_review_exposes_persisted_non_destructive_word_follow_controls()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string transport = File.ReadAllText(RepositoryPaths.App("Controls/AudioTransport.xaml.cs"));
+
+        Assert.Contains("x:Name=\"AlignmentStatusText\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"AlignmentProgressRing\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"AlignWordsButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FollowScriptToggle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("PanelToggleButtonStyle", xaml, StringComparison.Ordinal);
+        Assert.Contains("FollowScriptSetting", workbench, StringComparison.Ordinal);
+        Assert.Contains("ApplicationData.Current.LocalSettings.Values[FollowScriptSetting]", workbench, StringComparison.Ordinal);
+        Assert.Contains("WordFollowPlaybackRules.FindActiveWord", workbench, StringComparison.Ordinal);
+        Assert.Contains("word.AuthoringStart", workbench, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = true", workbench, StringComparison.Ordinal);
+        Assert.Contains("EndFollowSession", workbench, StringComparison.Ordinal);
+        Assert.Contains("_updatingPlaybackSelection", workbench, StringComparison.Ordinal);
+        int positionHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
+        int stateHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackStateChanged", StringComparison.Ordinal);
+        Assert.True(positionHandlerStart >= 0 && stateHandlerStart > positionHandlerStart);
+        Assert.DoesNotContain("QueueCueFormatting", workbench[positionHandlerStart..stateHandlerStart], StringComparison.Ordinal);
+        Assert.Contains("TimeSpan.FromMilliseconds(50)", transport, StringComparison.Ordinal);
+        Assert.Contains("PlaybackPositionChanged", transport, StringComparison.Ordinal);
+        Assert.Contains("PlaybackStateChanged", transport, StringComparison.Ordinal);
+        Assert.Contains("UpdatePositionUi(requested)", transport, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Chapter_rail_templates_bind_through_tree_view_node_content()
     {
         var workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
@@ -223,6 +452,83 @@ public sealed class XamlContractTests
         Assert.Contains("{Binding Content.Title}", workbench, StringComparison.Ordinal);
         Assert.Contains("{Binding Content.Metadata}", workbench, StringComparison.Ordinal);
         Assert.Contains("{Binding Content.StatusBrush}", workbench, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Duration_is_estimated_before_rendering_and_measured_after_a_current_take()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+        string assemblyXaml = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
+        string projects = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+
+        Assert.Contains("LoadEstimatesAsync", workbench, StringComparison.Ordinal);
+        Assert.Contains("NarrationDurationProjection.Resolve", workbench, StringComparison.Ordinal);
+        Assert.Contains("LATEST TAKE", workbench, StringComparison.Ordinal);
+        Assert.Contains("EST.", workbench, StringComparison.Ordinal);
+        Assert.Contains("NarrationDurationProjection.Summarize", assembly, StringComparison.Ordinal);
+        Assert.Contains("EXPECTED DURATION", assemblyXaml, StringComparison.Ordinal);
+        Assert.Contains("DurationBasisText", assemblyXaml, StringComparison.Ordinal);
+        Assert.Contains("expected", projects, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("renderedDuration", projects, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Projects_marshals_session_refreshes_to_the_ui_dispatcher()
+    {
+        string projects = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+
+        Assert.Contains("private void Session_ProjectChanged", projects, StringComparison.Ordinal);
+        Assert.Contains("DispatcherQueue.TryEnqueue(async () => await UpdateRecentProjectsAsync())", projects, StringComparison.Ordinal);
+        Assert.DoesNotContain("private async void Session_ProjectChanged", projects, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Workbench_separates_plain_text_undo_from_cue_formatting_and_durable_history()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string appServices = File.ReadAllText(RepositoryPaths.App("Services/AppServices.cs"));
+        string workspaceSession = File.ReadAllText(RepositoryPaths.App("Services/WorkspaceSession.cs"));
+
+        Assert.Contains("x:Name=\"UndoAuthoringButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RedoAuthoringButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"AuthoringHistoryButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("LabelPosition=\"Collapsed\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Key=\"Z\" Modifiers=\"Control\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Key=\"Y\" Modifiers=\"Control\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.Document.UndoLimit = 0", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_editorUndoHistory", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_editorRedoHistory", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("_pendingEditorUndo", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("UndoAccelerator_Invoked", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RedoAccelerator_Invoked", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyEditorSnapshot", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("string.Equals(currentText, _lastEditorText", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("ScriptTextBox.Document.CanUndo()", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("ScriptTextBox.Document.CanRedo()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.Document.ClearUndoRedoHistory()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.Document.SetDefaultCharacterFormat(defaultFormat)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ApplyDurableHistoryAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ShowAuthoringHistory_Click", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ExecuteAuthoringTransactionAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("AuthoringTransactions = new FileAuthoringTransactionManager()", appServices, StringComparison.Ordinal);
+        Assert.Contains("RecoverInterruptedAsync", workspaceSession, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Empty_authoring_state_blocks_the_editor_and_receives_focus()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"EmptyNewChapterButton\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Canvas.ZIndex=\"10\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("SetEditorAvailability", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptEditor.IsHitTestVisible = hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsEnabled = hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("ScriptTextBox.IsReadOnly = !hasSegment", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("EmptyNewChapterButton.Focus(FocusState.Programmatic)", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -424,6 +730,47 @@ public sealed class XamlContractTests
         Assert.DoesNotContain("GenerateAppxPackageOnBuild", propertyNames);
         Assert.DoesNotContain("Configuration", propertyNames);
         Assert.Contains("PublishDir", propertyNames);
+    }
+
+    [Fact]
+    public void Workbench_voice_selection_never_uses_a_control_type_name_as_a_voice()
+    {
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.DoesNotContain("VoiceComboBox.SelectedItem?.ToString()", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("GetSelectedContentOrNull(VoiceComboBox)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("new ComboBoxItem { Content = content, Tag = content }", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chapter_rail_stretches_across_the_editor_and_director_rows()
+    {
+        var document = XDocument.Load(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        XElement rail = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "Border" &&
+            string.Equals((string?)element.Attribute(XamlNamespace + "Name"), "TakeRailPanel", StringComparison.Ordinal));
+
+        Assert.Equal("2", (string?)rail.Attribute("Grid.RowSpan"));
+        Assert.Equal("Stretch", (string?)rail.Attribute("VerticalAlignment"));
+    }
+
+    [Fact]
+    public void Cue_formatting_retries_after_editor_load_and_status_messages_wrap()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("Loaded=\"ScriptTextBox_Loaded\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"WorkbenchInfoBarMessage\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("TextWrapping=\"Wrap\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("MaxCueFormattingRetries", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("QueueCueFormatting(resetFailures: false)", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("_cueFormattingUnavailable = true", codeBehind, StringComparison.Ordinal);
+
+        int followStart = codeBehind.IndexOf("private void BeginFollowSession", StringComparison.Ordinal);
+        int positionStart = codeBehind.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
+        Assert.True(followStart >= 0 && positionStart > followStart);
+        Assert.Contains("ScriptTextBox.Focus(FocusState.Programmatic)", codeBehind[followStart..positionStart], StringComparison.Ordinal);
     }
 
 }

@@ -19,15 +19,35 @@ public static class SegmentStateRules
     {
         ArgumentNullException.ThrowIfNull(segment);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceSha256);
+        return string.Equals(segment.SourceSha256, sourceSha256, StringComparison.OrdinalIgnoreCase)
+            ? segment
+            : WithSourceHashes(segment, sourceSha256, sourceSha256);
+    }
 
-        if (string.Equals(segment.SourceSha256, sourceSha256, StringComparison.OrdinalIgnoreCase))
+    public static SegmentDocument WithSourceHashes(
+        SegmentDocument segment,
+        string sourceSha256,
+        string authoringSha256)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceSha256);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authoringSha256);
+
+        bool narrationUnchanged = string.Equals(segment.SourceSha256, sourceSha256, StringComparison.OrdinalIgnoreCase);
+        bool authoringUnchanged = string.Equals(segment.AuthoringSha256, authoringSha256, StringComparison.OrdinalIgnoreCase);
+        if (narrationUnchanged && authoringUnchanged)
         {
             return segment;
         }
 
         if (string.IsNullOrEmpty(segment.SourceSha256))
         {
-            return segment with { SourceSha256 = sourceSha256 };
+            return segment with { SourceSha256 = sourceSha256, AuthoringSha256 = authoringSha256 };
+        }
+
+        if (narrationUnchanged)
+        {
+            return segment with { AuthoringSha256 = authoringSha256 };
         }
 
         var renders = segment.RenderHistory
@@ -46,6 +66,7 @@ public static class SegmentStateRules
         return segment with
         {
             SourceSha256 = sourceSha256,
+            AuthoringSha256 = authoringSha256,
             Status = renders.Count == 0 ? SegmentStatus.Draft : SegmentStatus.Stale,
             ApprovedRenderId = null,
             RenderHistory = renders,

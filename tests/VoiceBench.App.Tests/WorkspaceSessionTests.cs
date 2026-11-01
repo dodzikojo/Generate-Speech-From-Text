@@ -1,4 +1,5 @@
 using IssueLab.VoiceBench.App.Services;
+using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using Xunit;
 
@@ -27,6 +28,46 @@ public sealed class WorkspaceSessionTests
         Assert.False(activatedWorkbench);
         Assert.Equal(expectedRoot, restartedSession.RequireProjectRoot());
         Assert.Equal("Persisted narration", restartedSession.RequireProject().Name);
+    }
+
+    [Fact]
+    public async Task OpenAndRefreshAsync_recover_interrupted_authoring_before_loading()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository projects = new();
+        FileRecentProjectCatalog catalog = new(catalogPath: Path.Combine(directory.Root, "recent.json"));
+        VoiceBenchProjectDocument project = await projects.CreateAsync(Path.Combine(directory.Root, "project"), "Recovery");
+        RecordingTransactions transactions = new();
+        WorkspaceSession session = new(projects, catalog, transactions);
+
+        await session.OpenAsync(Path.Combine(directory.Root, "project"));
+        await session.RefreshAsync();
+
+        Assert.Equal(2, transactions.RecoveryCalls);
+        Assert.Equal(project.ProjectId, session.RequireProject().ProjectId);
+    }
+
+    private sealed class RecordingTransactions : IAuthoringTransactionManager
+    {
+        public int RecoveryCalls { get; private set; }
+
+        public Task<AuthoringTransactionState> GetStateAsync(string projectRoot, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AuthoringTransactionState(1, [], 0, false));
+
+        public Task ExecuteAsync(string projectRoot, string label, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default) =>
+            action(cancellationToken);
+
+        public Task<AuthoringTransactionRecord> UndoAsync(string projectRoot, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<AuthoringTransactionRecord> RedoAsync(string projectRoot, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> RecoverInterruptedAsync(string projectRoot, CancellationToken cancellationToken = default)
+        {
+            RecoveryCalls++;
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

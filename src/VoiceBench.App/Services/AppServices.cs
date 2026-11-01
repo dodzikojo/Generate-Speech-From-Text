@@ -34,6 +34,7 @@ public sealed class AppServices : IDisposable
     private readonly ProviderCredentialResolver _credentialResolver;
     private readonly SpeechProviderRegistry _providers;
     private readonly WritingProviderRegistry _writingProviders;
+    private readonly WordAlignmentProviderRegistry _wordAlignmentProviders;
     private readonly IWritingAssistantService _writingAssistant;
     private readonly ProcessRunner _processRunner = new();
     private readonly FfmpegToolchainManager _toolchainManager;
@@ -43,7 +44,8 @@ public sealed class AppServices : IDisposable
     {
         Projects = new FileProjectRepository();
         RecentProjects = new FileRecentProjectCatalog();
-        Session = new WorkspaceSession(Projects, RecentProjects);
+        AuthoringTransactions = new FileAuthoringTransactionManager();
+        Session = new WorkspaceSession(Projects, RecentProjects, AuthoringTransactions);
         _credentialResolver = new ProviderCredentialResolver(_credentialStore);
         _providers = new SpeechProviderRegistry(
         [
@@ -55,16 +57,25 @@ public sealed class AppServices : IDisposable
             new OpenAiWritingProvider(_httpClient),
             new GeminiWritingProvider(_httpClient),
         ]);
+        _wordAlignmentProviders = new WordAlignmentProviderRegistry(
+        [
+            new OpenAiWordAlignmentProvider(_httpClient),
+            new GeminiWordAlignmentProvider(_httpClient),
+        ]);
+        WordAlignments = new FileWordAlignmentService(Projects, _wordAlignmentProviders, _credentialResolver);
         _writingAssistant = new WritingAssistantService(_writingProviders, _credentialResolver);
         ChapterAuthoring = new ChapterAuthoringService(Projects);
         ScriptImporter = new ProjectImportService(Projects);
         WritingContexts = new WritingContextLoader(Projects);
+        ProductionExports = new ProductionExportService(Projects);
         _toolchainManager = new FfmpegToolchainManager(_httpClient);
     }
 
     public FileProjectRepository Projects { get; }
 
     public FileRecentProjectCatalog RecentProjects { get; }
+
+    public IAuthoringTransactionManager AuthoringTransactions { get; }
 
     public WorkspaceSession Session { get; }
 
@@ -73,6 +84,10 @@ public sealed class AppServices : IDisposable
     public ProjectImportService ScriptImporter { get; }
 
     public WritingContextLoader WritingContexts { get; }
+
+    public IProductionExportService ProductionExports { get; }
+
+    public IWordAlignmentService WordAlignments { get; }
 
     public IReadOnlyCollection<ISpeechProvider> SpeechProviders => _providers.Providers;
 
@@ -106,11 +121,40 @@ public sealed class AppServices : IDisposable
             _providers,
             _credentialResolver,
             queue,
-            new ImmutableRenderStore());
+            new ImmutableRenderStore(),
+            wordAlignment: WordAlignments);
         SegmentRenderResult result = await service.RenderAsync(root, segmentId, cancellationToken);
         await Session.RefreshAsync(cancellationToken);
         return result;
     }
+
+    public async Task<WordAlignmentRecord> AlignTakeAsync(
+        string segmentId,
+        Guid renderId,
+        CancellationToken cancellationToken = default)
+    {
+        WordAlignmentRecord result = await WordAlignments.AlignAsync(
+            Session.RequireProjectRoot(),
+            segmentId,
+            renderId,
+            cancellationToken);
+        await Session.RefreshAsync(cancellationToken);
+        return result;
+    }
+
+    public async Task<int> RecoverWordAlignmentsAsync(CancellationToken cancellationToken = default)
+    {
+        int recovered = await WordAlignments.RecoverInterruptedAsync(
+            Session.RequireProjectRoot(),
+            cancellationToken);
+        if (recovered > 0) await Session.RefreshAsync(cancellationToken);
+        return recovered;
+    }
+
+    public Task<WordAlignmentDocument> LoadWordAlignmentAsync(
+        WordAlignmentRecord record,
+        CancellationToken cancellationToken = default) =>
+        FileWordAlignmentService.LoadDocumentAsync(Session.RequireProjectRoot(), record, cancellationToken);
 
     public async Task<RenderRecord> ProcessAndApproveLatestAsync(
         string segmentId,
@@ -158,6 +202,15 @@ public sealed class AppServices : IDisposable
         FfmpegMasteringService mastering = new(Projects, _processRunner, toolchain);
         return await mastering.BuildAsync(new MasteringRequest(root, name, scope, chapterId), cancellationToken);
     }
+
+    public Task<ProductionExportResult> ExportProductionPackAsync(
+        string name,
+        MasterScope scope = MasterScope.Compilation,
+        string? chapterId = null,
+        CancellationToken cancellationToken = default) =>
+        ProductionExports.ExportAsync(
+            new ProductionExportRequest(Session.RequireProjectRoot(), name, scope, chapterId),
+            cancellationToken);
 
     public async Task<ToolchainPaths> EnsureFfmpegAsync(CancellationToken cancellationToken = default)
     {

@@ -44,6 +44,35 @@ public sealed class ProjectImportServiceTests
     }
 
     [Fact]
+    public async Task ImportAsync_PersistsEveryHeadingBodyAndProductionCue()
+    {
+        using TemporaryDirectory directory = new();
+        string projectRoot = Path.Combine(directory.Root, "project");
+        string sourcePath = Path.Combine(directory.Root, "two-sections.md");
+        await File.WriteAllTextAsync(
+            sourcePath,
+            "## First section\n\n@visual: Show the opening.\n\nFirst narration.\n\n## Second section\n\n@action: Select Continue.\n\nSecond narration.");
+        FileProjectRepository repository = new();
+        await repository.CreateAsync(projectRoot, "Lesson");
+        Queue<string> ids = new(["segment-one", "segment-two"]);
+        ProjectImportService importer = new(
+            repository,
+            stableIdFactory: ids.Dequeue,
+            chapterIdFactory: () => "chapter-one");
+
+        VoiceBenchProjectDocument result = await importer.ImportAsync(projectRoot, sourcePath);
+
+        Assert.Equal(2, result.Segments.Count);
+        Assert.Equal(["segment-one", "segment-two"], Assert.Single(result.Chapters).SegmentOrder);
+        Assert.Equal(
+            "@visual: Show the opening.\n\nFirst narration.",
+            await ReadSegmentAsync(projectRoot, result.Segments[0]));
+        Assert.Equal(
+            "@action: Select Continue.\n\nSecond narration.",
+            await ReadSegmentAsync(projectRoot, result.Segments[1]));
+    }
+
+    [Fact]
     public async Task ImportAsync_RejectsUnsupportedFileTypes()
     {
         using TemporaryDirectory directory = new();
@@ -82,4 +111,7 @@ public sealed class ProjectImportServiceTests
         Assert.Equal("chapter-one", project.Segments[0].ChapterId);
         Assert.Equal("chapter-two", project.Segments[1].ChapterId);
     }
+
+    private static Task<string> ReadSegmentAsync(string projectRoot, SegmentDocument segment) =>
+        File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, segment.ScriptRelativePath));
 }

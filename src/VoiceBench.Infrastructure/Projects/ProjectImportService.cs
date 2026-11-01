@@ -71,6 +71,8 @@ public sealed class ProjectImportService(
                     string fullPath = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, relativePath);
                     await File.WriteAllTextAsync(fullPath, item.Content, cancellationToken).ConfigureAwait(false);
 
+                    ParsedScriptDocument parsed = new ProductionScriptParser().Parse(item.Content);
+
                     segments.Add(new SegmentDocument
                     {
                         SegmentId = segmentId,
@@ -78,7 +80,8 @@ public sealed class ProjectImportService(
                         Title = item.Title,
                         ScriptRelativePath = relativePath,
                         Status = SegmentStatus.Draft,
-                        SourceSha256 = SourceTextHasher.Compute(item.Content),
+                        SourceSha256 = SourceTextHasher.Compute(parsed.NarrationText),
+                        AuthoringSha256 = SourceTextHasher.Compute(item.Content),
                     });
                     segmentOrder.Add(segmentId);
                 }

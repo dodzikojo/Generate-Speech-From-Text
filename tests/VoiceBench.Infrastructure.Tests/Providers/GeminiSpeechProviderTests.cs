@@ -16,6 +16,9 @@ public sealed class GeminiSpeechProviderTests
         Assert.All(provider.Descriptor.Models, model => Assert.Equal(30, model.Voices.Count));
         Assert.All(provider.Descriptor.Models, model => Assert.Contains("Zephyr", model.Voices));
         Assert.All(provider.Descriptor.Models, model => Assert.Contains("Zubenelgenubi", model.Voices));
+        Assert.All(provider.Descriptor.Models, model => Assert.All(model.VoiceDescriptors, voice => Assert.Single(voice.Tags)));
+        Assert.All(provider.Descriptor.Models, model => Assert.Contains("Firm", model.VoiceDescriptors.Single(voice => voice.VoiceId == "Kore").Tags));
+        Assert.All(provider.Descriptor.Models, model => Assert.Contains("Knowledgeable", model.VoiceDescriptors.Single(voice => voice.VoiceId == "Sadaltager").Tags));
     }
 
     [Fact]

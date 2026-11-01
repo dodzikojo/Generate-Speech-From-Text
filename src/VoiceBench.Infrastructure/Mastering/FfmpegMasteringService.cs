@@ -17,6 +17,7 @@ public sealed class FfmpegMasteringService(
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly AssemblySnapshotService _snapshots = new(repository);
+    private readonly ProductionExportService _productionExports = new(repository, timeProvider);
 
     public async Task<MasteringResult> BuildAsync(
         MasteringRequest request,
@@ -154,6 +155,9 @@ public sealed class FfmpegMasteringService(
             projectRoot,
             stem,
             report,
+            cancellationToken).ConfigureAwait(false);
+        await _productionExports.ExportAsync(
+            new ProductionExportRequest(projectRoot, stem, request.Scope, request.ChapterId),
             cancellationToken).ConfigureAwait(false);
 
         Directory.Delete(workRoot, recursive: true);

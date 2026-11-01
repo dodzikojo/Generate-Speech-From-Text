@@ -51,4 +51,29 @@ public sealed class LexiconSubstitutionTests
         Assert.Equal("Use CDE.", canonical);
         Assert.Equal("Use C D E.", submitted);
     }
+
+    [Fact]
+    public void Prepare_maps_one_canonical_word_to_each_spoken_substitution_word()
+    {
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse("Use AEC coordination.");
+        PronunciationEntry[] lexicon = [new() { Written = "AEC", Spoken = "A E C", MatchCase = true }];
+
+        PreparedSpeechText prepared = LexiconSubstitution.Prepare(parsed, lexicon);
+
+        Assert.Equal("Use A E C coordination.", prepared.Text);
+        int aecOrdinal = parsed.NarrationWords.Single(word => word.Text == "AEC").Ordinal;
+        Assert.All(prepared.Words.Where(word => word.Text is "A" or "E" or "C"), word =>
+            Assert.Equal([aecOrdinal], word.NarrationWordOrdinals));
+    }
+
+    [Fact]
+    public void Prepare_preserves_identity_mappings_without_a_lexicon()
+    {
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse("First and second.");
+
+        PreparedSpeechText prepared = LexiconSubstitution.Prepare(parsed, []);
+
+        Assert.Equal(parsed.NarrationText, prepared.Text);
+        Assert.Equal([0, 1, 2], prepared.Words.SelectMany(word => word.NarrationWordOrdinals));
+    }
 }

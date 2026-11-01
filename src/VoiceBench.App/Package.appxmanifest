@@ -7,7 +7,7 @@
 
   <Identity Name="IssueLab.VoiceBench"
             Publisher="CN=IssueLab"
-            Version="1.0.0.0" />
+            Version="1.0.0.1" />
 
   <Properties>
     <DisplayName>VoiceBench</DisplayName>

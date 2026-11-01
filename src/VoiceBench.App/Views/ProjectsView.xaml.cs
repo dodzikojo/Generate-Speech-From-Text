@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.App.Layout;
 using IssueLab.VoiceBench.Infrastructure.Projects;
+using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
@@ -35,8 +36,15 @@ public sealed partial class ProjectsView : UserControl
     private async void ProjectsView_Loaded(object sender, RoutedEventArgs e) =>
         await UpdateRecentProjectsAsync();
 
-    private async void Session_ProjectChanged(object? sender, EventArgs e) =>
-        await UpdateRecentProjectsAsync();
+    private void Session_ProjectChanged(object? sender, EventArgs e)
+    {
+        bool queued = DispatcherQueue.TryEnqueue(async () => await UpdateRecentProjectsAsync());
+        if (!queued)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                "The Projects view dispatcher was shutting down before the recent-project list could refresh.");
+        }
+    }
 
     private async void NewProject_Click(object sender, RoutedEventArgs e)
     {
@@ -192,10 +200,9 @@ public sealed partial class ProjectsView : UserControl
                 App.Services.Session.ProjectRoot,
                 entry.ProjectRoot,
                 StringComparison.OrdinalIgnoreCase);
-            TimeSpan renderedDuration = project is null
-                ? TimeSpan.Zero
-                : TimeSpan.FromTicks(project.Segments.Sum(segment =>
-                    segment.RenderHistory.OrderByDescending(render => render.TakeNumber).FirstOrDefault()?.Duration.Ticks ?? 0));
+            DurationProjectionSummary expectedTiming = project is null
+                ? new DurationProjectionSummary(TimeSpan.Zero, 0, 0)
+                : await ProjectDurationAsync(entry.ProjectRoot, project);
             string lastOpened = entry.LastOpenedAt.ToLocalTime().ToString(
                 "g",
                 System.Globalization.CultureInfo.CurrentCulture);
@@ -203,7 +210,8 @@ public sealed partial class ProjectsView : UserControl
                 ? $"Folder moved, deleted, or unreadable · last opened {lastOpened}"
                 : $"{project.Segments.Count} segments · " +
                   $"{project.Segments.Count(segment => segment.Status == SegmentStatus.Approved)} approved · " +
-                  $"{(int)renderedDuration.TotalMinutes:00}:{renderedDuration.Seconds:00} rendered · " +
+                  $"{(int)expectedTiming.Duration.TotalMinutes:00}:{expectedTiming.Duration.Seconds:00} expected " +
+                  $"({expectedTiming.MeasuredCount} measured, {expectedTiming.EstimatedCount} estimated) · " +
                   $"opened {lastOpened}";
 
             items.Add(new RecentProjectListItem(
@@ -232,6 +240,51 @@ public sealed partial class ProjectsView : UserControl
         RecentProjectCountText.Text = $"{items.Count} SAVED";
         RecentProjectsEmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentProjectsList.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static async Task<DurationProjectionSummary> ProjectDurationAsync(
+        string projectRoot,
+        VoiceBenchProjectDocument project)
+    {
+        IReadOnlyDictionary<string, TimeSpan> estimates = await NarrationDurationProjection.LoadEstimatesAsync(
+            projectRoot,
+            project.Segments);
+        Dictionary<string, ChapterDocument> chapters = project.Chapters.ToDictionary(item => item.ChapterId, StringComparer.Ordinal);
+        Dictionary<string, SegmentDocument> segments = project.Segments.ToDictionary(item => item.SegmentId, StringComparer.Ordinal);
+        TimeSpan duration = TimeSpan.Zero;
+        int measured = 0;
+        int estimated = 0;
+        int includedChapters = 0;
+        foreach (string chapterId in project.ChapterOrder)
+        {
+            if (!chapters.TryGetValue(chapterId, out ChapterDocument? chapter) ||
+                chapter.Status == ChapterStatus.Archived ||
+                !chapter.IncludedInCompilation)
+            {
+                continue;
+            }
+
+            List<SegmentDocument> ordered = chapter.SegmentOrder
+                .Where(segments.ContainsKey)
+                .Select(id => segments[id])
+                .ToList();
+            DurationProjectionSummary chapterTiming = NarrationDurationProjection.Summarize(
+                ordered,
+                estimates,
+                project.AudioStandard.PauseMilliseconds);
+            duration += chapterTiming.Duration;
+            measured += chapterTiming.MeasuredCount;
+            estimated += chapterTiming.EstimatedCount;
+            includedChapters++;
+        }
+
+        if (includedChapters > 1)
+        {
+            duration += TimeSpan.FromMilliseconds(
+                project.AudioStandard.ChapterPauseMilliseconds * (includedChapters - 1));
+        }
+
+        return new DurationProjectionSummary(duration, measured, estimated);
     }
 
     private void ShowStatus(InfoBarSeverity severity, string title, string message)
