@@ -100,7 +100,8 @@ without further authorization. Shared checkout edits must have disjoint ownershi
 
 Six review slices target codex/audio-timeline: foundation #8, narration integrity #9,
 engine/export #10, automation #11, desktop #12, and release validation #13. The final
-integration PR targets master after those merges. The reordered source tree was
+integration [PR #14](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/14)
+is open against master after all six merges. The reordered source tree was
 verified byte-for-byte against the installed/tested source before the review-ledger
 update. Master stays unchanged until integration review. Runtime fixtures and installers
 remain local under artifacts/ and are excluded from implementation PRs.
