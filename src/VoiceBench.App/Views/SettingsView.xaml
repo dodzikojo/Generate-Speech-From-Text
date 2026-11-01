@@ -16,6 +16,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <StackPanel Spacing="6">
@@ -123,7 +124,16 @@
                 </StackPanel>
             </Border>
 
-            <InfoBar x:Name="SettingsInfoBar" Grid.Row="5" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
+            <Border Grid.Row="5" Margin="0,16,0,0" Style="{StaticResource StudioPanelStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="AUDIO MONITOR" Style="{StaticResource StudioHeadingTextStyle}"/>
+                    <TextBlock Text="Mixes, takes and auditions share one output. Solo and monitor volume affect listening only." TextWrapping="Wrap"/>
+                    <ComboBox x:Name="AudioOutputPicker" Header="Output device" DisplayMemberPath="Name" HorizontalAlignment="Stretch" AutomationProperties.Name="Audio output device"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Refresh devices" Click="AudioDevices_Click"/><Button Content="Use selected output" Click="AudioDeviceApply_Click"/></StackPanel>
+                    <Slider x:Name="MonitorVolume" Header="Monitor volume" Minimum="0" Maximum="1" Value="1" ValueChanged="MonitorVolume_Changed" AutomationProperties.Name="Monitor volume"/>
+                </StackPanel>
+            </Border>
+            <InfoBar x:Name="SettingsInfoBar" Grid.Row="6" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
 
             <VisualStateManager.VisualStateGroups>
                 <VisualStateGroup x:Name="SettingsWidthStates">

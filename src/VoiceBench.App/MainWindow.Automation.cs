@@ -15,6 +15,9 @@ public sealed partial class MainWindow
         await WorkbenchSurface.WaitForProjectRefreshAsync(cancellationToken);
         string Required(string name) => arguments.GetProperty(name).GetString() ?? throw new AutomationException("invalid_arguments", $"Supply '{name}'.");
         string? Optional(string name) => arguments.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        if (command == "mix.export.execute") await WorkbenchSurface.EnsureAutomationSavedAsync();
+        if (command.StartsWith("mix.playback.",StringComparison.Ordinal) || command is "assets.import.execute" or "assets.prepare.execute" or "assets.peaks" or "assets.waveform" or "assets.relink.execute" or "mix.export.execute")
+            return await App.Services.ExecuteAudioAutomationAsync(command,arguments,cancellationToken);
         switch (command)
         {
             case "project.prepare":
@@ -41,8 +44,8 @@ public sealed partial class MainWindow
             case "navigation.show":
                 string page = Required("page").ToLowerInvariant();
                 if (page == "voicelab") page = "voice-lab";
-                if (page is not ("projects" or "workbench" or "voice-lab" or "assembly" or "settings"))
-                    throw new AutomationException("invalid_arguments", "Page must be projects, workbench, voice-lab, assembly or settings.");
+                if (page is not ("projects" or "workbench" or "voice-lab" or "audio" or "assembly" or "settings"))
+                    throw new AutomationException("invalid_arguments", "Page must be projects, workbench, voice-lab, audio, assembly or settings.");
                 NavigateTo(page);
                 return new { page };
             case "providers.list":
@@ -92,6 +95,18 @@ public sealed partial class MainWindow
                 return processed;
             case "alignment.start":
                 await WorkbenchSurface.EnsureAutomationSavedAsync();
+                var alignmentTake = App.Services.Session.RequireProject().Segments.Single(item => item.SegmentId == Required("segmentId"))
+                    .RenderHistory.Single(item => item.RenderId == Guid.Parse(Required("renderId")));
+                if (alignmentTake.Origin == RenderOrigin.Imported)
+                {
+                    if (Optional("providerId") is not string alignmentProvider || Optional("modelId") is not string alignmentModel)
+                        throw new AutomationException("invalid_arguments","Choose an explicit providerId and modelId for imported recording alignment.");
+                    var importedAlignment = await WorkbenchSurface.RunAutomationOperationAsync("Align imported recording",token =>
+                        ((IssueLab.VoiceBench.Infrastructure.Rendering.FileWordAlignmentService)App.Services.WordAlignments)
+                        .AlignImportedAsync(App.Services.Session.RequireProjectRoot(),Required("segmentId"),Guid.Parse(Required("renderId")),alignmentProvider,alignmentModel,token),cancellationToken);
+                    await App.Services.Session.RefreshAsync(cancellationToken);
+                    return importedAlignment;
+                }
                 return await WorkbenchSurface.RunAutomationOperationAsync("Align words", token =>
                     App.Services.AlignTakeAsync(Required("segmentId"), Guid.Parse(Required("renderId")), token), cancellationToken);
             case "master.start":

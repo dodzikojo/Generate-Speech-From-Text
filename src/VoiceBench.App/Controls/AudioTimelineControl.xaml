@@ -1,0 +1,102 @@
+<UserControl
+    x:Class="IssueLab.VoiceBench.App.Controls.AudioTimelineControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="False">
+    <Grid x:Name="TimelineRoot" Background="{ThemeResource PanelBrush}" KeyDown="Timeline_KeyDown" RowSpacing="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="28"/>
+        </Grid.RowDefinitions>
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <ComboBox x:Name="ScopePicker" HorizontalAlignment="Stretch" SelectionChanged="ScopePicker_SelectionChanged"
+                      AutomationProperties.Name="Audio arrangement chapter or compilation"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <ToggleButton x:Name="LibraryToggle" Content="Library" IsChecked="True" Click="Panels_Click" AutomationProperties.Name="Show audio library"/>
+                <ToggleButton x:Name="InspectorToggle" Content="Inspector" IsChecked="True" Click="Panels_Click" AutomationProperties.Name="Show clip inspector"/>
+                <ToggleButton x:Name="CollapseToggle" Content="⌄" Click="Collapse_Click" AutomationProperties.Name="Collapse timeline dock" Visibility="Collapsed"/>
+            </StackPanel>
+        </Grid>
+        <Grid x:Name="ArrangementBody" Grid.Row="1" ColumnSpacing="8" MinHeight="110">
+            <Grid.ColumnDefinitions><ColumnDefinition x:Name="LibraryColumn" Width="185"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="InspectorColumn" Width="220"/></Grid.ColumnDefinitions>
+            <Border x:Name="LibraryPanel" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,1,0" Padding="0,4,8,0">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <TextBlock Text="AUDIO LIBRARY" Style="{StaticResource UtilityLabelTextStyle}"/>
+                    <Button Grid.Row="1" Content="＋ Import audio…" Click="Import_Click" HorizontalAlignment="Stretch"/>
+                    <ListView x:Name="AssetsList" Grid.Row="2" SelectionMode="Single" DisplayMemberPath="Name" AutomationProperties.Name="Immutable audio assets"/>
+                    <Button Grid.Row="3" Content="Place on selected track" Click="PlaceAsset_Click"/>
+                </Grid>
+            </Border>
+            <Grid Grid.Column="1" RowSpacing="4">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <CommandBar x:Name="TimelineTools" Padding="0" Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="True" ClosedDisplayMode="Compact" AutomationProperties.Name="Timeline editing tools">
+                    <AppBarButton Label="Undo" Icon="Undo" Click="Undo_Click"/>
+                    <AppBarButton Label="Redo" Icon="Redo" Click="Redo_Click"/>
+                    <AppBarButton Label="Track" Icon="Add">
+                        <AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem Text="Narration" Tag="Narration" Click="AddTrack_Click"/><MenuFlyoutItem Text="Music" Tag="Music" Click="AddTrack_Click"/><MenuFlyoutItem Text="Effects" Tag="Effects" Click="AddTrack_Click"/></MenuFlyout></AppBarButton.Flyout>
+                    </AppBarButton>
+                    <AppBarButton Label="Split" Icon="Trim" Click="Split_Click"/>
+                    <AppBarButton Label="Duplicate" Icon="Copy" Click="Duplicate_Click"/>
+                    <AppBarButton Label="Lift" Icon="Delete" Click="Lift_Click"/>
+                    <CommandBar.SecondaryCommands>
+                        <AppBarButton Label="Close gap at playhead" Click="CloseGap_Click"/>
+                        <AppBarButton Label="Place marker at playhead" Click="Marker_Click"/>
+                        <AppBarButton Label="Markers and cue anchors…" Click="Markers_Click"/>
+                        <AppBarButton Label="Unplaced or omitted narration…" Click="PendingSegments_Click"/>
+                        <AppBarButton Label="Review replacement takes…" Click="Replacements_Click"/>
+                        <AppBarButton Label="Automatic placeholder layout" Click="AutoLayout_Click"/>
+                        <AppBarButton Label="Set end marker at playhead" Click="EndMarker_Click"/>
+                        <AppBarButton Label="Select all clips" Click="SelectAll_Click"/>
+                        <AppBarButton Label="Export mix…" Click="Export_Click"/>
+                    </CommandBar.SecondaryCommands>
+                </CommandBar>
+                <Slider x:Name="Ruler" Grid.Row="1" Minimum="0" Maximum="40" ValueChanged="Ruler_ValueChanged" AutomationProperties.Name="Timeline playhead seconds"/>
+                <ListView x:Name="TrackRows" Grid.Row="2" SelectionMode="None" IsItemClickEnabled="False" Padding="0" AutomationProperties.Name="Audio tracks and clips">
+                    <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel/></ItemsPanelTemplate></ListView.ItemsPanel>
+                    <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListView.ItemContainerStyle>
+                </ListView>
+                <Grid Grid.Row="3" ColumnSpacing="6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                    <ToggleButton x:Name="SnapToggle" Content="Snap" IsChecked="True" Click="Snap_Click" AutomationProperties.Name="Snap to grid, clip edges and markers"/>
+                    <Slider x:Name="ScrollTime" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="Viewport_Changed" AutomationProperties.Name="Timeline visible start seconds"/>
+                    <Slider x:Name="Zoom" Grid.Column="2" Minimum="2" Maximum="120" Value="40" ValueChanged="Zoom_Changed" AutomationProperties.Name="Visible timeline duration seconds"/>
+                </Grid>
+            </Grid>
+            <Border x:Name="InspectorPanel" Grid.Column="2" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1,0,0,0" Padding="10,4,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="CLIP INSPECTOR" Style="{StaticResource UtilityLabelTextStyle}"/>
+                        <TextBlock x:Name="SelectionLabel" Text="Select a clip" TextWrapping="Wrap"/>
+                        <TextBox x:Name="ClipName" Header="Name"/>
+                        <ComboBox x:Name="ClipTrack" Header="Track" DisplayMemberPath="Name" HorizontalAlignment="Stretch"/>
+                        <NumberBox x:Name="ClipStart" Header="Timeline start · seconds" Minimum="0" SmallChange="0.1" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipSourceStart" Header="Source in · seconds" Minimum="0" SmallChange="0.01" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipDuration" Header="Duration · seconds" Minimum="0.000020833333" SmallChange="0.1" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipGain" Header="Gain · dB" Minimum="-96" Maximum="24" SmallChange="1" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipPan" Header="Mono pan / stereo balance" Minimum="-1" Maximum="1" SmallChange="0.1" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipFadeIn" Header="Fade in · seconds" Minimum="0" SmallChange="0.05" SpinButtonPlacementMode="Compact"/>
+                        <NumberBox x:Name="ClipFadeOut" Header="Fade out · seconds" Minimum="0" SmallChange="0.05" SpinButtonPlacementMode="Compact"/>
+                        <CheckBox x:Name="ClipLoop" Content="Repeat at original speed"/>
+                        <CheckBox x:Name="ClipMuted" Content="Mute clip"/>
+                        <ComboBox x:Name="ClipAnchorKind" Header="Overlay anchor" SelectedIndex="0" HorizontalAlignment="Stretch"><ComboBoxItem Content="Project time" Tag="ProjectTime"/><ComboBoxItem Content="Chapter start" Tag="ChapterStart"/></ComboBox>
+                        <ComboBox x:Name="ClipAnchorChapter" Header="Anchor chapter" DisplayMemberPath="Title" HorizontalAlignment="Stretch"/>
+                        <NumberBox x:Name="ClipAnchorOffset" Header="Anchor offset · seconds" SmallChange="0.1" SpinButtonPlacementMode="Compact"/>
+                        <TextBox x:Name="EnvelopeText" Header="Volume envelope · seconds:dB" PlaceholderText="0:0, 2:-6, 4:0" TextWrapping="Wrap" AcceptsReturn="True"/>
+                        <Button Content="Apply clip changes" Click="ApplyInspector_Click" HorizontalAlignment="Stretch"/>
+                        <TextBlock Text="Spoken cuts require reliable aligned boundaries." TextWrapping="Wrap" Style="{StaticResource UtilityLabelTextStyle}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+        <Grid Grid.Row="2" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Button x:Name="MixPlayButton" Content="▶ Play" Click="Play_Click" AutomationProperties.Name="Play or pause shared audio transport"/>
+            <Button Grid.Column="1" Content="■" Click="Stop_Click" AutomationProperties.Name="Stop audio"/>
+            <ComboBox x:Name="PlaybackTargetPicker" Grid.Column="2" SelectedIndex="0" AutomationProperties.Name="Playback target"><ComboBoxItem Content="Mix"/><ComboBoxItem Content="Selected take"/></ComboBox>
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><TextBlock x:Name="PositionText" Text="00:00.000" Style="{StaticResource UtilityLabelTextStyle}"/><ToggleButton x:Name="LoopToggle" Content="Loop" Click="Loop_Click"/></StackPanel>
+            <StackPanel Grid.Column="4" Width="52" VerticalAlignment="Center" Spacing="3" AutomationProperties.Name="Stereo monitor meters"><ProgressBar x:Name="LeftMeter" Minimum="0" Maximum="1"/><ProgressBar x:Name="RightMeter" Minimum="0" Maximum="1"/></StackPanel>
+        </Grid>
+        <TextBlock x:Name="TimelineNotice" Grid.Row="3" Text="Open a project to mix audio" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Style="{StaticResource UtilityLabelTextStyle}" AutomationProperties.LiveSetting="Polite"/>
+    </Grid>
+</UserControl>

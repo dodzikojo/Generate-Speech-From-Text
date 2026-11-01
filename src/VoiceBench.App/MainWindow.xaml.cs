@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
             "projects" => ProjectsNavigationItem,
             "workbench" => WorkbenchNavigationItem,
             "voice-lab" => VoiceLabNavigationItem,
+            "audio" => AudioNavigationItem,
             "assembly" => AssemblyNavigationItem,
             "settings" => SettingsNavigationItem,
             _ => ShellNavigation.SelectedItem,
@@ -64,6 +65,7 @@ public sealed partial class MainWindow : Window
         ProjectsSurface.Visibility = destination == "projects" ? Visibility.Visible : Visibility.Collapsed;
         WorkbenchSurface.Visibility = destination == "workbench" ? Visibility.Visible : Visibility.Collapsed;
         VoiceLabSurface.Visibility = destination == "voice-lab" ? Visibility.Visible : Visibility.Collapsed;
+        AudioSurface.Visibility = destination == "audio" ? Visibility.Visible : Visibility.Collapsed;
         AssemblySurface.Visibility = destination == "assembly" ? Visibility.Visible : Visibility.Collapsed;
         SettingsSurface.Visibility = destination == "settings" ? Visibility.Visible : Visibility.Collapsed;
     }

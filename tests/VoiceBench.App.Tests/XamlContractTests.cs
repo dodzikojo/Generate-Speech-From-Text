@@ -248,7 +248,8 @@ public sealed class XamlContractTests
         Assert.Contains("Label=\"Pronunciation\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Label=\"Split\"", xaml, StringComparison.Ordinal);
         Assert.DoesNotContain("x:Name=\"ScriptEditorActions\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("<RichEditBox x:Name=\"ScriptTextBox\" Grid.Row=\"2\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<RichEditBox x:Name=\"ScriptTextBox\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PlaybackScriptSurface\"", xaml, StringComparison.Ordinal);
 
         Assert.Contains("_suppressProjectChangedReload", codeBehind, StringComparison.Ordinal);
         Assert.Contains("Interlocked.Increment(ref _projectChangeVersion)", codeBehind, StringComparison.Ordinal);
@@ -402,10 +403,11 @@ public sealed class XamlContractTests
         Assert.Contains("DurationText", transportSource, StringComparison.Ordinal);
         Assert.True(transportSource.Split("AutomationProperties.Name=", StringSplitOptions.None).Length >= 4,
             "Playback controls need explicit accessible names.");
-        Assert.Contains("MediaPlayer", transportCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("MediaPlayer", transportCode, StringComparison.Ordinal);
+        Assert.Contains("App.Services.AudioPlayback", transportCode, StringComparison.Ordinal);
         Assert.Contains("DispatcherTimer", transportCode, StringComparison.Ordinal);
         Assert.Contains("LoadAudio", transportCode, StringComparison.Ordinal);
-        Assert.Contains("DisposePlayer", transportCode, StringComparison.Ordinal);
+        Assert.Contains("LoadPlaybackFileAsync", transportCode, StringComparison.Ordinal);
         Assert.Contains("AuditionATransport", voiceLab, StringComparison.Ordinal);
         Assert.Contains("AuditionBTransport", voiceLab, StringComparison.Ordinal);
         Assert.Contains("TakeTransport", workbench, StringComparison.Ordinal);
@@ -432,17 +434,18 @@ public sealed class XamlContractTests
         Assert.Contains("ApplicationData.Current.LocalSettings.Values[FollowScriptSetting]", workbench, StringComparison.Ordinal);
         Assert.Contains("WordFollowPlaybackRules.FindActiveWord", workbench, StringComparison.Ordinal);
         Assert.Contains("word.AuthoringStart", workbench, StringComparison.Ordinal);
-        Assert.Contains("ScriptTextBox.IsReadOnly = true", workbench, StringComparison.Ordinal);
+        Assert.Contains("PlaybackScriptText.TextHighlighters", workbench, StringComparison.Ordinal);
         Assert.Contains("EndFollowSession", workbench, StringComparison.Ordinal);
-        Assert.Contains("_updatingPlaybackSelection", workbench, StringComparison.Ordinal);
+        Assert.Contains("PlaybackScriptSurface.Visibility = Visibility.Visible", workbench, StringComparison.Ordinal);
         int positionHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
         int stateHandlerStart = workbench.IndexOf("private void TakeTransport_PlaybackStateChanged", StringComparison.Ordinal);
         Assert.True(positionHandlerStart >= 0 && stateHandlerStart > positionHandlerStart);
         Assert.DoesNotContain("QueueCueFormatting", workbench[positionHandlerStart..stateHandlerStart], StringComparison.Ordinal);
+        Assert.DoesNotContain("ScriptTextBox", workbench[positionHandlerStart..stateHandlerStart], StringComparison.Ordinal);
         Assert.Contains("TimeSpan.FromMilliseconds(50)", transport, StringComparison.Ordinal);
         Assert.Contains("PlaybackPositionChanged", transport, StringComparison.Ordinal);
         Assert.Contains("PlaybackStateChanged", transport, StringComparison.Ordinal);
-        Assert.Contains("UpdatePositionUi(requested)", transport, StringComparison.Ordinal);
+        Assert.Contains("UpdatePositionUi(position)", transport, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -771,7 +774,8 @@ public sealed class XamlContractTests
         int followStart = codeBehind.IndexOf("private void BeginFollowSession", StringComparison.Ordinal);
         int positionStart = codeBehind.IndexOf("private void TakeTransport_PlaybackPositionChanged", StringComparison.Ordinal);
         Assert.True(followStart >= 0 && positionStart > followStart);
-        Assert.Contains("ScriptTextBox.Focus(FocusState.Programmatic)", codeBehind[followStart..positionStart], StringComparison.Ordinal);
+        Assert.Contains("PlaybackScriptSurface.Visibility = Visibility.Visible", codeBehind[followStart..positionStart], StringComparison.Ordinal);
+        Assert.DoesNotContain("ScriptTextBox.Document.Selection.SetRange", codeBehind[followStart..positionStart], StringComparison.Ordinal);
     }
 
 }

@@ -28,6 +28,11 @@ public sealed record AuditionResult(
     int SampleRate,
     int Channels);
 
+public sealed record AlignmentProviderChoice(string ProviderId,string ModelId)
+{
+    public string Label => $"{ProviderId} · {ModelId}";
+}
+
 public sealed partial class AppServices : IDisposable
 {
     private readonly HttpClient _httpClient = new();
@@ -70,6 +75,7 @@ public sealed partial class AppServices : IDisposable
         WritingContexts = new WritingContextLoader(Projects);
         ProductionExports = new ProductionExportService(Projects);
         _toolchainManager = new FfmpegToolchainManager(_httpClient);
+        InitializeAudioWorkspace();
     }
 
     public FileProjectRepository Projects { get; }
@@ -91,6 +97,8 @@ public sealed partial class AppServices : IDisposable
     public IProductionExportService ProductionExports { get; }
 
     public IWordAlignmentService WordAlignments { get; }
+    public IReadOnlyList<AlignmentProviderChoice> AlignmentProviders => new[] { "openai", "gemini" }
+        .Select(_wordAlignmentProviders.GetRequired).Select(provider => new AlignmentProviderChoice(provider.ProviderId,provider.ModelId)).ToArray();
 
     public IReadOnlyCollection<ISpeechProvider> SpeechProviders => _providers.Providers;
 
@@ -194,11 +202,11 @@ public sealed partial class AppServices : IDisposable
         return approved.RenderHistory.Single(item => item.RenderId == processed.RenderId);
     }
 
-    public async Task<RenderRecord> ProcessAndApproveTakeAsync(string segmentId, Guid renderId, CancellationToken cancellationToken = default)
+    public async Task<RenderRecord> ProcessAndApproveTakeAsync(string segmentId, Guid renderId, CancellationToken cancellationToken = default, bool confirmedTranscript = false)
     {
         await RunTrackedJobAsync<RenderRecord>("render.process", new { segmentId, renderId }, cancellationToken);
         VoiceBenchProjectDocument approved = await RunTrackedJobAsync<VoiceBenchProjectDocument>(
-            "render.approve", new { segmentId, renderId }, cancellationToken);
+            "render.approve", new { segmentId, renderId, confirmedTranscript }, cancellationToken);
         return approved.Segments.Single(item => item.SegmentId == segmentId).RenderHistory.Single(item => item.RenderId == renderId);
     }
 
@@ -327,6 +335,7 @@ public sealed partial class AppServices : IDisposable
 
     public void Dispose()
     {
+        if (_audioPlayback is not null) _audioPlayback.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _httpClient.Dispose();
     }
 
