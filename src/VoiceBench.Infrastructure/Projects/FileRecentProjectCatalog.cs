@@ -72,6 +72,22 @@ public sealed class FileRecentProjectCatalog
         }
     }
 
+    public async Task RemoveAsync(string projectRoot, CancellationToken cancellationToken = default)
+    {
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var document = await LoadAsync(cancellationToken).ConfigureAwait(false);
+            await SaveAsync(document with
+            {
+                Projects = document.Projects.Where(item => !string.Equals(
+                    Path.TrimEndingDirectorySeparator(item.ProjectRoot), root, StringComparison.OrdinalIgnoreCase)).ToList(),
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _gate.Release(); }
+    }
+
     private static string GetDefaultCatalogPath() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IssueLab",

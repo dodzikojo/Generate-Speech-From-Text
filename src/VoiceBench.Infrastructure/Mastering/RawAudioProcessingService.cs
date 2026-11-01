@@ -84,11 +84,26 @@ public sealed class RawAudioProcessingService(
             Duration = probe.Duration,
             AudioSha256 = audioHash,
         };
-        List<RenderRecord> history = [.. segment.RenderHistory];
-        history[renderIndex] = updatedRender;
-        List<SegmentDocument> segments = [.. project.Segments];
-        segments[segmentIndex] = segment with { RenderHistory = history };
-        await repository.SaveAsync(projectRoot, project with { Segments = segments }, cancellationToken).ConfigureAwait(false);
+        await ProjectDocumentUpdater.UpdateAsync(repository, projectRoot, latest =>
+        {
+            int index = latest.Segments.FindIndex(item => item.SegmentId == segmentId);
+            if (index < 0) throw new InvalidOperationException("The segment was removed while processing; audio remains on disk.");
+            SegmentDocument current = latest.Segments[index];
+            int takeIndex = current.RenderHistory.FindIndex(item => item.RenderId == renderId);
+            if (takeIndex < 0) throw new InvalidOperationException("The take was removed while processing.");
+            RenderRecord currentTake = current.RenderHistory[takeIndex];
+            updatedRender = currentTake with
+            {
+                ProcessedAudioRelativePath = outputRelativePath,
+                SampleRate = probe.SampleRate, Channels = probe.Channels,
+                Duration = probe.Duration, AudioSha256 = audioHash,
+            };
+            List<RenderRecord> history = [.. current.RenderHistory];
+            history[takeIndex] = updatedRender;
+            List<SegmentDocument> segments = [.. latest.Segments];
+            segments[index] = current with { RenderHistory = history };
+            return latest with { Segments = segments };
+        }, cancellationToken).ConfigureAwait(false);
         return updatedRender;
     }
 
