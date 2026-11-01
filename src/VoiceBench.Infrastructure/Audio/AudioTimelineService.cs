@@ -70,6 +70,7 @@ public sealed class AudioTimelineService(
         List<MixRenderClip> clips = [];
         List<MixTranscriptEntry> transcript = [];
         Dictionary<Guid, ParsedScriptDocument> transcriptSources = [];
+        Dictionary<Guid, IReadOnlyList<ProductionCue>> productionCues = [];
         List<TimelineMarker> markers = [];
         foreach (var item in graph.Timelines)
         {
@@ -93,11 +94,12 @@ public sealed class AudioTimelineService(
                     Envelope = Array.AsReadOnly(clip.Envelope.ToArray()), RetainedWordRanges = Array.AsReadOnly(clip.RetainedWordRanges.ToArray()),
                     AlignedWords = Array.AsReadOnly(AudioTimelineRules.MatchingAlignment(clip, graph.Alignments)?.Words.ToArray() ?? []),
                 };
-                if (asset.AuthoringSourceRelativePath is string authoringPath && File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(root, authoringPath)))
+                if (!productionCues.TryGetValue(asset.AssetId, out var cues))
                 {
-                    string authoring = await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, authoringPath), token).ConfigureAwait(false);
-                    frozen = frozen with { ProductionCues = Array.AsReadOnly(new ProductionScriptParser().Parse(authoring).Cues.ToArray()) };
+                    cues = await LoadProductionCuesAsync(root, graph.Project, clip, asset, token).ConfigureAwait(false);
+                    productionCues.Add(asset.AssetId, cues);
                 }
+                frozen = frozen with { ProductionCues = cues };
                 clips.Add(frozen);
                 if (clip.SegmentId is not string segmentId || clip.RenderId is not Guid renderId) continue;
                 string? snapshotPath = clip.CleanSourceRelativePath;
@@ -139,6 +141,30 @@ public sealed class AudioTimelineService(
     private sealed record LoadedGraph(VoiceBenchProjectDocument Project, AudioTimelineDocument Requested,
         IReadOnlyDictionary<Guid, WordAlignmentDocument> Alignments, List<TimelinePlacement> Timelines,
         Dictionary<string, double> ChapterOffsets, List<MixEligibilityIssue> Issues, double DurationSeconds);
+
+    private static async Task<IReadOnlyList<ProductionCue>> LoadProductionCuesAsync(string root, VoiceBenchProjectDocument project,
+        AudioClipDocument clip, AudioAssetRecord asset, CancellationToken token)
+    {
+        // Directions may change independently of narration. Freeze the latest saved guidance only
+        // when its clean narration still describes this exact clip; stale previews use the take snapshot.
+        SegmentDocument? segment = project.Segments.FirstOrDefault(s => s.SegmentId == clip.SegmentId);
+        if (segment is not null && await ReadMatchingCuesAsync(segment.ScriptRelativePath).ConfigureAwait(false) is { } current) return current;
+        return asset.AuthoringSourceRelativePath is string snapshot
+            ? await ReadMatchingCuesAsync(snapshot).ConfigureAwait(false) ?? Array.Empty<ProductionCue>()
+            : Array.Empty<ProductionCue>();
+
+        async Task<IReadOnlyList<ProductionCue>?> ReadMatchingCuesAsync(string relativePath)
+        {
+            try
+            {
+                string authoring = await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, relativePath), token).ConfigureAwait(false);
+                var parsed = new ProductionScriptParser().Parse(authoring);
+                return SourceTextHasher.Compute(parsed.NarrationText).Equals(clip.SourceSha256, StringComparison.OrdinalIgnoreCase)
+                    ? Array.AsReadOnly(parsed.Cues.ToArray()) : null;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException) { return null; }
+        }
+    }
 
     private async Task<LoadedGraph> LoadGraphAsync(string root, AudioTimelineScope scope, string? chapterId, bool forExport, CancellationToken token, bool verifyMedia = true)
     {

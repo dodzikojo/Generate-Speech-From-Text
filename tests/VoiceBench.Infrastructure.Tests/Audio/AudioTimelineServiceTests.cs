@@ -241,6 +241,49 @@ public sealed class AudioTimelineServiceTests
     }
 
     [Fact]
+    public async Task Cue_only_edits_export_latest_guidance_but_stale_narration_cannot_replace_pinned_text_or_cues()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        const string original = "@visual: Original guidance.\nOne two.";
+        const string snapshotPath = "03-render-copies/take.authoring.md";
+        await File.WriteAllTextAsync(Path.Combine(directory.Root, snapshotPath), original);
+        var render = await AddAlignmentAsync(directory.Root, project.Segments[0].RenderHistory[0] with
+        {
+            Duration = TimeSpan.FromSeconds(.02), AuthoringSourceRelativePath = snapshotPath,
+            AuthoringSourceSha256 = SourceTextHasher.Compute(original),
+        }, [new("One", TimeSpan.FromSeconds(.002), TimeSpan.FromSeconds(.006), 0, 0), new("two", TimeSpan.FromSeconds(.01), TimeSpan.FromSeconds(.018), 1, 1)], 2);
+        await repository.SaveAsync(directory.Root, project with { Segments = [project.Segments[0] with { RenderHistory = [render] }] });
+        string canonical = Path.Combine(directory.Root, "02-scripts/script.md");
+        await File.WriteAllTextAsync(canonical, "@visual: Updated guidance.\nOne two.\n@note: Latest trailing guidance.");
+        var service = new AudioTimelineService(repository);
+        var plan = await service.BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal(["Updated guidance.", "Latest trailing guidance."], Assert.Single(plan.Clips).ProductionCues.Select(c => c.Content));
+        Assert.Equal("One two.", Assert.Single(plan.Transcript).Text);
+
+        // Export consumes the frozen current-guidance plan even if the canonical script changes later.
+        await File.WriteAllTextAsync(canonical, "Different narration.\n@action: Stale guidance must not leak.");
+        var runner = new AudioAssetServiceTests.AudioProcessFake();
+        var assets = new AudioAssetService(repository, runner, AudioAssetServiceTests.Tools);
+        var exported = await new MixExportService(assets, runner, AudioAssetServiceTests.Tools).ExportAsync(directory.Root, plan, "Guidance");
+        string cuePath = VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, exported.CueSheetRelativePath);
+        string csv = await File.ReadAllTextAsync(cuePath);
+        string production = await File.ReadAllTextAsync(cuePath[..^".cues.csv".Length] + ".production.md");
+        Assert.Contains("Updated guidance.", csv); Assert.Contains("Latest trailing guidance.", csv);
+        Assert.Contains(",2,false,,", csv); // An end-of-script cue has no following aligned word.
+        Assert.Contains("Latest trailing guidance.", production);
+        Assert.DoesNotContain("Stale guidance", production);
+        Assert.Equal("One two.", await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, exported.TranscriptRelativePath)));
+
+        var preview = await service.BuildPreviewPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal("Original guidance.", Assert.Single(Assert.Single(preview.Clips).ProductionCues).Content);
+        Assert.Equal("One two.", Assert.Single(preview.Transcript).Text);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter"));
+        Assert.Equal(original, await File.ReadAllTextAsync(Path.Combine(directory.Root, snapshotPath)));
+    }
+
+    [Fact]
     public async Task Old_schema_transaction_snapshots_are_migrated_when_restored()
     {
         using TemporaryDirectory directory = new();
