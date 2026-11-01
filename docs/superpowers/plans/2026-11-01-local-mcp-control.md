@@ -89,3 +89,18 @@ Branch: codex/local-mcp-control. Parent checkpoint: 78efcaf.
 
 Record test counts, runtime outcomes, package version, PRs and remaining limitations
 here before delivery. Never claim an unverified surface works.
+
+## Master consolidation, 2026-11-01
+
+- The operator merged PRs #3–#7, but each parent branch had already been merged
+  onward before its child PR landed. Consequently, origin/master contained the
+  synchronized-playback prerequisite while the MCP slices remained on their branches.
+- Consolidated the outstanding origin branch tips into master without conflicts.
+  The merged tree matched codex/local-mcp-control at 7251584 exactly before this
+  documentation update, preserving the operator's committed project files and artifacts.
+  Product source, tests, scripts and configuration match the verified delivery e02a837.
+- Fresh verification: Release build succeeded with zero warnings/errors; all 292
+  automated tests passed (Core64, App42, Infrastructure133, Application28, MCP25).
+  git diff --check passed. No product changes or new installation were required;
+  the previously verified signed 1.0.0.5 package remains the installed version.
+- Remaining operator task: the live-provider checklist in docs/local-mcp.md.
