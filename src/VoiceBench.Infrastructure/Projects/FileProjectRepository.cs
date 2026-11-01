@@ -14,6 +14,7 @@ public sealed class FileProjectRepository(
             new OneToTwoProjectDocumentMigration(),
             new TwoToThreeProjectDocumentMigration(),
             new ThreeToFourProjectDocumentMigration(),
+            new FourToFiveProjectDocumentMigration(),
         ]);
     private readonly IAtomicFileCommitter _committer = committer ?? new AtomicFileCommitter();
 
@@ -78,6 +79,7 @@ public sealed class FileProjectRepository(
         VoiceBenchProjectDocument document = _migrator.Deserialize(jsonObject, ProjectJson.SerializerOptions);
         if (persistMigration && storedVersion is int version && version < VoiceBenchProjectDocument.CurrentSchemaVersion)
         {
+            await PreserveMigrationBackupAsync(manifestPath, version, cancellationToken).ConfigureAwait(false);
             await SaveAsync(root, document, cancellationToken).ConfigureAwait(false);
         }
 
@@ -155,6 +157,26 @@ public sealed class FileProjectRepository(
                 File.Delete(temporaryPath);
             }
         }
+    }
+
+    private static async Task PreserveMigrationBackupAsync(string manifestPath, int version, CancellationToken cancellationToken)
+    {
+        string backupPath = $"{manifestPath}.schema-{version}.bak";
+        if (File.Exists(backupPath)) return;
+        string temporaryPath = $"{backupPath}.{Guid.NewGuid():N}.tmp";
+        await using FileStream original = new(manifestPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        try
+        {
+            await using (FileStream backup = new(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 64 * 1024, FileOptions.WriteThrough))
+            {
+                await original.CopyToAsync(backup, cancellationToken).ConfigureAwait(false);
+                await backup.FlushAsync(cancellationToken).ConfigureAwait(false);
+                backup.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, backupPath, overwrite: false);
+        }
+        catch (IOException) when (File.Exists(backupPath)) { }
+        finally { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
     }
 
     public async Task<ProjectValidationResult> ValidateAsync(
@@ -344,6 +366,14 @@ public sealed class FileProjectRepository(
 
     private static void ValidateRelativePaths(VoiceBenchProjectDocument document)
     {
+        foreach (AudioAssetRecord asset in document.AudioAssets)
+        {
+            ValidateProjectPath(asset.RelativePath, $"Audio asset '{asset.AssetId}'");
+            if (asset.CleanSourceRelativePath is string snapshot) ValidateProjectPath(snapshot, $"Audio asset '{asset.AssetId}' clean source");
+            if (asset.AuthoringSourceRelativePath is string authoring) ValidateProjectPath(authoring, $"Audio asset '{asset.AssetId}' authoring source");
+        }
+        foreach (AudioClipDocument clip in document.AudioTimelines.SelectMany(timeline => timeline.Clips))
+            if (clip.CleanSourceRelativePath is string snapshot) ValidateProjectPath(snapshot, $"Clip '{clip.ClipId}' clean source");
         foreach (SourceReferenceDocument reference in document.SourceReferences)
         {
             ValidateProjectPath(reference.RelativePath, $"Reference '{reference.Name}'");
