@@ -66,8 +66,8 @@ public sealed partial class WorkbenchView : UserControl
     private int _cueFormattingRetryCount;
     private bool _writingActionInProgress;
     private bool _authoringHistoryOperationInProgress;
-    private bool _updatingPlaybackSelection;
     private bool _followSessionActive;
+    private bool _restoringPlaybackSurface;
     private int _activeFollowWordOrdinal = -1;
     private string? _alignmentRecoveryRoot;
     private WordAlignmentDocument? _activeWordAlignment;
@@ -109,6 +109,8 @@ public sealed partial class WorkbenchView : UserControl
     public WorkbenchView()
     {
         InitializeComponent();
+        AudioDock.Compact = true;
+        App.Services.SelectedTakePlayback = TakeTransport.Play;
         _cueFormatTimer = DispatcherQueue.CreateTimer();
         _cueFormatTimer.Interval = TimeSpan.FromMilliseconds(150);
         _cueFormatTimer.IsRepeating = false;
@@ -125,6 +127,7 @@ public sealed partial class WorkbenchView : UserControl
         TakeTransport.PlaybackStarted += (_, _) => BeginFollowSession();
         TakeTransport.PlaybackPositionChanged += TakeTransport_PlaybackPositionChanged;
         TakeTransport.PlaybackStateChanged += TakeTransport_PlaybackStateChanged;
+        InitializeMixFollow();
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
         PopulateWritingProviders();
@@ -229,7 +232,10 @@ public sealed partial class WorkbenchView : UserControl
         DirectorPanel.SetValue(Grid.RowProperty, wide ? 0 : 1);
         DirectorPanel.SetValue(Grid.ColumnProperty, wide ? 2 : 1);
 
-        WorkbenchFooter.Visibility = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        WorkbenchFooter.Visibility = Visibility.Visible;
+        Visibility review = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        TakeReviewContext.Visibility = review; TakeSelectionControls.Visibility = review;
+        TakeDecisionGroup.Visibility = review; AssemblyHandoff.Visibility = review;
     }
 
     private void ProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -347,6 +353,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private void Session_ProjectChanged(object? sender, EventArgs e)
     {
+        DispatcherQueue.TryEnqueue(InvalidateMixFollowForProject);
         if (_suppressProjectChangedReload) return;
         int version = Interlocked.Increment(ref _projectChangeVersion);
         string? preferredSegmentId = _segment?.SegmentId;
@@ -358,6 +365,16 @@ public sealed partial class WorkbenchView : UserControl
             {
                 if (_suppressProjectChangedReload || version != _projectChangeVersion)
                 {
+                    completion.TrySetResult();
+                    return;
+                }
+                if (_project is { } previous && App.Services.Session.Project is { } refreshed
+                    && string.Equals(_monitoredProjectRoot,App.Services.Session.ProjectRoot,StringComparison.OrdinalIgnoreCase)
+                    && IssueLab.VoiceBench.App.Services.TimelinePresentation.SameScriptWorkspace(previous,refreshed))
+                {
+                    _project = refreshed;
+                    if (_segment is not null) _segment = refreshed.Segments.FirstOrDefault(item => item.SegmentId == _segment.SegmentId);
+                    await RefreshAuthoringHistoryAsync();
                     completion.TrySetResult();
                     return;
                 }
@@ -1971,12 +1988,14 @@ public sealed partial class WorkbenchView : UserControl
     private async void UndoAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
+        if (AudioDock.OwnsKeyboardFocus()) { await AudioDock.UndoTimelineAsync(true); return; }
         await UndoAuthoringAsync();
     }
 
     private async void RedoAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
+        if (AudioDock.OwnsKeyboardFocus()) { await AudioDock.UndoTimelineAsync(false); return; }
         await RedoAuthoringAsync();
     }
 
@@ -2177,7 +2196,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private void ScriptTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
-        if (!_ignoreTextChanges && !_updatingPlaybackSelection) CaptureEditorSelection();
+        if (!_ignoreTextChanges) CaptureEditorSelection();
     }
 
     private void CaptureEditorSelection()
@@ -2807,7 +2826,16 @@ public sealed partial class WorkbenchView : UserControl
         {
             ShowStatus(InfoBarSeverity.Informational, "Preparing take", "VoiceBench is converting and verifying the latest generated take with FFmpeg.");
             RenderRecord selected = GetSelectedRender() ?? throw new InvalidOperationException("Select a take before approving it.");
-            RenderRecord approved = await App.Services.ProcessAndApproveTakeAsync(_segment.SegmentId, selected.RenderId);
+            bool confirmedTranscript = false;
+            if (selected.Origin == RenderOrigin.Imported)
+            {
+                ContentDialog confirmation = new() { XamlRoot = XamlRoot, Title = "Confirm recording transcript",
+                    Content = "Listen to this recording and verify that the current reference transcript accurately represents its spoken words before approving it.",
+                    PrimaryButtonText = "Transcript is accurate · approve", CloseButtonText = "Cancel" };
+                if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+                confirmedTranscript = true;
+            }
+            RenderRecord approved = await App.Services.ProcessAndApproveTakeAsync(_segment.SegmentId, selected.RenderId,confirmedTranscript: confirmedTranscript);
             ShowStatus(InfoBarSeverity.Success, $"Take {approved.TakeNumber:00} approved", "The processed take is approved against the current canonical source.");
         }
         catch (Exception exception)
@@ -3117,6 +3145,18 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             EndFollowSession();
+            IssueLab.VoiceBench.App.Services.AlignmentProviderChoice? selectedAlignment = null;
+            if (render.Origin == RenderOrigin.Imported)
+            {
+                ComboBox provider = new() { Header = "Transcription provider and model", ItemsSource = App.Services.AlignmentProviders, DisplayMemberPath = "Label", SelectedIndex = -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+                StackPanel panel = new() { Spacing = 12 };
+                panel.Children.Add(new TextBlock { Text = "This uploads the selected recording to the provider you choose. Importing and opening audio never uploads it.", TextWrapping = TextWrapping.Wrap });
+                panel.Children.Add(provider);
+                ContentDialog choice = new() { XamlRoot = XamlRoot, Title = "Align imported recording", Content = panel, PrimaryButtonText = "Align with selected provider", CloseButtonText = "Cancel" };
+                if (await choice.ShowAsync() != ContentDialogResult.Primary) return;
+                selectedAlignment = provider.SelectedItem as IssueLab.VoiceBench.App.Services.AlignmentProviderChoice
+                    ?? throw new InvalidOperationException("Select the provider and model explicitly.");
+            }
             _alignmentCancellation = new CancellationTokenSource();
             AlignWordsButton.Content = "Cancel alignment";
             AlignWordsButton.IsEnabled = true;
@@ -3129,7 +3169,7 @@ public sealed partial class WorkbenchView : UserControl
                 $"VoiceBench is transcribing Take {render.TakeNumber:00} with its original provider. The take remains playable if alignment fails.");
 
             WordAlignmentRecord result = await App.Services.RunTrackedJobAsync<WordAlignmentRecord>(
-                "alignment.start", new { segmentId, renderId = render.RenderId }, _alignmentCancellation.Token);
+                "alignment.start", new { segmentId, renderId = render.RenderId, providerId = selectedAlignment?.ProviderId, modelId = selectedAlignment?.ModelId }, _alignmentCancellation.Token);
             string message = result.Status switch
             {
                 WordAlignmentStatus.Aligned => $"Word follow is ready for {result.MatchedWordCount} of {result.TotalWordCount} words ({result.Coverage:P0}).",
@@ -3196,17 +3236,18 @@ public sealed partial class WorkbenchView : UserControl
 
     private void UpdateFollowEligibility(ParsedScriptDocument? parsed = null)
     {
+        ParsedScriptDocument current = parsed ?? new ProductionScriptParser().Parse(GetEditorText());
+        SyncMixFollowDraft(current);
         if (_activeWordAlignment is null || _activeAlignmentRender is null)
         {
-            FollowScriptToggle.IsEnabled = false;
+            FollowScriptToggle.IsEnabled = App.Services.PlaybackTarget == "mix";
             return;
         }
 
-        ParsedScriptDocument current = parsed ?? new ProductionScriptParser().Parse(GetEditorText());
         bool narrationCurrent = WordFollowPlaybackRules.IsNarrationCurrent(
             _activeAlignmentRender.SourceSha256,
             current.NarrationText);
-        FollowScriptToggle.IsEnabled = narrationCurrent;
+        FollowScriptToggle.IsEnabled = narrationCurrent || App.Services.PlaybackTarget == "mix";
         if (!narrationCurrent)
         {
             EndFollowSession();
@@ -3236,14 +3277,19 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         if (_followSessionActive) return;
+        _cueFormatTimer?.Stop();
         ITextSelection selection = ScriptTextBox.Document.Selection;
         _followEditorSnapshot = new FollowEditorSnapshot(
             selection.StartPosition,
             selection.EndPosition,
             ScriptTextBox.IsReadOnly,
             ScriptTextBox.FocusState != FocusState.Unfocused);
-        ScriptTextBox.IsReadOnly = true;
-        ScriptTextBox.Focus(FocusState.Programmatic);
+        PlaybackScriptText.Blocks.Clear();
+        Microsoft.UI.Xaml.Documents.Paragraph paragraph = new();
+        paragraph.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = editorText });
+        PlaybackScriptText.Blocks.Add(paragraph);
+        PlaybackScriptSurface.Visibility = Visibility.Visible;
+        ScriptTextBox.Visibility = Visibility.Collapsed;
         _followNarrationWords = current.NarrationWords;
         _followEditorTextLength = editorText.Length;
         _activeFollowWordOrdinal = -1;
@@ -3258,36 +3304,18 @@ public sealed partial class WorkbenchView : UserControl
         if (ordinal == _activeFollowWordOrdinal) return;
         _activeFollowWordOrdinal = ordinal;
 
-        try
+        PlaybackScriptText.TextHighlighters.Clear();
+        if (ordinal < 0 || ordinal >= _followNarrationWords.Count) return;
+        NarrationWord word = _followNarrationWords[ordinal];
+        Microsoft.UI.Xaml.Documents.TextHighlighter highlight = new()
         {
-            _updatingPlaybackSelection = true;
-            if (ordinal < 0 || ordinal >= _followNarrationWords.Count)
-            {
-                int caret = Math.Clamp(_followEditorSnapshot?.SelectionStart ?? 0, 0, _followEditorTextLength);
-                ScriptTextBox.Document.Selection.SetRange(caret, caret);
-                return;
-            }
-
-            NarrationWord word = _followNarrationWords[ordinal];
-            ScriptTextBox.Document.Selection.SetRange(
-                word.AuthoringStart,
-                word.AuthoringStart + word.AuthoringLength);
-            ScriptTextBox.Document.Selection.ScrollIntoView(PointOptions.Start);
-        }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or COMException or ArgumentException)
-        {
-            EndFollowSession();
-            ShowStatus(
-                InfoBarSeverity.Warning,
-                "Word follow paused",
-                "Playback is continuing, but the editor could not show the synchronized word. The script was not changed.");
-        }
-        finally
-        {
-            _updatingPlaybackSelection = false;
-        }
+            Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["ActiveSignalBrush"],
+            Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["BaseBrush"],
+        };
+        highlight.Ranges.Add(new Microsoft.UI.Xaml.Documents.TextRange { StartIndex = word.AuthoringStart, Length = word.AuthoringLength });
+        PlaybackScriptText.TextHighlighters.Add(highlight);
+        ScrollPlaybackWord(word.AuthoringStart);
     }
-
     private void TakeTransport_PlaybackStateChanged(object? sender, AudioTransportStateChangedEventArgs e)
     {
         if (e.State is AudioTransportState.Paused or AudioTransportState.Ended
@@ -3316,26 +3344,18 @@ public sealed partial class WorkbenchView : UserControl
         _activeFollowWordOrdinal = -1;
         if (snapshot is null) return;
 
+        _restoringPlaybackSurface = true;
         try
         {
-            _updatingPlaybackSelection = true;
-            int textLength = GetEditorText().Length;
-            ScriptTextBox.Document.Selection.SetRange(
-                Math.Clamp(snapshot.SelectionStart, 0, textLength),
-                Math.Clamp(snapshot.SelectionEnd, 0, textLength));
-            ScriptTextBox.IsReadOnly = snapshot.WasReadOnly;
+            PlaybackScriptText.TextHighlighters.Clear();
+            PlaybackScriptSurface.Visibility = Visibility.Collapsed;
+            ScriptTextBox.Visibility = Visibility.Visible;
             if (snapshot.WasFocused) ScriptTextBox.Focus(FocusState.Programmatic);
         }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or COMException)
-        {
-            ScriptTextBox.IsReadOnly = snapshot.WasReadOnly;
-        }
-        finally
-        {
-            _updatingPlaybackSelection = false;
-        }
+        finally { _restoringPlaybackSurface = false; }
     }
 
+    private void AudioDock_DragDelta(object sender, DragDeltaEventArgs e) => AudioDock.ResizeDock(-e.VerticalChange);
     private RenderRecord? GetSelectedRender()
     {
         if (_segment is null || TakeSelector.SelectedItem is not ComboBoxItem { Tag: Guid renderId }) return null;
@@ -3417,7 +3437,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private void QueueCueFormatting(bool resetFailures = true)
     {
-        if (_cueFormatTimer is null) return;
+        if (_cueFormatTimer is null || _restoringPlaybackSurface || _followSessionActive) return;
         if (resetFailures) _cueFormattingRetryCount = 0;
         _cueFormatTimer.Stop();
         _cueFormatTimer.Interval = resetFailures

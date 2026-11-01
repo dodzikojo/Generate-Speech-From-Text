@@ -86,6 +86,7 @@
                         <KeyboardAccelerator Key="Number3" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="AudioNavigationItem" Content="Audio" Icon="Volume" Tag="audio" AutomationProperties.Name="Audio" />
                 <NavigationViewItem x:Name="AssemblyNavigationItem"
                                     Content="Assembly" Icon="AllApps" Tag="assembly"
                                     AutomationProperties.Name="Assembly"
@@ -110,6 +111,7 @@
                 <views:ProjectsView x:Name="ProjectsSurface" />
                 <views:WorkbenchView x:Name="WorkbenchSurface" Visibility="Collapsed" />
                 <views:VoiceLabView x:Name="VoiceLabSurface" Visibility="Collapsed" />
+                <views:AudioView x:Name="AudioSurface" Visibility="Collapsed" />
                 <views:AssemblyView x:Name="AssemblySurface" Visibility="Collapsed" />
                 <views:SettingsView x:Name="SettingsSurface" Visibility="Collapsed" />
             </Grid>

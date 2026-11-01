@@ -353,7 +353,11 @@ public sealed partial class WorkbenchView
     internal string ResolveAutomationArtifact(string relativePath, bool audioOnly = false)
     {
         string normalized = relativePath.Replace('\\', '/');
-        string[] allowed = audioOnly ? ["04-generated-audio/", "05-masters/"] : ["01-source/", "02-scripts/", "03-render-copies/", "04-generated-audio/", "05-masters/", "06-exports/", "07-reports/"];
+        string[] allowed = audioOnly ? ["01-source/audio/", "04-generated-audio/", "05-masters/"] : ["01-source/", "02-scripts/", "03-render-copies/", "04-generated-audio/", "05-masters/", "06-exports/", "07-reports/"];
+        bool importedAudio=audioOnly && normalized.StartsWith("01-source/audio/",StringComparison.OrdinalIgnoreCase);
+        if (importedAudio
+            && !App.Services.Session.RequireProject().AudioAssets.Any(asset => string.Equals(asset.RelativePath.Replace('\\','/'),normalized,StringComparison.OrdinalIgnoreCase)))
+            throw new AutomationException("invalid_artifact","Select a registered imported audio asset.");
         if (!allowed.Any(prefix => normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             throw new AutomationException("invalid_artifact", "Select a known project script or output artifact.");
         string path = App.Services.Session.ResolveProjectPath(normalized);
@@ -366,7 +370,7 @@ public sealed partial class WorkbenchView
             current = Path.GetDirectoryName(current) ?? throw new AutomationException("invalid_artifact", "Invalid project file path.");
         }
         if (!File.Exists(path)) throw new AutomationException("artifact_not_found", "The requested project file does not exist.");
-        if (audioOnly && !new[] { ".wav", ".mp3", ".m4a", ".flac" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+        if (audioOnly && !importedAudio && !new[] { ".wav", ".mp3", ".m4a", ".flac" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
             throw new AutomationException("invalid_artifact", "Playback requires a project audio artifact.");
         return path;
     }

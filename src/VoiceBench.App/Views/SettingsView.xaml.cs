@@ -6,6 +6,8 @@ using Windows.ApplicationModel.DataTransfer;
 using System.Text.Json;
 using IssueLab.VoiceBench.Application;
 using IssueLab.VoiceBench.Infrastructure.Toolchain;
+using IssueLab.VoiceBench.Infrastructure.Audio;
+using Windows.Storage;
 
 namespace IssueLab.VoiceBench.App.Views;
 
@@ -15,10 +17,13 @@ public sealed partial class SettingsView : UserControl
     private bool _refreshingLocalControl;
     private bool _localControlRefreshActive;
     private bool _credentialDialogOpen;
+    private bool _audioSettingsLoaded;
     private const string CodexConfig = "[mcp_servers.voicebench]\ncommand = \"voicebench-mcp.exe\"";
     public SettingsView()
     {
         InitializeComponent();
+        MonitorVolume.Value = ApplicationData.Current.LocalSettings.Values["Audio.MonitorVolume"] is double savedVolume ? savedVolume : 1;
+        _audioSettingsLoaded = true;
         Loaded += SettingsView_Loaded;
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
         LocalMcpCodexConfig.Text = CodexConfig;
@@ -41,6 +46,36 @@ public sealed partial class SettingsView : UserControl
         await RefreshStatusAsync();
         await RefreshLocalControlAsync();
         _localControlTimer.Start();
+    }
+
+    private async void AudioDevices_Click(object sender,RoutedEventArgs e)
+    {
+        try
+        {
+            AudioOutputPicker.ItemsSource = new[] { new AudioOutputDevice(string.Empty,"System default · follows Windows output") }.Concat(await Task.Run(IssueLab.VoiceBench.App.Services.AppServices.GetAudioOutputDevices)).ToArray();
+            string selected = ApplicationData.Current.LocalSettings.Values["Audio.OutputDevice"] as string ?? string.Empty;
+            AudioOutputPicker.SelectedItem = ((IEnumerable<AudioOutputDevice>)AudioOutputPicker.ItemsSource).FirstOrDefault(device => device.DeviceId == selected);
+        }
+        catch (Exception error) { ShowStatus(InfoBarSeverity.Error,"Audio devices unavailable",error.Message); }
+    }
+
+    private async void AudioDeviceApply_Click(object sender,RoutedEventArgs e)
+    {
+        try
+        {
+            if (AudioOutputPicker.SelectedItem is not AudioOutputDevice device) throw new InvalidOperationException("Refresh devices and choose an output first.");
+            if (App.Services.AudioPlayback is { } playback) await playback.SetOutputDeviceAsync(string.IsNullOrEmpty(device.DeviceId) ? null : device.DeviceId);
+            ApplicationData.Current.LocalSettings.Values["Audio.OutputDevice"] = device.DeviceId;
+            ShowStatus(InfoBarSeverity.Success,"Audio output selected",device.Name);
+        }
+        catch (Exception error) { ShowStatus(InfoBarSeverity.Error,"Audio output could not change",error.Message); }
+    }
+
+    private void MonitorVolume_Changed(object sender,Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_audioSettingsLoaded) return;
+        if (App.Services.AudioPlayback is { } playback) playback.Volume = (float)e.NewValue;
+        ApplicationData.Current.LocalSettings.Values["Audio.MonitorVolume"] = e.NewValue;
     }
 
     private async void Credential_Click(object sender, RoutedEventArgs e)
