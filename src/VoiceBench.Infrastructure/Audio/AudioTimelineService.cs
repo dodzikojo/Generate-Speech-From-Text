@@ -58,13 +58,19 @@ public sealed class AudioTimelineService(
     public Task<MixRenderPlan> BuildPreviewPlanAsync(string projectRoot, AudioTimelineScope scope, string? chapterId = null, CancellationToken cancellationToken = default) =>
         BuildPlanCoreAsync(projectRoot, scope, chapterId, false, cancellationToken);
 
-    private async Task<MixRenderPlan> BuildPlanCoreAsync(string root, AudioTimelineScope scope, string? chapterId, bool forExport, CancellationToken token)
+    /// <summary>Internal desktop optimization for an already verified, playing graph. The transport must
+    /// reject every source/geometry change before applying this plan. Never use it to load audio or export.</summary>
+    public Task<MixRenderPlan> BuildParameterUpdatePlanAsync(string projectRoot, AudioTimelineScope scope, string? chapterId = null, CancellationToken cancellationToken = default) =>
+        BuildPlanCoreAsync(projectRoot, scope, chapterId, false, cancellationToken, verifyMedia: false);
+
+    private async Task<MixRenderPlan> BuildPlanCoreAsync(string root, AudioTimelineScope scope, string? chapterId, bool forExport, CancellationToken token, bool verifyMedia = true)
     {
-        var graph = await LoadGraphAsync(root, scope, chapterId, forExport, token).ConfigureAwait(false);
+        var graph = await LoadGraphAsync(root, scope, chapterId, forExport, token, verifyMedia).ConfigureAwait(false);
         if (graph.Issues.Count > 0) throw new InvalidOperationException(string.Join(" ", graph.Issues.Select(i => i.Message)));
         List<MixRenderClip> clips = [];
         List<MixTranscriptEntry> transcript = [];
         Dictionary<Guid, ParsedScriptDocument> transcriptSources = [];
+        Dictionary<Guid, IReadOnlyList<ProductionCue>> productionCues = [];
         List<TimelineMarker> markers = [];
         foreach (var item in graph.Timelines)
         {
@@ -73,32 +79,40 @@ public sealed class AudioTimelineService(
                 AudioTrackDocument track = item.Timeline.Tracks.Single(t => t.TrackId == clip.TrackId);
                 AudioAssetRecord asset = graph.Project.AudioAssets.Single(a => a.AssetId == clip.AssetId);
                 double start = ResolveAnchor(clip.Anchor, clip.StartSeconds, item.OffsetSeconds, graph.ChapterOffsets, graph.Timelines, graph.Alignments);
+                double scopeEnd = item.Timeline.Scope == AudioTimelineScope.Compilation ? graph.DurationSeconds : item.OffsetSeconds + TimelineDuration(item.Timeline);
+                long durationFrames = clip.Loop ? Math.Min(clip.DurationFrames, Math.Max(0, TimelineTime.ToFrames(scopeEnd - start))) : clip.DurationFrames;
+                if (clip.Loop && durationFrames == 0) continue;
                 // Every reference is copied so a caller's live project lists cannot mutate a frozen render graph.
                 var frozen = new MixRenderClip
                 {
                     ClipId = clip.ClipId, Asset = asset with { }, Track = track with { Solo = false },
-                    StartSeconds = start, SourceStartFrame = clip.SourceStartFrame, DurationFrames = clip.DurationFrames,
+                    StartSeconds = start, SourceStartFrame = clip.SourceStartFrame, DurationFrames = durationFrames,
                     GainDb = clip.GainDb, Pan = clip.Pan, FadeInSeconds = clip.FadeInSeconds, FadeOutSeconds = clip.FadeOutSeconds,
-                    FadeInOffsetSeconds = clip.FadeInOffsetSeconds, FadeOutOffsetSeconds = clip.FadeOutOffsetSeconds,
+                    FadeInOffsetSeconds = clip.FadeInOffsetSeconds,
+                    FadeOutOffsetSeconds = clip.FadeOutOffsetSeconds + TimelineTime.ToSeconds(clip.DurationFrames - durationFrames),
                     Muted = clip.Muted, Loop = clip.Loop,
                     Envelope = Array.AsReadOnly(clip.Envelope.ToArray()), RetainedWordRanges = Array.AsReadOnly(clip.RetainedWordRanges.ToArray()),
                     AlignedWords = Array.AsReadOnly(AudioTimelineRules.MatchingAlignment(clip, graph.Alignments)?.Words.ToArray() ?? []),
                 };
-                if (asset.AuthoringSourceRelativePath is string authoringPath && File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(root, authoringPath)))
+                if (!productionCues.TryGetValue(asset.AssetId, out var cues))
                 {
-                    string authoring = await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, authoringPath), token).ConfigureAwait(false);
-                    frozen = frozen with { ProductionCues = Array.AsReadOnly(new ProductionScriptParser().Parse(authoring).Cues.ToArray()) };
+                    cues = await LoadProductionCuesAsync(root, graph.Project, clip, asset, token).ConfigureAwait(false);
+                    productionCues.Add(asset.AssetId, cues);
                 }
+                frozen = frozen with { ProductionCues = cues };
                 clips.Add(frozen);
-                if (clip.SegmentId is not string segmentId || clip.RenderId is not Guid renderId || clip.Muted || track.Muted) continue;
+                if (clip.SegmentId is not string segmentId || clip.RenderId is not Guid renderId) continue;
                 string? snapshotPath = clip.CleanSourceRelativePath;
                 if (string.IsNullOrWhiteSpace(snapshotPath) || !File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(root, snapshotPath))) continue;
                 string text = await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, snapshotPath), token).ConfigureAwait(false);
                 ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
+                if (!SourceTextHasher.Compute(parsed.NarrationText).Equals(clip.SourceSha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("The immutable clean narration snapshot changed.");
                 IReadOnlyList<RetainedWordRange> ranges = clip.RetainedWordRanges;
                 bool full = clip.SourceStartFrame == 0 && clip.DurationFrames == TimelineTime.ToFrames(asset.DurationSeconds);
                 if (full && parsed.NarrationWords.Count > 0) ranges = [new RetainedWordRange(0, parsed.NarrationWords.Count - 1)];
                 clips[^1] = frozen with { RetainedWordRanges = Array.AsReadOnly(ranges.ToArray()) };
+                if (clip.Muted || track.Muted) continue;
                 transcriptSources[clip.ClipId] = parsed;
                 AddTranscriptFragments(transcript, clip, segmentId, renderId, start, parsed, ranges, AudioTimelineRules.MatchingAlignment(clip, graph.Alignments));
             }
@@ -112,6 +126,10 @@ public sealed class AudioTimelineService(
             }
         }
         var orderedClips = clips.OrderBy(c => c.StartFrame).ThenBy(c => c.Track.Order).ThenBy(c => c.ClipId).ToArray();
+        var chapterRegions = graph.Timelines.Where(item => item.Timeline.Scope == AudioTimelineScope.Chapter && item.Timeline.ChapterId is not null)
+            .Select(item => new MixChapterRegion(item.Timeline.ChapterId!,graph.Project.Chapters.Single(chapter => chapter.ChapterId == item.Timeline.ChapterId).Title,
+                TimelineTime.ToFrames(item.OffsetSeconds),TimelineTime.ToFrames(TimelineDuration(item.Timeline))))
+            .OrderBy(region => region.StartFrame).ToArray();
         double duration = graph.DurationSeconds;
         if (duration <= 0 && orderedClips.Length > 0) duration = orderedClips.Max(c => c.StartSeconds + c.DurationSeconds);
         return new MixRenderPlan
@@ -119,6 +137,7 @@ public sealed class AudioTimelineService(
             ProjectId = graph.Project.ProjectId, Scope = scope, ChapterId = chapterId, Revision = graph.Requested.Revision,
             CreatedAt = _timeProvider.GetUtcNow(), OutputStandard = graph.Project.MixOutputStandard with { },
             Clips = Array.AsReadOnly(orderedClips), Markers = Array.AsReadOnly(markers.OrderBy(m => m.PositionSeconds).ToArray()),
+            ChapterRegions = Array.AsReadOnly(chapterRegions),
             Transcript = Array.AsReadOnly(CoalesceTranscript(transcript, transcriptSources).ToArray()), DurationSeconds = duration,
         };
     }
@@ -128,7 +147,31 @@ public sealed class AudioTimelineService(
         IReadOnlyDictionary<Guid, WordAlignmentDocument> Alignments, List<TimelinePlacement> Timelines,
         Dictionary<string, double> ChapterOffsets, List<MixEligibilityIssue> Issues, double DurationSeconds);
 
-    private async Task<LoadedGraph> LoadGraphAsync(string root, AudioTimelineScope scope, string? chapterId, bool forExport, CancellationToken token)
+    private static async Task<IReadOnlyList<ProductionCue>> LoadProductionCuesAsync(string root, VoiceBenchProjectDocument project,
+        AudioClipDocument clip, AudioAssetRecord asset, CancellationToken token)
+    {
+        // Directions may change independently of narration. Freeze the latest saved guidance only
+        // when its clean narration still describes this exact clip; stale previews use the take snapshot.
+        SegmentDocument? segment = project.Segments.FirstOrDefault(s => s.SegmentId == clip.SegmentId);
+        if (segment is not null && await ReadMatchingCuesAsync(segment.ScriptRelativePath).ConfigureAwait(false) is { } current) return current;
+        return asset.AuthoringSourceRelativePath is string snapshot
+            ? await ReadMatchingCuesAsync(snapshot).ConfigureAwait(false) ?? Array.Empty<ProductionCue>()
+            : Array.Empty<ProductionCue>();
+
+        async Task<IReadOnlyList<ProductionCue>?> ReadMatchingCuesAsync(string relativePath)
+        {
+            try
+            {
+                string authoring = await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, relativePath), token).ConfigureAwait(false);
+                var parsed = new ProductionScriptParser().Parse(authoring);
+                return SourceTextHasher.Compute(parsed.NarrationText).Equals(clip.SourceSha256, StringComparison.OrdinalIgnoreCase)
+                    ? Array.AsReadOnly(parsed.Cues.ToArray()) : null;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException) { return null; }
+        }
+    }
+
+    private async Task<LoadedGraph> LoadGraphAsync(string root, AudioTimelineScope scope, string? chapterId, bool forExport, CancellationToken token, bool verifyMedia = true)
     {
         var project = AudioTimelineRules.RegisterRenderAssets(await repository.LoadAsync(root, token).ConfigureAwait(false));
         var alignments = await LoadAlignmentsAsync(root, project, token).ConfigureAwait(false);
@@ -151,7 +194,7 @@ public sealed class AudioTimelineService(
                 if (index < chapters.Count - 1) duration += project.AudioStandard.ChapterPauseMilliseconds / 1000d;
             }
             placements.Add(new(requested, 0));
-            duration = requested.EndMarkerSeconds ?? Math.Max(duration, requested.Clips.Select(c =>
+            duration = requested.EndMarkerSeconds ?? Math.Max(duration, requested.Clips.Where(c => !c.Loop).Select(c =>
             {
                 try { return ResolveAnchor(c.Anchor, c.StartSeconds, 0, chapterOffsets, placements, alignments) + c.DurationSeconds; }
                 catch (InvalidOperationException) { return 0; }
@@ -160,6 +203,9 @@ public sealed class AudioTimelineService(
         List<MixEligibilityIssue> issues = [];
         foreach (var placement in placements)
         {
+            double scopeEnd = placement.Timeline.Scope == AudioTimelineScope.Compilation ? duration : TimelineDuration(placement.Timeline);
+            if (scopeEnd <= 0 && placement.Timeline.Clips.Any(c => c.Loop))
+                issues.Add(new("timeline.loop-end-required", "Set an explicit end marker or place non-looping content to define where the looping bed ends."));
             issues.AddRange(AudioTimelineRules.Validate(project, placement.Timeline, alignments, forExport).Issues);
             foreach (AudioClipDocument clip in placement.Timeline.Clips)
             {
@@ -172,8 +218,8 @@ public sealed class AudioTimelineService(
             }
         }
         if (forExport && scope == AudioTimelineScope.Compilation && placements.All(p => p.Timeline.Clips.Count == 0)) issues.Add(new("timeline.empty", "Place an audible clip before exporting the compilation."));
-        issues.AddRange(await ValidateSourceFilesAsync(root, project, placements, forExport, token).ConfigureAwait(false));
-        if (forExport && scope == AudioTimelineScope.Compilation && requested.EndMarkerSeconds is double end && placements.Where(p => p.Timeline.Scope == AudioTimelineScope.Chapter).Any(p => p.Timeline.Clips.Any(c => c.SegmentId is not null && !c.Muted && c.StartSeconds + c.DurationSeconds + p.OffsetSeconds > end))) issues.Add(new("timeline.end-cuts-narration", "Move the compilation end marker beyond all retained narration."));
+        issues.AddRange(await ValidateSourceFilesAsync(root, project, placements, forExport, token, verifyMedia).ConfigureAwait(false));
+        if (forExport && scope == AudioTimelineScope.Compilation && requested.EndMarkerSeconds is double end && placements.Where(p => p.Timeline.Scope == AudioTimelineScope.Chapter).Any(p => p.Timeline.Clips.Any(c => c.SegmentId is not null && !c.Muted && p.Timeline.Tracks.Any(t => t.TrackId == c.TrackId && !t.Muted) && c.StartSeconds + c.DurationSeconds + p.OffsetSeconds > end))) issues.Add(new("timeline.end-cuts-narration", "Move the compilation end marker beyond all retained narration."));
         return new(project, requested, alignments, placements, chapterOffsets, issues, duration);
     }
 
@@ -194,7 +240,7 @@ public sealed class AudioTimelineService(
         return timeline with { Clips = clips, ReplacementProposals = proposals };
     }
 
-    private static double TimelineDuration(AudioTimelineDocument timeline) => timeline.EndMarkerSeconds ?? timeline.Clips.Select(c => c.StartSeconds + c.DurationSeconds).DefaultIfEmpty(0).Max();
+    private static double TimelineDuration(AudioTimelineDocument timeline) => timeline.EndMarkerSeconds ?? timeline.Clips.Where(c => !c.Loop).Select(c => c.StartSeconds + c.DurationSeconds).DefaultIfEmpty(0).Max();
 
     private static double ResolveAnchor(TimelineAnchor anchor, double localStart, double timelineOffset,
         IReadOnlyDictionary<string, double> chapterOffsets, IReadOnlyList<TimelinePlacement> placements,
@@ -302,7 +348,7 @@ public sealed class AudioTimelineService(
         return result;
     }
 
-    private static async Task<IReadOnlyList<MixEligibilityIssue>> ValidateSourceFilesAsync(string root, VoiceBenchProjectDocument project, IReadOnlyList<TimelinePlacement> placements, bool forExport, CancellationToken token)
+    private static async Task<IReadOnlyList<MixEligibilityIssue>> ValidateSourceFilesAsync(string root, VoiceBenchProjectDocument project, IReadOnlyList<TimelinePlacement> placements, bool forExport, CancellationToken token, bool verifyMedia = true)
     {
         List<MixEligibilityIssue> issues = [];
         HashSet<Guid> checkedAssets = [];
@@ -311,7 +357,7 @@ public sealed class AudioTimelineService(
         {
             AudioAssetRecord? asset = project.AudioAssets.FirstOrDefault(a => a.AssetId == clip.AssetId);
             if (asset is null) continue;
-            if (checkedAssets.Add(asset.AssetId))
+            if (verifyMedia && checkedAssets.Add(asset.AssetId))
             {
                 try
                 {

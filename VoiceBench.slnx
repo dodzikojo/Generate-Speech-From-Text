@@ -1,7 +1,5 @@
 <Solution>
   <Configurations>
-    <BuildType Name="Debug" />
-    <BuildType Name="Release" />
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/src/">
@@ -11,6 +9,7 @@
       <Platform Project="x64" />
       <Deploy />
     </Project>
+    <Project Path="src/VoiceBench.Audio/VoiceBench.Audio.csproj" />
     <Project Path="src/VoiceBench.Cli/VoiceBench.Cli.csproj" />
     <Project Path="src/VoiceBench.Core/VoiceBench.Core.csproj" />
     <Project Path="src/VoiceBench.Infrastructure/VoiceBench.Infrastructure.csproj" />
@@ -19,6 +18,7 @@
     <Project Path="tests/VoiceBench.Application.Tests/VoiceBench.Application.Tests.csproj" />
     <Project Path="tests/VoiceBench.Mcp.Tests/VoiceBench.Mcp.Tests.csproj" />
     <Project Path="tests/VoiceBench.App.Tests/VoiceBench.App.Tests.csproj" />
+    <Project Path="tests/VoiceBench.Audio.Tests/VoiceBench.Audio.Tests.csproj" />
     <Project Path="tests/VoiceBench.Core.Tests/VoiceBench.Core.Tests.csproj" />
     <Project Path="tests/VoiceBench.Infrastructure.Tests/VoiceBench.Infrastructure.Tests.csproj" />
   </Folder>

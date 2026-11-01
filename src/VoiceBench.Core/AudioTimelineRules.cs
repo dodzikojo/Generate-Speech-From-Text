@@ -329,7 +329,9 @@ public static class AudioTimelineRules
         {
             foreach (string id in timeline.PlaceholderSegmentIds.Distinct(StringComparer.Ordinal)) issues.Add(new("timeline.segment-unplaced", "Place or explicitly omit every narration segment.", null, id));
             if (timeline.Clips.Count == 0 && timeline.Scope == AudioTimelineScope.Chapter) Issue("timeline.empty", "Place an audible clip before exporting this chapter.");
-            if (timeline.EndMarkerSeconds is double end && timeline.Clips.Any(c => c.SegmentId is not null && !c.Muted && c.StartSeconds + c.DurationSeconds > end)) Issue("timeline.end-cuts-narration", "Move the end marker beyond all retained narration.");
+            if (timeline.EndMarkerSeconds is double end && timeline.Clips.Any(c => c.SegmentId is not null && !c.Muted
+                && !timeline.Tracks.Any(t => t.TrackId == c.TrackId && t.Muted)
+                && c.StartSeconds + c.DurationSeconds > end)) Issue("timeline.end-cuts-narration", "Move the end marker beyond all retained narration.");
         }
         return new(issues);
     }

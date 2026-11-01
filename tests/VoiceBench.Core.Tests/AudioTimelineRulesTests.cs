@@ -236,6 +236,16 @@ public sealed class AudioTimelineRulesTests
         Assert.True(AudioTimelineRules.Validate(project, timeline).CanExport);
     }
 
+    [Fact]
+    public void End_marker_may_omit_the_tail_of_a_persistently_muted_narration_track()
+    {
+        var project=Fixture();
+        var timeline=Timeline(project);
+        timeline=timeline with {Tracks=timeline.Tracks.Select(t=>t with {Muted=true}).ToList(),EndMarkerSeconds=.25};
+        var validation=AudioTimelineRules.Validate(project,timeline,forExport:true);
+        Assert.DoesNotContain(validation.Issues,i=>i.Code=="timeline.end-cuts-narration");
+    }
+
     private static VoiceBenchProjectDocument Fixture()
     {
         var render = new RenderRecord { RenderId = Take, Status = RenderStatus.Approved, AudioSha256 = "audio-hash", RawAudioRelativePath = "04-generated-audio/take.wav", SourceSha256 = "source-hash", CleanSourceRelativePath = "03-render-copies/take.clean.md", Duration = TimeSpan.FromSeconds(1), SampleRate = 48_000, Channels = 1 };

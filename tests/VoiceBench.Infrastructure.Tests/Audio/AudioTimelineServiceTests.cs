@@ -10,6 +10,43 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Audio;
 public sealed class AudioTimelineServiceTests
 {
     [Fact]
+    public async Task Compilation_regions_freeze_included_chapter_order_offsets_and_durations_beyond_short_overlays()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await repository.CreateAsync(directory.Root,"Chapter context");
+        var asset = new AudioAssetRecord { RelativePath = "01-source/overlay.wav",Sha256 = Hash([4,5]),DurationSeconds = 3,SampleRate = 48000,Channels = 2 };
+        await File.WriteAllBytesAsync(Path.Combine(directory.Root,asset.RelativePath),[4,5]);
+        var track = new AudioTrackDocument { Kind = AudioTrackKind.Music };
+        project = project with
+        {
+            AudioStandard = project.AudioStandard with { ChapterPauseMilliseconds = 1500 },
+            ChapterOrder = ["b","excluded","archived","a"],
+            Chapters = [new() { ChapterId = "a",Title = "First" },new() { ChapterId = "b",Title = "Second" },
+                new() { ChapterId = "excluded",IncludedInCompilation = false },new() { ChapterId = "archived",Status = ChapterStatus.Archived }],
+            AudioAssets = [asset],AudioTimelines =
+            [new() { Scope = AudioTimelineScope.Chapter,ChapterId = "a",EndMarkerSeconds = 5 },
+             new() { Scope = AudioTimelineScope.Chapter,ChapterId = "b",EndMarkerSeconds = 7 },
+             new() { Scope = AudioTimelineScope.Compilation,Tracks = [track],Clips = [new() { TrackId = track.TrackId,AssetId = asset.AssetId,AssetSha256 = asset.Sha256,DurationSeconds = 3 }] }],
+        };
+        await repository.SaveAsync(directory.Root,project);
+        string manifest = await File.ReadAllTextAsync(Path.Combine(directory.Root,VoiceBenchProjectLayout.ManifestFileName));
+        var service = new AudioTimelineService(repository);
+        var plan = await service.BuildPreviewPlanAsync(directory.Root,AudioTimelineScope.Compilation);
+        Assert.Equal(new[] { "b","a" },plan.ChapterRegions.Select(region => region.ChapterId));
+        Assert.Equal(new[] { "Second","First" },plan.ChapterRegions.Select(region => region.Title));
+        Assert.Equal(new[] { 0L,TimelineTime.ToFrames(8.5) },plan.ChapterRegions.Select(region => region.StartFrame));
+        Assert.Equal(new[] { TimelineTime.ToFrames(7),TimelineTime.ToFrames(5) },plan.ChapterRegions.Select(region => region.DurationFrames));
+        Assert.Equal(13.5,plan.DurationSeconds);
+        Assert.Equal(AudioTrackKind.Music,Assert.Single(plan.Clips).Track.Kind);
+        Assert.Equal(manifest,await File.ReadAllTextAsync(Path.Combine(directory.Root,VoiceBenchProjectLayout.ManifestFileName)));
+        var chapter = await service.BuildPreviewPlanAsync(directory.Root,AudioTimelineScope.Chapter,"a");
+        Assert.Equal(new MixChapterRegion("a","First",0,TimelineTime.ToFrames(5)),Assert.Single(chapter.ChapterRegions));
+        await repository.SaveAsync(directory.Root,project with { ChapterOrder = ["a","b"],Chapters = project.Chapters.Select(item => item with { Title = "Renamed" }).ToList() });
+        Assert.Equal("Second",plan.ChapterRegions[0].Title);
+    }
+
+    [Fact]
     public async Task Batch_is_one_undoable_command_and_stale_revision_is_rejected()
     {
         using TemporaryDirectory directory = new();
@@ -238,6 +275,49 @@ public sealed class AudioTimelineServiceTests
         var plan = await new AudioTimelineService(repository).BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
         Assert.Equal(processed, Assert.Single(plan.Clips).Asset.RelativePath);
         Assert.Equal(Hash([3, 4]), plan.Clips[0].Asset.Sha256);
+    }
+
+    [Fact]
+    public async Task Cue_only_edits_export_latest_guidance_but_stale_narration_cannot_replace_pinned_text_or_cues()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        const string original = "@visual: Original guidance.\nOne two.";
+        const string snapshotPath = "03-render-copies/take.authoring.md";
+        await File.WriteAllTextAsync(Path.Combine(directory.Root, snapshotPath), original);
+        var render = await AddAlignmentAsync(directory.Root, project.Segments[0].RenderHistory[0] with
+        {
+            Duration = TimeSpan.FromSeconds(.02), AuthoringSourceRelativePath = snapshotPath,
+            AuthoringSourceSha256 = SourceTextHasher.Compute(original),
+        }, [new("One", TimeSpan.FromSeconds(.002), TimeSpan.FromSeconds(.006), 0, 0), new("two", TimeSpan.FromSeconds(.01), TimeSpan.FromSeconds(.018), 1, 1)], 2);
+        await repository.SaveAsync(directory.Root, project with { Segments = [project.Segments[0] with { RenderHistory = [render] }] });
+        string canonical = Path.Combine(directory.Root, "02-scripts/script.md");
+        await File.WriteAllTextAsync(canonical, "@visual: Updated guidance.\nOne two.\n@note: Latest trailing guidance.");
+        var service = new AudioTimelineService(repository);
+        var plan = await service.BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal(["Updated guidance.", "Latest trailing guidance."], Assert.Single(plan.Clips).ProductionCues.Select(c => c.Content));
+        Assert.Equal("One two.", Assert.Single(plan.Transcript).Text);
+
+        // Export consumes the frozen current-guidance plan even if the canonical script changes later.
+        await File.WriteAllTextAsync(canonical, "Different narration.\n@action: Stale guidance must not leak.");
+        var runner = new AudioAssetServiceTests.AudioProcessFake();
+        var assets = new AudioAssetService(repository, runner, AudioAssetServiceTests.Tools);
+        var exported = await new MixExportService(assets, runner, AudioAssetServiceTests.Tools).ExportAsync(directory.Root, plan, "Guidance");
+        string cuePath = VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, exported.CueSheetRelativePath);
+        string csv = await File.ReadAllTextAsync(cuePath);
+        string production = await File.ReadAllTextAsync(cuePath[..^".cues.csv".Length] + ".production.md");
+        Assert.Contains("Updated guidance.", csv); Assert.Contains("Latest trailing guidance.", csv);
+        Assert.Contains(",2,false,,", csv); // An end-of-script cue has no following aligned word.
+        Assert.Contains("- Unplaced: @note: Latest trailing guidance.", production);
+        Assert.DoesNotContain("Stale guidance", production);
+        Assert.Equal("One two.", await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, exported.TranscriptRelativePath)));
+
+        var preview = await service.BuildPreviewPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal("Original guidance.", Assert.Single(Assert.Single(preview.Clips).ProductionCues).Content);
+        Assert.Equal("One two.", Assert.Single(preview.Transcript).Text);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter"));
+        Assert.Equal(original, await File.ReadAllTextAsync(Path.Combine(directory.Root, snapshotPath)));
     }
 
     [Fact]
