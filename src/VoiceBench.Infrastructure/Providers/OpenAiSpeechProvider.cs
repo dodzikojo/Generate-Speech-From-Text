@@ -9,10 +9,24 @@ namespace IssueLab.VoiceBench.Infrastructure.Providers;
 public sealed class OpenAiSpeechProvider : HttpSpeechProviderBase
 {
     private static readonly Uri SpeechEndpoint = new("https://api.openai.com/v1/audio/speech");
-    private static readonly string[] Voices =
+    // OpenAI publishes the voice names and recommends Marin and Cedar for best quality,
+    // but does not publish per-voice adjectives. The remaining tags are VoiceBench
+    // listening profiles intended to make auditioning and selection faster.
+    private static readonly SpeechVoiceDescriptor[] Voices =
     [
-        "alloy", "ash", "ballad", "coral", "echo", "fable", "nova",
-        "onyx", "sage", "shimmer", "verse", "marin", "cedar",
+        new("alloy", "Alloy", ["Neutral", "Balanced"]),
+        new("ash", "Ash", ["Clear", "Conversational"]),
+        new("ballad", "Ballad", ["Warm", "Emotive"]),
+        new("coral", "Coral", ["Bright", "Friendly"]),
+        new("echo", "Echo", ["Smooth", "Resonant"]),
+        new("fable", "Fable", ["Expressive", "Narrative"]),
+        new("nova", "Nova", ["Energetic", "Polished"]),
+        new("onyx", "Onyx", ["Deep", "Authoritative"]),
+        new("sage", "Sage", ["Calm", "Measured"]),
+        new("shimmer", "Shimmer", ["Light", "Gentle"]),
+        new("verse", "Verse", ["Natural", "Versatile"]),
+        new("marin", "Marin", ["Natural", "Recommended"]),
+        new("cedar", "Cedar", ["Clear", "Recommended"]),
     ];
 
     private static readonly SpeechProviderDescriptor ProviderDescriptor = new(

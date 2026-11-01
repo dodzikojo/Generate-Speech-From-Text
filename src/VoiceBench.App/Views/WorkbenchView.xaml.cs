@@ -36,6 +36,10 @@ public sealed partial class WorkbenchView : UserControl
     private string _loadedDiskHash = string.Empty;
     private bool _ignoreTextChanges;
     private bool _isDirty;
+    private bool _ignoreDirectionChanges;
+    private bool _directionsDirty;
+    private string? _directionDraftSegmentId;
+    private string _loadedDirectionText = string.Empty;
     private bool _externalOverwriteApproved;
     private CancellationTokenSource? _renderCancellation;
     private CancellationTokenSource? _alignmentCancellation;
@@ -78,6 +82,8 @@ public sealed partial class WorkbenchView : UserControl
         [],
         0,
         false);
+
+    private bool HasUnsavedSegmentChanges => _isDirty || _directionsDirty;
 
     private sealed record RailItem(
         string Title,
@@ -260,9 +266,9 @@ public sealed partial class WorkbenchView : UserControl
         SpeechModelDescriptor model = provider.Models.Single(item => item.ModelId == modelId);
         string? currentVoice = preferredVoice ?? GetSelectedContentOrNull(VoiceComboBox);
         VoiceComboBox.Items.Clear();
-        foreach (string voice in model.Voices)
+        foreach (SpeechVoiceDescriptor voice in model.VoiceDescriptors)
         {
-            VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice, Tag = voice });
+            VoiceComboBox.Items.Add(VoiceComboBoxItemFactory.Create(voice));
         }
 
         string selectedVoice = currentVoice is not null && model.Voices.Contains(currentVoice, StringComparer.OrdinalIgnoreCase)
@@ -508,7 +514,7 @@ public sealed partial class WorkbenchView : UserControl
         };
         if (item?.SegmentId is not string segmentId ||
             _segment?.SegmentId == segmentId) return;
-        if (_isDirty && !await SaveCurrentScriptAsync())
+        if ((_isDirty || _directionsDirty) && !await SaveCurrentScriptAsync())
         {
             SelectTakeRailItem(_segment?.SegmentId);
             return;
@@ -671,7 +677,7 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (_ignoreCompactPicker || CompactSegmentPicker.SelectedItem is not ComboBoxItem { Tag: string segmentId } ||
             _segment?.SegmentId == segmentId) return;
-        if (_isDirty && !await SaveCurrentScriptAsync())
+        if ((_isDirty || _directionsDirty) && !await SaveCurrentScriptAsync())
         {
             SelectTakeRailItem(_segment?.SegmentId);
             return;
@@ -1871,8 +1877,8 @@ public sealed partial class WorkbenchView : UserControl
         bool hasEditor = _segment is not null && ScriptTextBox.IsEnabled;
         bool editorUndo = hasEditor && (_pendingEditorUndo is not null || _editorUndoHistory.Count > 0);
         bool editorRedo = hasEditor && _editorRedoHistory.Count > 0;
-        bool durableUndo = !_isDirty && _authoringHistory.CanUndo;
-        bool durableRedo = !_isDirty && _authoringHistory.CanRedo;
+        bool durableUndo = !HasUnsavedSegmentChanges && _authoringHistory.CanUndo;
+        bool durableRedo = !HasUnsavedSegmentChanges && _authoringHistory.CanRedo;
         UndoAuthoringButton.IsEnabled = !_authoringHistoryOperationInProgress && (editorUndo || durableUndo);
         RedoAuthoringButton.IsEnabled = !_authoringHistoryOperationInProgress && (editorRedo || durableRedo);
         AuthoringHistoryButton.IsEnabled = !_authoringHistoryOperationInProgress && _authoringHistory.Transactions.Count > 0;
@@ -1882,14 +1888,14 @@ public sealed partial class WorkbenchView : UserControl
                 ? "Undo the latest editor change (Ctrl+Z)"
                 : durableUndo
                     ? $"Undo saved action: {_authoringHistory.NextUndo!.Label} (Ctrl+Z)"
-                    : _isDirty ? "Finish or save the current edit before undoing saved actions" : "Nothing to undo");
+                    : HasUnsavedSegmentChanges ? "Finish or save the current edit before undoing saved actions" : "Nothing to undo");
         ToolTipService.SetToolTip(
             RedoAuthoringButton,
             editorRedo
                 ? "Redo the latest editor change (Ctrl+Y)"
                 : durableRedo
                     ? $"Redo saved action: {_authoringHistory.NextRedo!.Label} (Ctrl+Y)"
-                    : _isDirty ? "Finish or save the current edit before redoing saved actions" : "Nothing to redo");
+                    : HasUnsavedSegmentChanges ? "Finish or save the current edit before redoing saved actions" : "Nothing to redo");
     }
 
     private async void UndoAuthoring_Click(object sender, RoutedEventArgs e)
@@ -1944,7 +1950,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private async Task ApplyDurableHistoryAsync(bool undo)
     {
-        if (!App.Services.Session.HasProject || _isDirty)
+        if (!App.Services.Session.HasProject || HasUnsavedSegmentChanges)
         {
             ShowStatus(
                 InfoBarSeverity.Warning,
@@ -2213,7 +2219,13 @@ public sealed partial class WorkbenchView : UserControl
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(editorText);
         string newHash = SourceTextHasher.Compute(parsed.NarrationText);
         string authoringHash = SourceTextHasher.Compute(editorText);
-        SegmentDocument updated = SegmentStateRules.WithSourceHashes(_segment, newHash, authoringHash);
+        string? normalizedDirections = string.IsNullOrWhiteSpace(DirectionTextBox.Text)
+            ? null
+            : DirectionTextBox.Text.Trim();
+        SegmentDocument updated = SegmentStateRules.WithSourceHashes(_segment, newHash, authoringHash) with
+        {
+            Directions = normalizedDirections,
+        };
         int index = _project.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
         List<SegmentDocument> segments = [.. _project.Segments];
         segments[index] = updated;
@@ -2241,6 +2253,9 @@ public sealed partial class WorkbenchView : UserControl
         _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
         _isDirty = false;
+        _directionsDirty = false;
+        _directionDraftSegmentId = null;
+        _loadedDirectionText = normalizedDirections ?? string.Empty;
         ResetEditorHistory();
         ExternalEditBar.IsOpen = false;
         UpdateEditorStats();
@@ -2761,11 +2776,9 @@ public sealed partial class WorkbenchView : UserControl
             presets.Add(preset);
         }
 
-        updated = project with
-        {
-            VoicePresets = presets,
-            DefaultVoicePresetId = setAsProjectDefault ? preset.PresetId : project.DefaultVoicePresetId,
-        };
+        updated = project with { VoicePresets = presets };
+        if (setAsProjectDefault)
+            updated = ProjectVoiceSelectionRules.SetProjectVoice(updated, preset.PresetId);
         return preset;
     }
 
@@ -2791,9 +2804,40 @@ public sealed partial class WorkbenchView : UserControl
     {
         string? presetId = segment.VoicePresetId ?? project.DefaultVoicePresetId;
         VoicePreset? preset = project.VoicePresets.SingleOrDefault(item => item.PresetId == presetId);
-        if (preset is null) return;
-        SetPresetControls(preset);
-        DirectionTextBox.Text = segment.Directions ?? preset.Directions ?? string.Empty;
+        if (preset is not null) SetPresetControls(preset);
+
+        if (_directionsDirty && string.Equals(_directionDraftSegmentId, segment.SegmentId, StringComparison.Ordinal))
+            return;
+
+        SetDirectionText(segment.Directions ?? preset?.Directions ?? string.Empty);
+    }
+
+    private void DirectionTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_ignoreDirectionChanges || _segment is null) return;
+        _directionsDirty = !string.Equals(
+            DirectionTextBox.Text.Trim(),
+            _loadedDirectionText,
+            StringComparison.Ordinal);
+        _directionDraftSegmentId = _directionsDirty ? _segment.SegmentId : null;
+        UpdateEditorStats();
+        UpdateUndoRedoState();
+    }
+
+    private void SetDirectionText(string text)
+    {
+        _ignoreDirectionChanges = true;
+        try
+        {
+            DirectionTextBox.Text = text;
+            _loadedDirectionText = text.Trim();
+            _directionsDirty = false;
+            _directionDraftSegmentId = null;
+        }
+        finally
+        {
+            _ignoreDirectionChanges = false;
+        }
     }
 
     private void SetPresetControls(VoicePreset preset)
@@ -3224,7 +3268,7 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         string diagnostics = parsed.HasErrors ? $"  ·  {parsed.Diagnostics.Count} ISSUE{(parsed.Diagnostics.Count == 1 ? "" : "S")}" : string.Empty;
-        SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  {timing}  ·  {(_isDirty ? "UNSAVED" : "SAVED")}{diagnostics}";
+        SegmentStatsText.Text = $"{parsed.NarrationWordCount} SPOKEN WORDS  ·  {parsed.Cues.Count} CUES  ·  {timing}  ·  {(HasUnsavedSegmentChanges ? "UNSAVED" : "SAVED")}{diagnostics}";
         return parsed;
     }
 

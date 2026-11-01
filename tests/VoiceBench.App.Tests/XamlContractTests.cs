@@ -151,6 +151,9 @@ public sealed class XamlContractTests
         Assert.DoesNotContain("Target=\"DirectorRow.Height\" Value=\"360\"", source, StringComparison.Ordinal);
         Assert.Contains("ApplyWorkspacePanelLayout(width, height)", codeBehind, StringComparison.Ordinal);
         Assert.Contains("GridUnitType.Star", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TextChanged=\"DirectionTextBox_TextChanged\"", source, StringComparison.Ordinal);
+        Assert.Contains("_directionsDirty", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("Directions = normalizedDirections", codeBehind, StringComparison.Ordinal);
 
         var triggerWidths = document.Descendants()
             .Where(element => element.Name.LocalName == "AdaptiveTrigger")
@@ -345,6 +348,8 @@ public sealed class XamlContractTests
         string workbenchCode = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
         Assert.Contains("Use as project voice", workbench, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateSelectedVoicePreset", workbenchCode, StringComparison.Ordinal);
+        Assert.Contains("ProjectVoiceSelectionRules.SetProjectVoice", workbenchCode, StringComparison.Ordinal);
+        Assert.Contains("ProjectVoiceSelectionRules.SetProjectVoice", File.ReadAllText(RepositoryPaths.App("Views/VoiceLabView.xaml.cs")), StringComparison.Ordinal);
         Assert.DoesNotContain("A/B audition required", workbench, StringComparison.Ordinal);
         Assert.DoesNotContain("has not completed the project A/B audition", workbenchCode, StringComparison.Ordinal);
 
@@ -376,6 +381,8 @@ public sealed class XamlContractTests
         Assert.Contains("PopulateProviderControls", workbench, StringComparison.Ordinal);
         Assert.Contains("ProviderComboBox_SelectionChanged", workbench, StringComparison.Ordinal);
         Assert.Contains("ModelComboBox_SelectionChanged", workbench, StringComparison.Ordinal);
+        Assert.Contains("VoiceComboBoxItemFactory.Create", voiceLab, StringComparison.Ordinal);
+        Assert.Contains("VoiceComboBoxItemFactory.Create", workbench, StringComparison.Ordinal);
     }
 
     [Fact]

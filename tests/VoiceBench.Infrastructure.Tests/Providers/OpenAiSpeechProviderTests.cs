@@ -16,6 +16,9 @@ public sealed class OpenAiSpeechProviderTests
         Assert.Equal(
             ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar"],
             provider.Descriptor.Models.Single().Voices);
+        Assert.All(provider.Descriptor.Models.Single().VoiceDescriptors, voice => Assert.NotEmpty(voice.Tags));
+        Assert.Contains("Recommended", provider.Descriptor.Models.Single().VoiceDescriptors.Single(voice => voice.VoiceId == "marin").Tags);
+        Assert.Contains("Recommended", provider.Descriptor.Models.Single().VoiceDescriptors.Single(voice => voice.VoiceId == "cedar").Tags);
     }
 
     [Fact]

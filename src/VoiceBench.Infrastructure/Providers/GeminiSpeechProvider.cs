@@ -10,13 +10,38 @@ namespace IssueLab.VoiceBench.Infrastructure.Providers;
 
 public sealed partial class GeminiSpeechProvider : HttpSpeechProviderBase
 {
-    private static readonly string[] Voices =
+    private static readonly SpeechVoiceDescriptor[] Voices =
     [
-        "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe",
-        "Callirrhoe", "Charon", "Despina", "Enceladus", "Erinome", "Fenrir", "Gacrux",
-        "Iapetus", "Kore", "Laomedeia", "Leda", "Orus", "Puck", "Pulcherrima",
-        "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel",
-        "Vindemiatrix", "Zephyr", "Zubenelgenubi",
+        new("Achernar", "Achernar", ["Soft"]),
+        new("Achird", "Achird", ["Friendly"]),
+        new("Algenib", "Algenib", ["Gravelly"]),
+        new("Algieba", "Algieba", ["Smooth"]),
+        new("Alnilam", "Alnilam", ["Firm"]),
+        new("Aoede", "Aoede", ["Breezy"]),
+        new("Autonoe", "Autonoe", ["Bright"]),
+        new("Callirrhoe", "Callirrhoe", ["Easy-going"]),
+        new("Charon", "Charon", ["Informative"]),
+        new("Despina", "Despina", ["Smooth"]),
+        new("Enceladus", "Enceladus", ["Breathy"]),
+        new("Erinome", "Erinome", ["Clear"]),
+        new("Fenrir", "Fenrir", ["Excitable"]),
+        new("Gacrux", "Gacrux", ["Mature"]),
+        new("Iapetus", "Iapetus", ["Clear"]),
+        new("Kore", "Kore", ["Firm"]),
+        new("Laomedeia", "Laomedeia", ["Upbeat"]),
+        new("Leda", "Leda", ["Youthful"]),
+        new("Orus", "Orus", ["Firm"]),
+        new("Puck", "Puck", ["Upbeat"]),
+        new("Pulcherrima", "Pulcherrima", ["Forward"]),
+        new("Rasalgethi", "Rasalgethi", ["Informative"]),
+        new("Sadachbia", "Sadachbia", ["Lively"]),
+        new("Sadaltager", "Sadaltager", ["Knowledgeable"]),
+        new("Schedar", "Schedar", ["Even"]),
+        new("Sulafat", "Sulafat", ["Warm"]),
+        new("Umbriel", "Umbriel", ["Easy-going"]),
+        new("Vindemiatrix", "Vindemiatrix", ["Gentle"]),
+        new("Zephyr", "Zephyr", ["Bright"]),
+        new("Zubenelgenubi", "Zubenelgenubi", ["Casual"]),
     ];
 
     private static readonly SpeechProviderDescriptor ProviderDescriptor = new(

@@ -414,7 +414,9 @@
                                 <ComboBox x:Name="VoiceComboBox" Header="Voice" />
                                 <Button Content="Use as project voice" Style="{StaticResource QuietButtonStyle}"
                                         HorizontalAlignment="Stretch" Click="UseProjectVoice_Click" />
-                                <TextBox x:Name="DirectionTextBox" Header="Direction" AcceptsReturn="True" Height="112" PlaceholderText="Calm, measured, technically clear." />
+                                <TextBox x:Name="DirectionTextBox" Header="Direction" AcceptsReturn="True" Height="112"
+                                         PlaceholderText="Calm, measured, technically clear."
+                                         TextChanged="DirectionTextBox_TextChanged" />
                                 <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0">
                                     <StackPanel Spacing="8">
                                         <Grid>

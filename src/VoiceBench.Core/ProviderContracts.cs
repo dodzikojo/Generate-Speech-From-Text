@@ -6,7 +6,17 @@ public sealed record SpeechModelDescriptor(
     string ModelId,
     string DisplayName,
     int MaxInputTokens,
-    IReadOnlyList<string> Voices);
+    IReadOnlyList<SpeechVoiceDescriptor> VoiceDescriptors)
+{
+    public IReadOnlyList<string> Voices { get; } = VoiceDescriptors
+        .Select(voice => voice.VoiceId)
+        .ToArray();
+}
+
+public sealed record SpeechVoiceDescriptor(
+    string VoiceId,
+    string DisplayName,
+    IReadOnlyList<string> Tags);
 
 public sealed record SpeechProviderDescriptor(
     string ProviderId,

@@ -1,5 +1,6 @@
 using IssueLab.VoiceBench.App.Services;
 using IssueLab.VoiceBench.App.Layout;
+using IssueLab.VoiceBench.App.Controls;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Providers;
@@ -79,9 +80,9 @@ public sealed partial class VoiceLabView : UserControl
         SpeechModelDescriptor model = provider.Models.Single(item => item.ModelId == modelId);
         string? currentVoice = preferredVoice ?? (voiceBox.SelectedItem as ComboBoxItem)?.Tag as string;
         voiceBox.Items.Clear();
-        foreach (string voice in model.Voices)
+        foreach (SpeechVoiceDescriptor voice in model.VoiceDescriptors)
         {
-            voiceBox.Items.Add(new ComboBoxItem { Content = voice, Tag = voice });
+            voiceBox.Items.Add(VoiceComboBoxItemFactory.Create(voice));
         }
 
         SelectTaggedValue(voiceBox, currentVoice ?? model.Voices[0]);
@@ -312,7 +313,10 @@ public sealed partial class VoiceLabView : UserControl
                 renderedIds);
             List<VoicePreset> presets = project.VoicePresets.Where(item => item.PresetId != presetId).ToList();
             presets.Add(preset);
-            await App.Services.Session.SaveAsync(project with { VoicePresets = presets, DefaultVoicePresetId = presetId });
+            VoiceBenchProjectDocument updated = ProjectVoiceSelectionRules.SetProjectVoice(
+                project with { VoicePresets = presets },
+                presetId);
+            await App.Services.Session.SaveAsync(updated);
             ShowStatus(InfoBarSeverity.Success, $"Voice {slot} selected", $"{preset.ProviderId} / {preset.ModelId} / {preset.Voice} is now the project voice. No audition was required.");
         }
         catch (Exception exception)

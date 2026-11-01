@@ -246,7 +246,7 @@ public sealed class SegmentRenderServiceTests
                     "gpt-4o-mini-tts",
                     "GPT-4o mini TTS",
                     2_000,
-                    ["marin"]),
+                    [new SpeechVoiceDescriptor("marin", "Marin", ["Recommended"])]),
             ]);
 
         public SpeechSynthesisRequest? Request { get; private set; }
