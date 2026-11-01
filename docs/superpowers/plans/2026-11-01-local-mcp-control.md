@@ -79,7 +79,13 @@ Branch: codex/local-mcp-control. Parent checkpoint: 78efcaf.
 - Shared application/ownership: 0ef8675, codex/local-mcp-application.
 - MCP host and bridge: 91d6114, codex/local-mcp-bridge.
 - Desktop/audio/CLI: f0af1ed, codex/local-mcp-desktop.
-- Packaging and verified delivery: codex/local-mcp-control (final slice in the stack).
+- Packaging and verified delivery: 06b6a3c, codex/local-mcp-control.
+- Stacked PRs in review order: [#3](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/3)
+  → [#4](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/4)
+  → [#5](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/5)
+  → [#6](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/6).
+  The first PR targets the secured synchronized-playback prerequisite; later PRs target
+  the preceding slice. They have not been merged into master.
 
 Record test counts, runtime outcomes, package version, PRs and remaining limitations
 here before delivery. Never claim an unverified surface works.
