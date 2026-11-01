@@ -142,6 +142,12 @@ public sealed partial class AutomationDispatcher
                 {
                     SegmentDocument current = SegmentStateRules.WithSourceHashes(RequireSegment(p, args), SourceTextHasher.Compute(parsed.NarrationText), SourceTextHasher.Compute(text));
                     RenderRecord render = current.RenderHistory.SingleOrDefault(item => item.RenderId == Id(args, "renderId")) ?? throw new AutomationException("render.not-found", "The explicit take does not belong to the segment.");
+                    if (render.Origin == RenderOrigin.Imported)
+                    {
+                        if (!Bool(args,"confirmedTranscript")) throw new AutomationException("render.transcript-confirmation-required","Confirm that the recording matches its attached source transcript before approval.");
+                        render=render with { ReferenceTranscriptConfirmed=true };
+                        current=current with { RenderHistory=current.RenderHistory.Select(item=>item.RenderId==render.RenderId?render:item).ToList() };
+                    }
                     if (string.IsNullOrWhiteSpace(render.RawAudioRelativePath) || !File.Exists(VoiceBenchProjectLayout.ResolveRelativePath(root, render.RawAudioRelativePath))) throw new AutomationException("render.audio-missing", "The selected take has no raw audio artifact.");
                     return ReplaceSegment(p, SegmentStateRules.ApproveRender(current, render.RenderId, DateTimeOffset.UtcNow, Bool(args, "explicitlyApproveStaleSource")));
                 }, ct).ConfigureAwait(false);
@@ -280,7 +286,7 @@ public sealed partial class AutomationDispatcher
         return new { proposal, project = Project };
     }
 
-    private static readonly string[] ArtifactDirectories = ["03-render-copies", "04-generated-audio", "05-masters", "06-exports", "07-reports"];
+    private static readonly string[] ArtifactDirectories = ["01-source/audio", "03-render-copies", "04-generated-audio", "05-masters", "06-exports", "07-reports"];
     public static string ResolveArtifact(string root, string relative)
     {
         string normalized = relative.Replace('\\', '/');

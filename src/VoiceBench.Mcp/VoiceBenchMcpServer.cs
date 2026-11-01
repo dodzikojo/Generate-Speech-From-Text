@@ -28,11 +28,14 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
         ("jobs", "jobs.list", "Durable job status and progress"),
         ("proposals", "writing.proposals.list", "Local writing proposals"),
         ("exports", "exports.list", "Project exports and artifacts"),
+        ("mix", "mix.get", "Compilation arrangement and revision"),
+        ("assets", "assets.list", "Bounded immutable audio asset catalog"),
+        ("mix-playback", "mix.playback.get", "Shared mix playback target, clock and monitor state"),
     ];
 
     public McpServerOptions CreateOptions() => new()
     {
-        ServerInfo = new() { Name = "VoiceBench", Version = "1.0.0" },
+        ServerInfo = new() { Name = "VoiceBench", Version = "1.1.0" },
         // Pin the mature session protocol so resource subscriptions work with generic clients.
         ProtocolVersion = "2025-11-25",
         ServerInstructions = "VoiceBench controls the visible local Windows desktop. Discovery never launches it. The first tool call or resource read attaches or launches it. Read current editor revisions before edits; text ranges are UTF-16. Supply requestId for durable writes. Select providers/models/voices explicitly; credentials are only entered in the desktop secure UI.",
@@ -85,6 +88,14 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
                     Name = "artifact-metadata",
                     Description = "Original project artifact metadata. Read small text artifacts with artifacts.read; request bounded audio previews with artifacts.audio-preview.",
                     MimeType = "application/json",
+                }, new ResourceTemplate
+                {
+                    UriTemplate = "voicebench:///mixes/chapters/{chapterId}", Name = "chapter-mix",
+                    Description = "Chapter audio arrangement and current optimistic revision.", MimeType = "application/json",
+                }, new ResourceTemplate
+                {
+                    UriTemplate = "voicebench:///assets/{assetId}/waveform{?offset,count}", Name = "audio-waveform",
+                    Description = "A bounded page of source waveform min/max buckets; count 1–4096.", MimeType = "application/json",
                 }],
             }),
             ReadResourceHandler = async (request, cancellationToken) => await ReadResourceAsync(request.Params.Uri, cancellationToken),
@@ -194,6 +205,29 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
     {
         foreach (var resource in Resources)
             if (uri == "voicebench:///" + resource.Path) return new(resource.Command, AutomationJson.Element(new { }));
+        const string mixPrefix="voicebench:///mixes/chapters/";
+        if(uri.StartsWith(mixPrefix,StringComparison.Ordinal))
+        {
+            string chapter=Uri.UnescapeDataString(uri[mixPrefix.Length..]);
+            if(string.IsNullOrWhiteSpace(chapter)||chapter.IndexOfAny(['/', '\\', '?', '#'])>=0)throw new McpProtocolException("Invalid chapter mix identifier.",McpErrorCode.InvalidParams);
+            return new("mix.get",AutomationJson.Element(new {scope="Chapter",chapterId=chapter}));
+        }
+        const string assetPrefix="voicebench:///assets/";
+        if(uri.StartsWith(assetPrefix,StringComparison.Ordinal))
+        {
+            string[] parts=uri[assetPrefix.Length..].Split('?',2);
+            string[] path=parts[0].Split('/');
+            if(path.Length!=2||path[1]!="waveform"||!Guid.TryParse(path[0],out var asset))throw new McpProtocolException("Invalid asset waveform identifier.",McpErrorCode.InvalidParams);
+            int offset=0,count=512;
+            var seen=new HashSet<string>();
+            if(parts.Length==2)foreach(string item in parts[1].Split('&'))
+            {
+                string[] p=item.Split('=',2);
+                if(p.Length!=2||!seen.Add(p[0])||p[0] is not("offset" or "count")||!int.TryParse(p[1],out int value)||value<0||p[0]=="count"&&value is <1 or >4096)throw new McpProtocolException("Use nonnegative offset and count 1–4096.",McpErrorCode.InvalidParams);
+                if(p[0]=="offset")offset=value;else count=value;
+            }
+            return new("assets.waveform",AutomationJson.Element(new {assetId=asset,offset,count}));
+        }
         const string prefix = "voicebench:///segments/";
         const string suffix = "/text";
         var queryIndex = uri.IndexOf('?');

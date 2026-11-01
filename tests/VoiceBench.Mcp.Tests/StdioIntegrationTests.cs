@@ -42,8 +42,10 @@ public sealed class StdioIntegrationTests
             Assert.NotNull(tool.Annotations);
             Assert.Equal("object", tool.InputSchema.GetProperty("type").GetString());
         });
-        Assert.Equal(7, (await client.ListResourcesAsync()).Count);
-        Assert.Equal(2, (await client.ListResourceTemplatesAsync()).Count);
+        Assert.Equal(10, (await client.ListResourcesAsync()).Count);
+        Assert.Equal(4, (await client.ListResourceTemplatesAsync()).Count);
+        Assert.Contains(tools, tool => tool.Name == "voicebench_mix_clip_split");
+        Assert.Contains(tools, tool => tool.Name == "voicebench_assets_import");
     }
 
     [Fact]
