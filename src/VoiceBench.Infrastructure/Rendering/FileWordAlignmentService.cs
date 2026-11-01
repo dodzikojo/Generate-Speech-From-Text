@@ -340,12 +340,17 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         WordAlignmentRecord attempt,
         CancellationToken cancellationToken)
     {
-        SegmentDocument segment = project.Segments[segmentIndex];
-        List<RenderRecord> renders = [.. segment.RenderHistory];
-        renders[renderIndex] = renders[renderIndex] with { AlignmentHistory = [.. renders[renderIndex].AlignmentHistory, attempt] };
-        List<SegmentDocument> segments = [.. project.Segments];
-        segments[segmentIndex] = segment with { RenderHistory = renders };
-        await _projects.SaveAsync(root, project with { Segments = segments }, cancellationToken).ConfigureAwait(false);
+        string segmentId = project.Segments[segmentIndex].SegmentId;
+        Guid renderId = project.Segments[segmentIndex].RenderHistory[renderIndex].RenderId;
+        await ProjectDocumentUpdater.UpdateAsync(_projects, root, latest =>
+        {
+            var found = FindRender(latest, segmentId, renderId);
+            List<RenderRecord> renders = [.. found.Segment.RenderHistory];
+            renders[found.RenderIndex] = found.Render with { AlignmentHistory = [.. found.Render.AlignmentHistory, attempt] };
+            List<SegmentDocument> segments = [.. latest.Segments];
+            segments[found.SegmentIndex] = found.Segment with { RenderHistory = renders };
+            return latest with { Segments = segments };
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ReplaceAttemptAsync(
@@ -355,17 +360,19 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         WordAlignmentRecord attempt,
         CancellationToken cancellationToken)
     {
-        VoiceBenchProjectDocument project = await _projects.LoadAsync(root, cancellationToken).ConfigureAwait(false);
-        (int segmentIndex, int renderIndex, SegmentDocument segment, RenderRecord render) = FindRender(project, segmentId, renderId);
-        int attemptIndex = render.AlignmentHistory.FindIndex(item => item.AlignmentId == attempt.AlignmentId);
-        if (attemptIndex < 0) throw new InvalidOperationException("The alignment attempt disappeared from the project manifest.");
-        List<WordAlignmentRecord> attempts = [.. render.AlignmentHistory];
-        attempts[attemptIndex] = attempt;
-        List<RenderRecord> renders = [.. segment.RenderHistory];
-        renders[renderIndex] = render with { AlignmentHistory = attempts };
-        List<SegmentDocument> segments = [.. project.Segments];
-        segments[segmentIndex] = segment with { RenderHistory = renders };
-        await _projects.SaveAsync(root, project with { Segments = segments }, cancellationToken).ConfigureAwait(false);
+        await ProjectDocumentUpdater.UpdateAsync(_projects, root, project =>
+        {
+            var (segmentIndex, renderIndex, segment, render) = FindRender(project, segmentId, renderId);
+            int attemptIndex = render.AlignmentHistory.FindIndex(item => item.AlignmentId == attempt.AlignmentId);
+            if (attemptIndex < 0) throw new InvalidOperationException("The alignment attempt disappeared from the project manifest.");
+            List<WordAlignmentRecord> attempts = [.. render.AlignmentHistory];
+            attempts[attemptIndex] = attempt;
+            List<RenderRecord> renders = [.. segment.RenderHistory];
+            renders[renderIndex] = render with { AlignmentHistory = attempts };
+            List<SegmentDocument> segments = [.. project.Segments];
+            segments[segmentIndex] = segment with { RenderHistory = renders };
+            return project with { Segments = segments };
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static (int SegmentIndex, int RenderIndex, SegmentDocument Segment, RenderRecord Render) FindRender(

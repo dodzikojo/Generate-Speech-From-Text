@@ -203,9 +203,12 @@ public sealed class SegmentRenderService
             throw new InvalidOperationException("The requested render could not claim its queue position.");
         }
 
-        var renderingSegment = currentSegment with { Status = SegmentStatus.Rendering };
-        project = ReplaceSegment(project, segmentIndex, renderingSegment);
-        await _projects.SaveAsync(root, project, cancellationToken).ConfigureAwait(false);
+        project = await ProjectDocumentUpdater.UpdateAsync(_projects, root, latest =>
+        {
+            int latestIndex = latest.Segments.FindIndex(item => item.SegmentId == currentSegment.SegmentId);
+            if (latestIndex < 0) throw new InvalidOperationException("The segment was removed before rendering began.");
+            return ReplaceSegment(latest, latestIndex, latest.Segments[latestIndex] with { Status = SegmentStatus.Rendering });
+        }, cancellationToken).ConfigureAwait(false);
         var manifestRecorded = false;
 
         try
@@ -236,13 +239,18 @@ public sealed class SegmentRenderService
                 AudioSha256 = Convert.ToHexStringLower(SHA256.HashData(synthesis.Audio)),
                 ProviderResponseId = synthesis.ProviderResponseId,
             };
-            var renderedSegment = currentSegment with
+            project = await ProjectDocumentUpdater.UpdateAsync(_projects, root, latest =>
             {
-                Status = SegmentStatus.Rendered,
-                RenderHistory = [.. currentSegment.RenderHistory, record],
-            };
-            project = ReplaceSegment(project, segmentIndex, renderedSegment);
-            await _projects.SaveAsync(root, project, cancellationToken).ConfigureAwait(false);
+                int latestIndex = latest.Segments.FindIndex(item => item.SegmentId == currentSegment.SegmentId);
+                if (latestIndex < 0) throw new InvalidOperationException("The segment was removed while audio was generated; its raw audio remains on disk.");
+                SegmentDocument latestSegment = latest.Segments[latestIndex];
+                bool currentSource = string.Equals(latestSegment.SourceSha256, record.SourceSha256, StringComparison.OrdinalIgnoreCase);
+                return ReplaceSegment(latest, latestIndex, latestSegment with
+                {
+                    Status = currentSource ? SegmentStatus.Rendered : SegmentStatus.Stale,
+                    RenderHistory = [.. latestSegment.RenderHistory, record],
+                });
+            }, cancellationToken).ConfigureAwait(false);
             manifestRecorded = true;
             await _queue.CompleteAsync(queueJob.JobId, rawRelativePath, cancellationToken).ConfigureAwait(false);
 
@@ -359,18 +367,19 @@ public sealed class SegmentRenderService
         {
             Status = cancelled ? RenderStatus.Cancelled : RenderStatus.Failed,
         };
-        var failedSegment = currentSegment with
-        {
-            Status = cancelled ? currentSegment.Status : SegmentStatus.PickupRequired,
-            RenderHistory = [.. currentSegment.RenderHistory, failedRecord],
-        };
-
         try
         {
-            await _projects.SaveAsync(
-                projectRoot,
-                ReplaceSegment(project, segmentIndex, failedSegment),
-                CancellationToken.None).ConfigureAwait(false);
+            await ProjectDocumentUpdater.UpdateAsync(_projects, projectRoot, latest =>
+            {
+                int index = latest.Segments.FindIndex(item => item.SegmentId == currentSegment.SegmentId);
+                if (index < 0) return latest;
+                SegmentDocument segment = latest.Segments[index];
+                return ReplaceSegment(latest, index, segment with
+                {
+                    Status = cancelled ? currentSegment.Status : SegmentStatus.PickupRequired,
+                    RenderHistory = [.. segment.RenderHistory, failedRecord],
+                });
+            }, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

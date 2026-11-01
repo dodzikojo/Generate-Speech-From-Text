@@ -46,9 +46,12 @@ public sealed class FileProjectRepository(
         return document;
     }
 
-    public async Task<VoiceBenchProjectDocument> LoadAsync(
+    public Task<VoiceBenchProjectDocument> LoadAsync(
         string projectRoot,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => LoadCoreAsync(projectRoot, true, cancellationToken);
+
+    private async Task<VoiceBenchProjectDocument> LoadCoreAsync(
+        string projectRoot, bool persistMigration, CancellationToken cancellationToken)
     {
         string root = Path.GetFullPath(projectRoot);
         string manifestPath = Path.Combine(root, VoiceBenchProjectLayout.ManifestFileName);
@@ -73,7 +76,7 @@ public sealed class FileProjectRepository(
             ? parsed
             : null;
         VoiceBenchProjectDocument document = _migrator.Deserialize(jsonObject, ProjectJson.SerializerOptions);
-        if (storedVersion is int version && version < VoiceBenchProjectDocument.CurrentSchemaVersion)
+        if (persistMigration && storedVersion is int version && version < VoiceBenchProjectDocument.CurrentSchemaVersion)
         {
             await SaveAsync(root, document, cancellationToken).ConfigureAwait(false);
         }
@@ -85,6 +88,33 @@ public sealed class FileProjectRepository(
         string projectRoot,
         VoiceBenchProjectDocument document,
         CancellationToken cancellationToken = default)
+    {
+        SemaphoreSlim gate = ProjectDocumentUpdater.Gate(projectRoot);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { await SaveCoreAsync(projectRoot, document, cancellationToken).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
+
+    public async Task<VoiceBenchProjectDocument> UpdateAsync(
+        string projectRoot,
+        Func<VoiceBenchProjectDocument, VoiceBenchProjectDocument> update,
+        CancellationToken cancellationToken = default)
+    {
+        SemaphoreSlim gate = ProjectDocumentUpdater.Gate(projectRoot);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await LoadCoreAsync(projectRoot, false, cancellationToken).ConfigureAwait(false);
+            await SaveCoreAsync(projectRoot, update(current), cancellationToken).ConfigureAwait(false);
+            return await LoadCoreAsync(projectRoot, false, cancellationToken).ConfigureAwait(false);
+        }
+        finally { gate.Release(); }
+    }
+
+    private async Task SaveCoreAsync(
+        string projectRoot,
+        VoiceBenchProjectDocument document,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
         string root = Path.GetFullPath(projectRoot);

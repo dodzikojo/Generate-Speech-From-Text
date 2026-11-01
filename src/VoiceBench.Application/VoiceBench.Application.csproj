@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <RootNamespace>IssueLab.VoiceBench.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VoiceBench.Core\VoiceBench.Core.csproj" />
+    <ProjectReference Include="..\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

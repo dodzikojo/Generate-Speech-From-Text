@@ -11,6 +11,60 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Rendering;
 public sealed class SegmentRenderServiceTests
 {
     [Fact]
+    public async Task Render_completion_preserves_edits_made_while_the_provider_is_running()
+    {
+        using var directory = new TemporaryDirectory();
+        var repository = new FileProjectRepository();
+        var project = await repository.CreateAsync(directory.Root, "Before rendering");
+        const string scriptPath = "02-scripts/segment.md";
+        await File.WriteAllTextAsync(Path.Combine(directory.Root, scriptPath), "Original narration.");
+        project = project with
+        {
+            Segments = [new SegmentDocument
+            {
+                SegmentId = "segment", ScriptRelativePath = scriptPath,
+                SourceSha256 = SourceTextHasher.Compute("Original narration."),
+                VoicePresetId = "voice", Status = SegmentStatus.Ready,
+            }],
+            VoicePresets = [new VoicePreset
+            {
+                PresetId = "voice", ProviderId = "openai", ModelId = "gpt-4o-mini-tts", Voice = "marin",
+            }],
+        };
+        await repository.SaveAsync(directory.Root, project);
+        var provider = new RecordingSpeechProvider
+        {
+            DuringSynthesis = async () =>
+            {
+                var current = await repository.LoadAsync(directory.Root);
+                await repository.SaveAsync(directory.Root, current with
+                {
+                    Name = "Renamed while rendering",
+                    Segments = [current.Segments[0] with
+                    {
+                        Title = "Edited title", Directions = "New direction",
+                        SourceSha256 = SourceTextHasher.Compute("Updated narration."),
+                    }],
+                });
+            },
+        };
+        using var queue = new FileRenderQueue(Path.Combine(directory.Root, "queue.json"));
+        var service = new SegmentRenderService(repository, new SpeechProviderRegistry([provider]),
+            new ProviderCredentialResolver(new StaticCredentialStore("key"), _ => null), queue, new ImmutableRenderStore());
+
+        await service.RenderAsync(directory.Root, "segment");
+
+        var reloaded = await repository.LoadAsync(directory.Root);
+        Assert.Equal("Renamed while rendering", reloaded.Name);
+        var segment = Assert.Single(reloaded.Segments);
+        Assert.Equal("Edited title", segment.Title);
+        Assert.Equal("New direction", segment.Directions);
+        Assert.Equal(SourceTextHasher.Compute("Updated narration."), segment.SourceSha256);
+        Assert.Equal(SegmentStatus.Stale, segment.Status);
+        Assert.Single(segment.RenderHistory);
+    }
+
+    [Fact]
     public async Task RenderAsync_CreatesExactCopyPersistsRawAudioAndUpdatesManifest()
     {
         using var directory = new TemporaryDirectory();
@@ -255,7 +309,9 @@ public sealed class SegmentRenderServiceTests
 
         public Exception? Failure { get; init; }
 
-        public Task<SpeechSynthesisResult> SynthesizeAsync(
+        public Func<Task>? DuringSynthesis { get; init; }
+
+        public async Task<SpeechSynthesisResult> SynthesizeAsync(
             SpeechSynthesisRequest request,
             string apiKey,
             CancellationToken cancellationToken)
@@ -265,15 +321,16 @@ public sealed class SegmentRenderServiceTests
             ApiKey = apiKey;
             if (Failure is not null)
             {
-                return Task.FromException<SpeechSynthesisResult>(Failure);
+                throw Failure;
             }
 
-            return Task.FromResult(new SpeechSynthesisResult(
+            if (DuringSynthesis is not null) await DuringSynthesis();
+            return new SpeechSynthesisResult(
                 ProviderTestAudio.Wave(),
                 "audio/wav",
                 24_000,
                 1,
-                "provider-response"));
+                "provider-response");
         }
     }
 
