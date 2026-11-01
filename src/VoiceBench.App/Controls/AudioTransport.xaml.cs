@@ -54,6 +54,35 @@ public sealed partial class AudioTransport : UserControl
 
     public bool HasAudio => _sourcePath is not null;
 
+    public object GetPlaybackStatus() => new
+    {
+        hasAudio = HasAudio,
+        label = _audioLabel,
+        state = _player?.PlaybackSession.PlaybackState.ToString() ?? "None",
+        positionSeconds = _player?.PlaybackSession.Position.TotalSeconds ?? 0,
+        durationSeconds = _knownDuration.TotalSeconds,
+    };
+
+    public void Play()
+    {
+        if (_sourcePath is null) throw new InvalidOperationException("Select an audio take before playing it.");
+        EnsurePlayer();
+        if (_player!.Source is null) SetMediaSource();
+        if (_knownDuration > TimeSpan.Zero && _player.PlaybackSession.Position >= _knownDuration - TimeSpan.FromMilliseconds(250))
+            _player.PlaybackSession.Position = TimeSpan.Zero;
+        PlaybackStarted?.Invoke(this, EventArgs.Empty);
+        _player.Play();
+    }
+
+    public void Seek(TimeSpan position)
+    {
+        if (_player is null || _sourcePath is null) throw new InvalidOperationException("Select an audio take before seeking.");
+        if (position < TimeSpan.Zero || (_knownDuration > TimeSpan.Zero && position > _knownDuration))
+            throw new ArgumentOutOfRangeException(nameof(position), "Seek must be within the loaded audio duration.");
+        _player.PlaybackSession.Position = position;
+        UpdatePositionUi(position);
+    }
+
     public void LoadAudio(string path, string label, TimeSpan duration)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -158,14 +187,7 @@ public sealed partial class AudioTransport : UserControl
             return;
         }
 
-        if (_knownDuration > TimeSpan.Zero
-            && _player.PlaybackSession.Position >= _knownDuration - TimeSpan.FromMilliseconds(250))
-        {
-            _player.PlaybackSession.Position = TimeSpan.Zero;
-        }
-
-        PlaybackStarted?.Invoke(this, EventArgs.Empty);
-        _player.Play();
+        Play();
     }
 
     private void Restart_Click(object sender, RoutedEventArgs e)
@@ -220,7 +242,7 @@ public sealed partial class AudioTransport : UserControl
         {
             _positionTimer.Stop();
             SetPlaybackState("PLAYBACK FAILED", isPlaying: false);
-            PlaybackStateText.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FailureBrush"];
+            PlaybackStateText.Foreground = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["FailureBrush"];
             RaiseState(AudioTransportState.Failed);
         });
 
@@ -258,7 +280,7 @@ public sealed partial class AudioTransport : UserControl
         PositionSlider.Value = 0;
         _updatingPosition = false;
         AudioLabelText.Text = _audioLabel.ToUpperInvariant();
-        PlaybackStateText.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MutedTextBrush"];
+        PlaybackStateText.Foreground = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["MutedTextBrush"];
         DurationText.Text = FormatTime(_knownDuration);
         CurrentTimeText.Text = "00:00";
         SetPlaybackState(hasAudio ? "READY" : "NO AUDIO", isPlaying: false);

@@ -7,6 +7,7 @@
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\VoiceBench.Application\VoiceBench.Application.csproj" />
     <ProjectReference Include="..\VoiceBench.Core\VoiceBench.Core.csproj" />
     <ProjectReference Include="..\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
   </ItemGroup>

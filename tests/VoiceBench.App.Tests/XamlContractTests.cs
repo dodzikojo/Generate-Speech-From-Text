@@ -206,7 +206,8 @@ public sealed class XamlContractTests
         Assert.Contains("_cueFormatTimer.Stop()", codeBehind, StringComparison.Ordinal);
         Assert.Contains("_cueFormatTimer.Start()", codeBehind, StringComparison.Ordinal);
         Assert.DoesNotContain("BackgroundColor =", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("ExportProductionPackAsync", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("RunTrackedJobAsync<ProductionExportResult>", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("\"exports.create\"", codeBehind, StringComparison.Ordinal);
     }
 
     [Fact]

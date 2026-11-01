@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using IssueLab.VoiceBench.App.Controls;
+using IssueLab.VoiceBench.App.Automation;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
@@ -42,6 +43,7 @@ public sealed partial class WorkbenchView : UserControl
     private string _loadedDirectionText = string.Empty;
     private bool _externalOverwriteApproved;
     private CancellationTokenSource? _renderCancellation;
+    private CancellationTokenSource? _renderRequestCancellation;
     private CancellationTokenSource? _alignmentCancellation;
     private WritingProposal? _pendingWritingProposal;
     private WritingAction _pendingWritingAction;
@@ -53,9 +55,11 @@ public sealed partial class WorkbenchView : UserControl
     private string? _monitoredProjectRoot;
     private int _scriptChangeVersion;
     private int _projectChangeVersion;
+    private Task _pendingProjectRefresh = Task.CompletedTask;
     private int _transportLoadVersion;
     private bool _suppressProjectChangedReload;
     private string _lastEditorText = string.Empty;
+    private string _lastEditorDirections = string.Empty;
     private DispatcherQueueTimer? _cueFormatTimer;
     private DispatcherQueueTimer? _editorHistoryTimer;
     private bool _ignoreCueToggle;
@@ -94,7 +98,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private sealed record RevisionChoice(Guid RevisionId, bool RestorePreviousText);
 
-    private sealed record EditorHistorySnapshot(string Text, int SelectionStart, int SelectionEnd);
+    private sealed record EditorHistorySnapshot(string Text, int SelectionStart, int SelectionEnd, string? Directions = null);
 
     private sealed record FollowEditorSnapshot(
         int SelectionStart,
@@ -124,6 +128,7 @@ public sealed partial class WorkbenchView : UserControl
         SetSelectedContent(ProviderComboBox, "OpenAI");
         PopulateProviderControls("openai", "gpt-4o-mini-tts", "marin");
         PopulateWritingProviders();
+        VoiceComboBox.SelectionChanged += (_, _) => InvalidateAutomationRevision();
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width, args.NewSize.Height);
         Loaded += WorkbenchView_Loaded;
         Unloaded += WorkbenchView_Unloaded;
@@ -230,12 +235,14 @@ public sealed partial class WorkbenchView : UserControl
     private void ProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ModelComboBox is null || VoiceComboBox is null || ProviderComboBox.SelectedItem is null) return;
+        InvalidateAutomationRevision();
         PopulateProviderControls(GetSelectedProviderId(), null, null);
     }
 
     private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (VoiceComboBox is null || ModelComboBox.SelectedItem is null || ProviderComboBox.SelectedItem is null) return;
+        InvalidateAutomationRevision();
         PopulateVoiceControls(GetSelectedProviderId(), null);
     }
 
@@ -312,11 +319,17 @@ public sealed partial class WorkbenchView : UserControl
         SetSelectedContent(WritingModelComboBox, preferredModel ?? provider.Models[0].ModelId);
     }
 
-    private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e) => await LoadProjectAsync();
+    private async void WorkbenchView_Loaded(object sender, RoutedEventArgs e)
+    {
+        _pendingProjectRefresh = LoadProjectAsync();
+        await _pendingProjectRefresh;
+    }
 
     private void WorkbenchView_Unloaded(object sender, RoutedEventArgs e)
     {
         EndFollowSession();
+        _renderCancellation?.Cancel();
+        _renderRequestCancellation?.Cancel();
         _alignmentCancellation?.Cancel();
         _alignmentCancellation?.Dispose();
         _alignmentCancellation = null;
@@ -337,11 +350,36 @@ public sealed partial class WorkbenchView : UserControl
         if (_suppressProjectChangedReload) return;
         int version = Interlocked.Increment(ref _projectChangeVersion);
         string? preferredSegmentId = _segment?.SegmentId;
-        _ = DispatcherQueue.TryEnqueue(async () =>
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingProjectRefresh = completion.Task;
+        if (!DispatcherQueue.TryEnqueue(async () =>
         {
-            if (_suppressProjectChangedReload || version != _projectChangeVersion) return;
-            await LoadProjectAsync(preferredSegmentId);
-        });
+            try
+            {
+                if (_suppressProjectChangedReload || version != _projectChangeVersion)
+                {
+                    completion.TrySetResult();
+                    return;
+                }
+                await LoadProjectAsync(preferredSegmentId);
+                completion.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                ShowStatus(InfoBarSeverity.Error, "Project refresh stopped", Actionable(exception));
+                completion.TrySetException(exception);
+            }
+        })) completion.TrySetException(new InvalidOperationException("The desktop is closing."));
+    }
+
+    internal async Task WaitForProjectRefreshAsync(CancellationToken cancellationToken)
+    {
+        Task pending;
+        do
+        {
+            pending = _pendingProjectRefresh;
+            await pending.WaitAsync(cancellationToken);
+        } while (!ReferenceEquals(pending, _pendingProjectRefresh));
     }
 
     private async Task LoadProjectAsync(string? preferredSegmentId = null)
@@ -366,6 +404,10 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         string projectRoot = App.Services.Session.RequireProjectRoot();
+        bool preserveDraft = HasUnsavedSegmentChanges && _segment is not null &&
+            string.Equals(_monitoredProjectRoot, projectRoot, StringComparison.OrdinalIgnoreCase) &&
+            App.Services.Session.RequireProject().Segments.Any(item => item.SegmentId == _segment.SegmentId) &&
+            (preferredSegmentId is null || preferredSegmentId == _segment.SegmentId);
         if (!string.Equals(_alignmentRecoveryRoot, projectRoot, StringComparison.OrdinalIgnoreCase))
         {
             _alignmentRecoveryRoot = projectRoot;
@@ -413,7 +455,17 @@ public sealed partial class WorkbenchView : UserControl
 
         SetEditorAvailability(hasSegment: true, showEmptyState: false);
         SelectTakeRailItem(segmentId);
-        await LoadSegmentAsync(segmentId);
+        preserveDraft = preserveDraft || (HasUnsavedSegmentChanges && _segment?.SegmentId == segmentId &&
+            string.Equals(_monitoredProjectRoot, projectRoot, StringComparison.OrdinalIgnoreCase));
+        if (preserveDraft && _segment?.SegmentId == segmentId)
+        {
+            _segment = _project.Segments.Single(item => item.SegmentId == segmentId);
+            UpdateEditorStats();
+            PopulateTakeSelector(_segment);
+            PopulateWritingRevisions(_segment);
+            if (!_directionsDirty) LoadSegmentPreset(_project, _segment);
+        }
+        else await LoadSegmentAsync(segmentId);
         WorkbenchInfoBar.IsOpen = false;
         await RefreshAuthoringHistoryAsync();
     }
@@ -455,7 +507,7 @@ public sealed partial class WorkbenchView : UserControl
                     $"{chapter.SegmentOrder.Count} segments  ·  {approved} approved  ·  {(chapter.IncludedInCompilation ? "included" : "excluded")}",
                     chapter.ChapterId,
                     null,
-                    (Brush)Application.Current.Resources[chapter.IncludedInCompilation ? "ActiveSignalBrush" : "MutedTextBrush"]),
+                    (Brush)Microsoft.UI.Xaml.Application.Current.Resources[chapter.IncludedInCompilation ? "ActiveSignalBrush" : "MutedTextBrush"]),
             };
             int segmentNumber = 0;
             foreach (string segmentId in chapter.SegmentOrder)
@@ -501,7 +553,7 @@ public sealed partial class WorkbenchView : UserControl
             SegmentStatus.Ready or SegmentStatus.Rendering or SegmentStatus.Rendered => "ActiveSignalBrush",
             _ => "MutedTextBrush",
         };
-        return (Brush)Application.Current.Resources[resourceKey];
+        return (Brush)Microsoft.UI.Xaml.Application.Current.Resources[resourceKey];
     }
 
     private async void ChapterTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
@@ -686,15 +738,22 @@ public sealed partial class WorkbenchView : UserControl
         await LoadSegmentAsync(segmentId);
     }
 
-    private async Task LoadSegmentAsync(string segmentId)
+    private async Task LoadSegmentAsync(string segmentId, bool discardDraft = false)
     {
         EndFollowSession();
+        string rootAtStart = App.Services.Session.RequireProjectRoot();
+        string? segmentAtStart = _segment?.SegmentId;
+        string revisionAtStart = _automationRevision;
         VoiceBenchProjectDocument project = _project ?? App.Services.Session.RequireProject();
         int index = project.Segments.FindIndex(item => item.SegmentId == segmentId);
         if (index < 0) return;
         SegmentDocument segment = project.Segments[index];
         string path = App.Services.Session.ResolveProjectPath(segment.ScriptRelativePath);
         string text = await File.ReadAllTextAsync(path);
+        if (!string.Equals(rootAtStart, App.Services.Session.ProjectRoot, StringComparison.OrdinalIgnoreCase) ||
+            _segment?.SegmentId != segmentAtStart) return;
+        if (discardDraft && revisionAtStart != _automationRevision) return;
+        if (!discardDraft && HasUnsavedSegmentChanges && _segment?.SegmentId == segmentId) return;
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
         string sourceHash = SourceTextHasher.Compute(parsed.NarrationText);
         string authoringHash = SourceTextHasher.Compute(text);
@@ -1155,7 +1214,7 @@ public sealed partial class WorkbenchView : UserControl
         ListView references = CreateReferencePicker(project, []);
         StackPanel fields = new() { Spacing = 10 };
         foreach (UIElement item in new UIElement[] { titleBox, goalBox, audienceBox, toneBox, cueToggle, durationBox, providerBox, modelBox,
-            new TextBlock { Text = "Only checked local references are sent", Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"] }, references })
+            new TextBlock { Text = "Only checked local references are sent", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["UtilityLabelTextStyle"] }, references })
             fields.Children.Add(item);
         ContentDialog setup = new()
         {
@@ -1429,7 +1488,7 @@ public sealed partial class WorkbenchView : UserControl
         content.Children.Add(new TextBlock
         {
             Text = "EDITORIAL READ",
-            FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+            FontFamily = (FontFamily)Microsoft.UI.Xaml.Application.Current.Resources["UtilityFont"],
             FontSize = 11,
             CharacterSpacing = 110,
             Foreground = ThemeBrush("ActiveSignalBrush"),
@@ -1448,7 +1507,7 @@ public sealed partial class WorkbenchView : UserControl
             warningList.Children.Add(new TextBlock
             {
                 Text = critique.Warnings.Count == 1 ? "1 EDITORIAL NOTE" : $"{critique.Warnings.Count} EDITORIAL NOTES",
-                FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+                FontFamily = (FontFamily)Microsoft.UI.Xaml.Application.Current.Resources["UtilityFont"],
                 FontSize = 11,
                 CharacterSpacing = 80,
                 Foreground = ThemeBrush("PickupBrush"),
@@ -1625,7 +1684,7 @@ public sealed partial class WorkbenchView : UserControl
     private static TextBlock CreateWritingMetrics(ParsedScriptDocument original, ParsedScriptDocument proposal) => new()
     {
         Text = $"{original.NarrationWordCount} → {proposal.NarrationWordCount} WORDS   ·   {original.Cues.Count} → {proposal.Cues.Count} CUES   ·   {FormatDuration(SegmentRenderService.EstimateDuration(original.NarrationText))} → {FormatDuration(SegmentRenderService.EstimateDuration(proposal.NarrationText))}",
-        FontFamily = (FontFamily)Application.Current.Resources["UtilityFont"],
+        FontFamily = (FontFamily)Microsoft.UI.Xaml.Application.Current.Resources["UtilityFont"],
         FontSize = 11,
         CharacterSpacing = 45,
         Foreground = ThemeBrush("MutedTextBrush"),
@@ -1702,7 +1761,7 @@ public sealed partial class WorkbenchView : UserControl
             .Replace('\r', '\n')
             .Replace("\n", Environment.NewLine, StringComparison.Ordinal);
 
-    private static Brush ThemeBrush(string key) => (Brush)Application.Current.Resources[key];
+    private static Brush ThemeBrush(string key) => (Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
 
     private async Task<ChapterOutline?> ReviewOutlineAsync(ChapterOutline outline)
     {
@@ -1830,11 +1889,16 @@ public sealed partial class WorkbenchView : UserControl
         Func<CancellationToken, Task> action,
         CancellationToken cancellationToken = default)
     {
-        await App.Services.AuthoringTransactions.ExecuteAsync(
-            App.Services.Session.RequireProjectRoot(),
-            label,
-            action,
-            cancellationToken);
+        async Task<bool> ExecuteAsync()
+        {
+            await App.Services.AuthoringTransactions.ExecuteAsync(
+                App.Services.Session.RequireProjectRoot(), label, action, cancellationToken);
+            return true;
+        }
+        if (App.Services.Automation is { } automation)
+            await automation.Coordinator.ExecuteAsync(
+                () => DesktopAutomationAdapter.OnDispatcherAsync(DispatcherQueue, ExecuteAsync, cancellationToken), cancellationToken);
+        else await ExecuteAsync();
         await RefreshAuthoringHistoryAsync();
     }
 
@@ -2029,7 +2093,7 @@ public sealed partial class WorkbenchView : UserControl
                         new TextBlock
                         {
                             Text = $"{transaction.CreatedAt.LocalDateTime:g}  ·  {state}",
-                            Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"],
+                            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["UtilityLabelTextStyle"],
                         },
                     },
                 },
@@ -2095,12 +2159,14 @@ public sealed partial class WorkbenchView : UserControl
             _pendingEditorUndo = new EditorHistorySnapshot(
                 _lastEditorText,
                 _lastEditorSelectionStart,
-                _lastEditorSelectionEnd);
+                _lastEditorSelectionEnd,
+                DirectionTextBox.Text);
         }
         _editorRedoHistory.Clear();
         _editorHistoryTimer?.Stop();
         _editorHistoryTimer?.Start();
         _lastEditorText = currentText;
+        InvalidateAutomationRevision();
         CaptureEditorSelection();
         _isDirty = !string.Equals(currentText, _loadedText, StringComparison.Ordinal);
         ParsedScriptDocument parsed = UpdateEditorStats();
@@ -2124,14 +2190,15 @@ public sealed partial class WorkbenchView : UserControl
     private EditorHistorySnapshot CaptureEditorSnapshot()
     {
         ITextSelection selection = ScriptTextBox.Document.Selection;
-        return new EditorHistorySnapshot(GetEditorText(), selection.StartPosition, selection.EndPosition);
+        return new EditorHistorySnapshot(GetEditorText(), selection.StartPosition, selection.EndPosition, DirectionTextBox.Text);
     }
 
     private void CommitPendingEditorUndo()
     {
         _editorHistoryTimer?.Stop();
         if (_pendingEditorUndo is null) return;
-        if (!string.Equals(_pendingEditorUndo.Text, GetEditorText(), StringComparison.Ordinal))
+        if (!string.Equals(_pendingEditorUndo.Text, GetEditorText(), StringComparison.Ordinal) ||
+            !string.Equals(_pendingEditorUndo.Directions, DirectionTextBox.Text, StringComparison.Ordinal))
         {
             _editorUndoHistory.Add(_pendingEditorUndo);
             if (_editorUndoHistory.Count > EditorHistoryLimit) _editorUndoHistory.RemoveAt(0);
@@ -2177,6 +2244,16 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         _isDirty = !string.Equals(snapshot.Text, _loadedText, StringComparison.Ordinal);
+        if (snapshot.Directions is not null)
+        {
+            _ignoreDirectionChanges = true;
+            try { DirectionTextBox.Text = snapshot.Directions; }
+            finally { _ignoreDirectionChanges = false; }
+            _directionsDirty = !string.Equals(DirectionTextBox.Text.Trim(), _loadedDirectionText, StringComparison.Ordinal);
+            _directionDraftSegmentId = _directionsDirty ? _segment?.SegmentId : null;
+        }
+        _lastEditorDirections = DirectionTextBox.Text;
+        InvalidateAutomationRevision();
         UpdateEditorStats();
         UpdateUndoRedoState();
         QueueCueFormatting();
@@ -2206,7 +2283,12 @@ public sealed partial class WorkbenchView : UserControl
             return false;
         }
 
-        string path = App.Services.Session.ResolveProjectPath(_segment.ScriptRelativePath);
+        VoiceBenchProjectDocument projectToSave = _project;
+        SegmentDocument segmentToSave = _segment;
+        string rootToSave = App.Services.Session.RequireProjectRoot();
+        string editorText = GetEditorText();
+        string directionText = DirectionTextBox.Text;
+        string path = App.Services.Session.ResolveProjectPath(segmentToSave.ScriptRelativePath);
         string externalHash = SourceTextHasher.Compute(await File.ReadAllTextAsync(path));
         if (!string.Equals(externalHash, _loadedDiskHash, StringComparison.OrdinalIgnoreCase) && !_externalOverwriteApproved)
         {
@@ -2215,22 +2297,21 @@ public sealed partial class WorkbenchView : UserControl
             return false;
         }
 
-        string editorText = GetEditorText();
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(editorText);
         string newHash = SourceTextHasher.Compute(parsed.NarrationText);
         string authoringHash = SourceTextHasher.Compute(editorText);
-        string? normalizedDirections = string.IsNullOrWhiteSpace(DirectionTextBox.Text)
+        string? normalizedDirections = string.IsNullOrWhiteSpace(directionText)
             ? null
-            : DirectionTextBox.Text.Trim();
-        SegmentDocument updated = SegmentStateRules.WithSourceHashes(_segment, newHash, authoringHash) with
+            : directionText.Trim();
+        SegmentDocument updated = SegmentStateRules.WithSourceHashes(segmentToSave, newHash, authoringHash) with
         {
             Directions = normalizedDirections,
         };
-        int index = _project.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
-        List<SegmentDocument> segments = [.. _project.Segments];
+        int index = projectToSave.Segments.FindIndex(item => item.SegmentId == segmentToSave.SegmentId);
+        List<SegmentDocument> segments = [.. projectToSave.Segments];
         segments[index] = updated;
         await ExecuteAuthoringTransactionAsync(
-            $"Save script: {_segment.Title}",
+            $"Save script: {segmentToSave.Title}",
             async cancellationToken =>
             {
                 string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
@@ -2239,7 +2320,7 @@ public sealed partial class WorkbenchView : UserControl
                     await File.WriteAllTextAsync(temporaryPath, editorText, cancellationToken);
                     File.Move(temporaryPath, path, overwrite: true);
                     await App.Services.Session.SaveAsync(
-                        _project with { Segments = segments },
+                        projectToSave with { Segments = segments },
                         cancellationToken);
                 }
                 finally
@@ -2247,16 +2328,17 @@ public sealed partial class WorkbenchView : UserControl
                     if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
                 }
             });
+        if (App.Services.Session.ProjectRoot != rootToSave || _segment?.SegmentId != segmentToSave.SegmentId) return true;
         _project = App.Services.Session.RequireProject();
         _segment = _project.Segments.Single(item => item.SegmentId == updated.SegmentId);
         _loadedText = editorText;
         _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
-        _isDirty = false;
-        _directionsDirty = false;
-        _directionDraftSegmentId = null;
         _loadedDirectionText = normalizedDirections ?? string.Empty;
-        ResetEditorHistory();
+        _isDirty = !string.Equals(GetEditorText(), editorText, StringComparison.Ordinal);
+        _directionsDirty = !string.Equals(DirectionTextBox.Text.Trim(), _loadedDirectionText, StringComparison.Ordinal);
+        _directionDraftSegmentId = _directionsDirty ? _segment.SegmentId : null;
+        if (!HasUnsavedSegmentChanges) ResetEditorHistory();
         ExternalEditBar.IsOpen = false;
         UpdateEditorStats();
         return true;
@@ -2265,7 +2347,7 @@ public sealed partial class WorkbenchView : UserControl
     private async void ReloadExternal_Click(object sender, RoutedEventArgs e)
     {
         if (_segment is null) return;
-        await LoadSegmentAsync(_segment.SegmentId);
+        await LoadSegmentAsync(_segment.SegmentId, discardDraft: true);
         ShowStatus(InfoBarSeverity.Informational, "External edit loaded", "The editor now shows the canonical file on disk.");
     }
 
@@ -2459,7 +2541,8 @@ public sealed partial class WorkbenchView : UserControl
         if (_project is null || !await SaveCurrentScriptAsync()) return;
         try
         {
-            ProductionExportResult result = await App.Services.ExportProductionPackAsync(_project.Name);
+            ProductionExportResult result = await App.Services.RunTrackedJobAsync<ProductionExportResult>(
+                "exports.create", new { name = _project.Name, scope = "Compilation" });
             ShowStatus(
                 InfoBarSeverity.Success,
                 "Production pack exported",
@@ -2616,7 +2699,7 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
 
-        if (_renderCancellation is not null)
+        if (_renderCancellation is not null || _renderRequestCancellation is not null)
         {
             ShowStatus(InfoBarSeverity.Warning, "A render is already active", "Cancel the current job or wait for it to finish.");
             return;
@@ -2624,26 +2707,15 @@ public sealed partial class WorkbenchView : UserControl
 
         try
         {
-            if (!await SaveCurrentScriptAsync()) return;
-            if (!ValidateScriptForRender()) return;
-            VoicePreset preset = GetOrCreateSelectedVoicePreset(
-                _project,
-                setAsProjectDefault: _project.DefaultVoicePresetId is null,
-                out VoiceBenchProjectDocument projectWithPreset);
-            int index = projectWithPreset.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
-            List<SegmentDocument> segments = [.. projectWithPreset.Segments];
-            segments[index] = _segment with { VoicePresetId = preset.PresetId, Directions = DirectionTextBox.Text.Trim(), Status = SegmentStatus.Ready };
-            VoiceBenchProjectDocument renderProject = projectWithPreset with { Segments = segments };
-            _project = renderProject;
-            _segment = segments[index];
-            await App.Services.Session.SaveAsync(renderProject);
+            if (!await PrepareCurrentRenderAsync()) return;
             ShowStatus(
                 InfoBarSeverity.Informational,
                 "Rendering audio, then aligning words",
                 "VoiceBench will save the take first, then request word timestamps from the same provider. Alignment cannot invalidate the audio.");
-            _renderCancellation = new CancellationTokenSource();
+            _renderRequestCancellation = new CancellationTokenSource();
             SetRenderQueueBusy(true);
-            SegmentRenderResult result = await App.Services.RenderSegmentAsync(_segment.SegmentId, _renderCancellation.Token);
+            SegmentRenderResult result = await App.Services.RunTrackedJobAsync<SegmentRenderResult>(
+                "render.start", new { segmentId = _segment.SegmentId }, _renderRequestCancellation.Token);
             string guidance = result.ExceedsFourMinuteGuidance ? " The estimated duration exceeds four minutes; split it before the next take." : string.Empty;
             string alignment = result.Alignment switch
             {
@@ -2668,19 +2740,41 @@ public sealed partial class WorkbenchView : UserControl
         }
         finally
         {
-            _renderCancellation?.Dispose();
-            _renderCancellation = null;
-            SetRenderQueueBusy(false);
+            _renderRequestCancellation?.Dispose();
+            _renderRequestCancellation = null;
+            SetRenderQueueBusy(_renderCancellation is not null);
         }
     }
 
-    private void CancelRender_Click(object sender, RoutedEventArgs e) => _renderCancellation?.Cancel();
+    private void CancelRender_Click(object sender, RoutedEventArgs e)
+    {
+        _renderCancellation?.Cancel();
+        _renderRequestCancellation?.Cancel();
+    }
+
+    private async Task<bool> PrepareCurrentRenderAsync()
+    {
+        if (!await SaveCurrentScriptAsync() || _project is null || _segment is null) return false;
+        if (!ValidateScriptForRender()) return false;
+        VoicePreset preset = GetOrCreateSelectedVoicePreset(
+            _project,
+            setAsProjectDefault: _project.DefaultVoicePresetId is null,
+            out VoiceBenchProjectDocument projectWithPreset);
+        int index = projectWithPreset.Segments.FindIndex(item => item.SegmentId == _segment.SegmentId);
+        List<SegmentDocument> segments = [.. projectWithPreset.Segments];
+        segments[index] = _segment with { VoicePresetId = preset.PresetId, Directions = DirectionTextBox.Text.Trim(), Status = SegmentStatus.Ready };
+        VoiceBenchProjectDocument renderProject = projectWithPreset with { Segments = segments };
+        await App.Services.Session.SaveAsync(renderProject);
+        _project = App.Services.Session.RequireProject();
+        _segment = _project.Segments.Single(item => item.SegmentId == segments[index].SegmentId);
+        return true;
+    }
 
     private void SetRenderQueueBusy(bool busy)
     {
         RenderQueueStatusText.Text = busy ? "1 ACTIVE" : "IDLE";
         RenderProgressBar.IsIndeterminate = busy;
-        RenderProgressBar.Value = busy ? 50 : 0;
+        RenderProgressBar.Value = 0;
         CancelRenderButton.IsEnabled = busy;
     }
 
@@ -2712,7 +2806,8 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             ShowStatus(InfoBarSeverity.Informational, "Preparing take", "VoiceBench is converting and verifying the latest generated take with FFmpeg.");
-            RenderRecord approved = await App.Services.ProcessAndApproveLatestAsync(_segment.SegmentId);
+            RenderRecord selected = GetSelectedRender() ?? throw new InvalidOperationException("Select a take before approving it.");
+            RenderRecord approved = await App.Services.ProcessAndApproveTakeAsync(_segment.SegmentId, selected.RenderId);
             ShowStatus(InfoBarSeverity.Success, $"Take {approved.TakeNumber:00} approved", "The processed take is approved against the current canonical source.");
         }
         catch (Exception exception)
@@ -2815,6 +2910,13 @@ public sealed partial class WorkbenchView : UserControl
     private void DirectionTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_ignoreDirectionChanges || _segment is null) return;
+        if (_pendingEditorUndo is null)
+            _pendingEditorUndo = new EditorHistorySnapshot(GetEditorText(), _lastEditorSelectionStart, _lastEditorSelectionEnd, _lastEditorDirections);
+        _lastEditorDirections = DirectionTextBox.Text;
+        _editorRedoHistory.Clear();
+        _editorHistoryTimer?.Stop();
+        _editorHistoryTimer?.Start();
+        InvalidateAutomationRevision();
         _directionsDirty = !string.Equals(
             DirectionTextBox.Text.Trim(),
             _loadedDirectionText,
@@ -2830,6 +2932,7 @@ public sealed partial class WorkbenchView : UserControl
         try
         {
             DirectionTextBox.Text = text;
+            _lastEditorDirections = text;
             _loadedDirectionText = text.Trim();
             _directionsDirty = false;
             _directionDraftSegmentId = null;
@@ -3025,10 +3128,8 @@ public sealed partial class WorkbenchView : UserControl
                 "Aligning spoken words",
                 $"VoiceBench is transcribing Take {render.TakeNumber:00} with its original provider. The take remains playable if alignment fails.");
 
-            WordAlignmentRecord result = await App.Services.AlignTakeAsync(
-                segmentId,
-                render.RenderId,
-                _alignmentCancellation.Token);
+            WordAlignmentRecord result = await App.Services.RunTrackedJobAsync<WordAlignmentRecord>(
+                "alignment.start", new { segmentId, renderId = render.RenderId }, _alignmentCancellation.Token);
             string message = result.Status switch
             {
                 WordAlignmentStatus.Aligned => $"Word follow is ready for {result.MatchedWordCount} of {result.TotalWordCount} words ({result.Coverage:P0}).",
@@ -3415,7 +3516,7 @@ public sealed partial class WorkbenchView : UserControl
     }
 
     private static Color ThemeColor(string key, Color fallback) =>
-        Application.Current.Resources[key] is SolidColorBrush brush ? brush.Color : fallback;
+        Microsoft.UI.Xaml.Application.Current.Resources[key] is SolidColorBrush brush ? brush.Color : fallback;
 
     private void SetEditorText(string text)
     {

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using IssueLab.VoiceBench.Application;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Credentials;
 using IssueLab.VoiceBench.Infrastructure.Mastering;
@@ -27,7 +28,7 @@ public sealed record AuditionResult(
     int SampleRate,
     int Channels);
 
-public sealed class AppServices : IDisposable
+public sealed partial class AppServices : IDisposable
 {
     private readonly HttpClient _httpClient = new();
     private readonly WindowsCredentialStore _credentialStore = new();
@@ -78,6 +79,8 @@ public sealed class AppServices : IDisposable
     public IAuthoringTransactionManager AuthoringTransactions { get; }
 
     public WorkspaceSession Session { get; }
+
+    public AutomationDispatcher? Automation { get; internal set; }
 
     public ChapterAuthoringService ChapterAuthoring { get; }
 
@@ -191,6 +194,14 @@ public sealed class AppServices : IDisposable
         return approved.RenderHistory.Single(item => item.RenderId == processed.RenderId);
     }
 
+    public async Task<RenderRecord> ProcessAndApproveTakeAsync(string segmentId, Guid renderId, CancellationToken cancellationToken = default)
+    {
+        await RunTrackedJobAsync<RenderRecord>("render.process", new { segmentId, renderId }, cancellationToken);
+        VoiceBenchProjectDocument approved = await RunTrackedJobAsync<VoiceBenchProjectDocument>(
+            "render.approve", new { segmentId, renderId }, cancellationToken);
+        return approved.Segments.Single(item => item.SegmentId == segmentId).RenderHistory.Single(item => item.RenderId == renderId);
+    }
+
     public async Task<MasteringResult> BuildMasterAsync(
         string name,
         MasterScope scope = MasterScope.Compilation,
@@ -243,6 +254,10 @@ public sealed class AppServices : IDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Text);
+        ParsedScriptDocument parsed = new ProductionScriptParser().Parse(request.Text);
+        if (parsed.HasErrors) throw new InvalidOperationException("Fix invalid production cues before auditioning narration.");
+        if (string.IsNullOrWhiteSpace(parsed.NarrationText)) throw new InvalidOperationException("The audition needs spoken narration; production cues are not spoken.");
+        request = request with { Text = parsed.NarrationText };
         string root = Session.RequireProjectRoot();
         ISpeechProvider provider = _providers.GetRequired(request.ProviderId);
         SpeechModelDescriptor model = provider.Descriptor.Models.SingleOrDefault(

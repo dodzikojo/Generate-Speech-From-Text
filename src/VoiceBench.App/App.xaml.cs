@@ -3,7 +3,7 @@ using IssueLab.VoiceBench.App.Services;
 
 namespace IssueLab.VoiceBench.App;
 
-public partial class App : Application
+public partial class App : Microsoft.UI.Xaml.Application
 {
     public static MainWindow? MainWindow { get; private set; }
 
@@ -21,7 +21,6 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         MainWindow = new MainWindow();
-        MainWindow.Closed += (_, _) => Services.Dispose();
         MainWindow.Activate();
     }
 }
