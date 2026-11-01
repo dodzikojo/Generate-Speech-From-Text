@@ -6,6 +6,11 @@ ordered chapters and render-sized
 segments. VoiceBench keeps the clean transcript separate from the exact provider submission,
 preserves every raw take, and makes narration status visible in a chapter/segment rail.
 
+The Audio workspace and Workbench dock share a multitrack arrangement for narration,
+music, and effects. Import recordings, arrange immutable clips, review word-safe cuts,
+and export chapter/compilation mixes with source-aligned scripts and track stems.
+See the [audio timeline guide](docs/audio-timeline.md) for workflows and runtime checks.
+
 The repository contains a packaged .NET 10 / WinUI 3 app and a companion `voicebench` CLI.
 Google Gemini and OpenAI speech and writing generation sit behind provider-neutral contracts;
 FFmpeg is downloaded and verified on first use for mastering. AI writing is outline-first,
@@ -19,7 +24,7 @@ editing, audio jobs, resources, and the installation check.
 ## Prerequisites
 
 - Windows 11 x64 with Developer Mode enabled.
-- .NET SDK 10.0.303 or a compatible 10.0 patch.
+- .NET SDK 10.0.402, pinned by global.json.
 - Visual Studio 2026 with **WinUI Application Development** installed.
 - A Gemini and/or OpenAI API key for live rendering. Unit tests do not require keys.
 
@@ -49,6 +54,7 @@ voicebench render <project> --segment <id>
 voicebench render <project> --ready
 voicebench master <project> --name <name> [--compilation]
 voicebench master <project> --name <name> --chapter <id>
+voicebench master <project> --mix --name <name> --compilation --mp3 --stems
 ```
 
 The CLI looks for `GEMINI_API_KEY` or `OPENAI_API_KEY` first, then Windows Credential

@@ -46,6 +46,9 @@ change is not complete until the packaged app has also been launched and inspect
 
 - `VoiceBench.Core` owns versioned contracts and business rules; it has no provider or UI dependency.
 - `VoiceBench.Infrastructure` owns filesystem, HTTP providers, Windows credentials, processes, and FFmpeg.
+- `VoiceBench.Audio` owns the deterministic 48 kHz stereo mixer and bounded read-ahead;
+  the same graph feeds WASAPI monitoring and offline mix exports. Never decode/read
+  files or marshal to the UI from its device callback.
 - `VoiceBench.Application` owns desktop automation commands, revisioned draft rules, project ownership, and durable operations.
 - `VoiceBench.Mcp` is the packaged local stdio companion; it communicates through the same-user named-pipe bridge and never hosts HTTP.
 - `VoiceBench.Cli` and `VoiceBench.App` are composition roots over the same application services.
@@ -55,6 +58,8 @@ change is not complete until the packaged app has also been launched and inspect
 - Approved text changes mark matching renders stale and block mastering.
 - Render jobs are journaled; recovered `InProgress` jobs become `Interrupted`.
 - Local MCP setup and runtime checks are documented in `docs/local-mcp.md`. The installed alias is `voicebench-mcp.exe`.
+- Multitrack rules and runtime checks are in `docs/audio-timeline.md`. Audio clip splits
+  do not split canonical scripts; mix transcripts use retained approved source ranges.
 
 ## Tests and fixtures
 
