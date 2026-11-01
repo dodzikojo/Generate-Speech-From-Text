@@ -7,6 +7,38 @@ namespace IssueLab.VoiceBench.App.Tests;
 public sealed class TimelinePresentationTests
 {
     [Fact]
+    public void Previous_project_chapter_selection_resolves_to_an_active_chapter_or_compilation()
+    {
+        VoiceBenchProjectDocument project = new() { ChapterOrder = ["second","archived","first"],Chapters =
+            [new() { ChapterId = "archived",Status = ChapterStatus.Archived },new() { ChapterId = "first" },new() { ChapterId = "second" }] };
+        Assert.Equal((AudioTimelineScope.Chapter,"second"),TimelinePresentation.ResolveTimelineTarget(project,AudioTimelineScope.Chapter,"previous-project-chapter"));
+        Assert.Equal((AudioTimelineScope.Chapter,"first"),TimelinePresentation.ResolveTimelineTarget(project,AudioTimelineScope.Chapter,"first"));
+        Assert.Equal((AudioTimelineScope.Compilation,(string?)null),TimelinePresentation.ResolveTimelineTarget(project,AudioTimelineScope.Compilation,"stale-id"));
+        Assert.Equal((AudioTimelineScope.Compilation,(string?)null),TimelinePresentation.ResolveTimelineTarget(project with { Chapters = [] },AudioTimelineScope.Chapter,"previous-project-chapter"));
+    }
+
+    [Fact]
+    public async Task Late_old_project_failure_cannot_replace_the_current_project_notice_or_annotations()
+    {
+        Guid previousProject = Guid.NewGuid(), currentProject = Guid.NewGuid();
+        var previous = new TimelineLoadRequest(1,@"C:\projects\previous",previousProject);
+        var current = new TimelineLoadRequest(2,@"C:\projects\current",currentProject);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        string notice = "Arrangement ready", annotation = "current cue";
+        async Task FinishPreviousAsync()
+        {
+            await release.Task;
+            if (previous.IsCurrent(current.Version,current.ProjectRoot,current.ProjectId)) { notice = "Old chapter does not exist"; annotation = "old cue"; }
+        }
+        Task delayed = FinishPreviousAsync(); release.SetResult(); await delayed;
+        Assert.Equal("Arrangement ready",notice); Assert.Equal("current cue",annotation);
+        Assert.True(current.IsCurrent(2,@"c:\PROJECTS\current",currentProject));
+        Assert.False(current.IsCurrent(3,current.ProjectRoot,currentProject));
+        Assert.False(current.IsCurrent(2,current.ProjectRoot,Guid.NewGuid()));
+        Assert.False(current.IsCurrent(2,null,null));
+    }
+
+    [Fact]
     public void Audio_only_manifest_changes_preserve_the_live_script_workspace_but_source_changes_do_not()
     {
         SegmentDocument segment = new() { SegmentId = "narration",SourceSha256 = "script" };

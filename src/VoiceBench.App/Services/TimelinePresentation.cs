@@ -4,9 +4,24 @@ namespace IssueLab.VoiceBench.App.Services;
 
 public sealed record TimelineCuePlacement(Guid? ClipId,string? SegmentId,string Type,string Content,int SourceWordOrdinal,double? PositionSeconds,string Status);
 
+public readonly record struct TimelineLoadRequest(int Version,string? ProjectRoot,Guid? ProjectId)
+{
+    public bool IsCurrent(int currentVersion,string? currentRoot,Guid? currentProjectId) => ProjectRoot is not null
+        && Version == currentVersion && ProjectId == currentProjectId && string.Equals(ProjectRoot,currentRoot,StringComparison.OrdinalIgnoreCase);
+}
+
 /// <summary>Viewport calculations stay independent of drawing and authoring state.</summary>
 public static class TimelinePresentation
 {
+    public static (AudioTimelineScope Scope,string? ChapterId) ResolveTimelineTarget(VoiceBenchProjectDocument project,AudioTimelineScope preferredScope,string? preferredChapterId)
+    {
+        if (preferredScope == AudioTimelineScope.Compilation) return (AudioTimelineScope.Compilation,null);
+        var active = project.Chapters.Where(chapter => chapter.Status == ChapterStatus.Active).ToArray();
+        if (active.Any(chapter => chapter.ChapterId == preferredChapterId)) return (AudioTimelineScope.Chapter,preferredChapterId);
+        string? chapterId = project.ChapterOrder.FirstOrDefault(id => active.Any(chapter => chapter.ChapterId == id)) ?? active.FirstOrDefault()?.ChapterId;
+        return chapterId is null ? (AudioTimelineScope.Compilation,null) : (AudioTimelineScope.Chapter,chapterId);
+    }
+
     public static bool SameScriptWorkspace(VoiceBenchProjectDocument before,VoiceBenchProjectDocument after)
     {
         VoiceBenchProjectDocument WithoutAudio(VoiceBenchProjectDocument project) => project with

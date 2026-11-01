@@ -47,6 +47,8 @@ public sealed partial class AudioTimelineControl : UserControl
     private AudioTimelineDocument? _waveTimeline;
     private double _waveViewStart = -1;
     private double _waveVisibleSeconds;
+    private double? _pendingTrackScrollOffset;
+    private int _trackRowsVersion;
     private sealed record WaveStrip(double TimelineStart, double TimelineDuration, float[] Minimum, float[] Maximum);
     private sealed record ScopeChoice(string Label, AudioTimelineScope Scope, string? ChapterId);
     private string LayoutSettingPrefix => _compact ? "Audio.Dock" : "Audio";
@@ -117,13 +119,13 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private async void Panels_Click(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(sender,LibraryToggle) && ActualWidth < 1200 && LibraryToggle.IsChecked == true)
+        if (ReferenceEquals(sender,LibraryToggle) && ActualWidth < 1200)
         {
             LibraryToggle.IsChecked = false;
             await RunAsync(ShowCompactLibraryAsync);
             return;
         }
-        if (ReferenceEquals(sender,InspectorToggle) && ActualWidth < 1000 && InspectorToggle.IsChecked == true)
+        if (ReferenceEquals(sender,InspectorToggle) && ActualWidth < 1000)
         {
             InspectorToggle.IsChecked = false;
             await RunAsync(ShowCompactInspectorAsync);
@@ -192,6 +194,9 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private void BuildRows(AudioTimelineDocument timeline)
     {
+        int rowsVersion = ++_trackRowsVersion;
+        double scrollOffset = _drawnTimeline == timeline.TimelineId ? _pendingTrackScrollOffset ?? FindTrackScroller(TrackRows)?.VerticalOffset ?? 0 : 0;
+        _pendingTrackScrollOffset = scrollOffset;
         bool preservePeaks = _waveViewStart == Workspace.ViewStart && _waveVisibleSeconds == Workspace.VisibleSeconds
             && TimelinePresentation.SameWaveformGeometry(_waveTimeline,timeline);
         if (!preservePeaks)
@@ -244,6 +249,21 @@ public sealed partial class AudioTimelineControl : UserControl
             TrackRows.Items.Add(row);
         }
         if (!preservePeaks) QueueVisiblePeaks(timeline,_peakCancellation.Token);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (rowsVersion != _trackRowsVersion || Workspace.Timeline?.TimelineId != timeline.TimelineId) return;
+            TrackRows.UpdateLayout();
+            FindTrackScroller(TrackRows)?.ChangeView(null,scrollOffset,null,true);
+            _pendingTrackScrollOffset = null;
+        });
+    }
+
+    private static ScrollViewer? FindTrackScroller(DependencyObject parent)
+    {
+        if (parent is ScrollViewer viewer) return viewer;
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+            if (FindTrackScroller(VisualTreeHelper.GetChild(parent,index)) is { } child) return child;
+        return null;
     }
 
     private static Brush Brush(string key) => (Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
@@ -443,6 +463,8 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private async Task LoadPeakStripAsync(string root,AudioClipDocument clip,AudioAssetRecord asset,double viewStart,double visible,CancellationToken token)
     {
+        Guid? projectId = App.Services.Session.Project?.ProjectId;
+        bool CurrentProject() => string.Equals(root,App.Services.Session.ProjectRoot,StringComparison.OrdinalIgnoreCase) && projectId == App.Services.Session.Project?.ProjectId;
         try
         {
             await _peakSlots.WaitAsync(token);
@@ -478,12 +500,12 @@ public sealed partial class AudioTimelineControl : UserControl
                     }
                     return new WaveStrip(start,end-start,min,max);
                 },token);
-                if (!token.IsCancellationRequested) DispatcherQueue.TryEnqueue(() => { if (token.IsCancellationRequested) return; _peakStrips[clip.ClipId] = strip; InvalidateWaves(); });
+                if (!token.IsCancellationRequested) DispatcherQueue.TryEnqueue(() => { if (token.IsCancellationRequested || !CurrentProject()) return; _peakStrips[clip.ClipId] = strip; InvalidateWaves(); });
             }
             finally { _peakSlots.Release(); }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { DispatcherQueue.TryEnqueue(() => Workspace.SetNotice($"Waveform unavailable: {error.Message}")); }
+        catch (Exception error) { DispatcherQueue.TryEnqueue(() => { if (CurrentProject()) Workspace.SetNotice($"Waveform unavailable: {error.Message}"); }); }
     }
 
     private void UpdateInspector()

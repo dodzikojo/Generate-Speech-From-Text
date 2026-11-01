@@ -8,6 +8,9 @@ namespace IssueLab.VoiceBench.App.Services;
 public sealed class AudioTimelineWorkspace(AppServices services)
 {
     private int _loadVersion;
+    private string? _projectRoot;
+    private Guid? _projectId;
+    private const string ReadyNotice = "Arrangement ready · source audio stays immutable.";
     public AudioTimelineDocument? Timeline { get; private set; }
     public AudioTimelineScope Scope { get; private set; } = AudioTimelineScope.Compilation;
     public string? ChapterId { get; private set; }
@@ -26,34 +29,73 @@ public sealed class AudioTimelineWorkspace(AppServices services)
 
     public async Task LoadAsync(AudioTimelineScope? scope = null, string? chapterId = null)
     {
-        if (!services.Session.HasProject) { Timeline = null; Notify(); return; }
         int version = ++_loadVersion;
+        if (!services.Session.HasProject)
+        {
+            _projectRoot = null; _projectId = null;
+            ResetProjectPresentation(); Notify(); return;
+        }
         AudioTimelineScope requestedScope = scope ?? Scope;
         string? requestedChapter = scope.HasValue ? chapterId : ChapterId;
         string projectRoot = services.Session.RequireProjectRoot();
-        var timeline = await Task.Run(() => services.AudioTimeline.GetAsync(projectRoot, requestedScope, requestedChapter));
-        if (version != _loadVersion) return;
-        bool changedScope = requestedScope != Scope || requestedChapter != ChapterId;
-        MixRenderPlan? parameterPlan = changedScope ? null : await services.TryRefreshMixParametersAsync(() => version == _loadVersion);
-        if (version != _loadVersion) return;
-        if (services.PlaybackTarget == "mix" && (changedScope || parameterPlan is null)) services.InvalidateMixPlayback();
-        Scope = requestedScope;
-        ChapterId = requestedChapter;
-        Timeline = timeline;
-        SelectedClipIds.RemoveWhere(id => !timeline.Clips.Any(clip => clip.ClipId == id));
-        if (!timeline.Tracks.Any(track => track.TrackId == SelectedTrackId)) SelectedTrackId = timeline.Tracks.FirstOrDefault()?.TrackId;
-        Notify();
-        await LoadAnnotationsAsync(timeline,version,parameterPlan);
+        VoiceBenchProjectDocument project = services.Session.RequireProject();
+        if (!scope.HasValue) (requestedScope,requestedChapter) = TimelinePresentation.ResolveTimelineTarget(project,requestedScope,requestedChapter);
+        bool changedProject = _projectId != project.ProjectId || !string.Equals(_projectRoot,projectRoot,StringComparison.OrdinalIgnoreCase);
+        if (changedProject)
+        {
+            ResetProjectPresentation();
+            _projectRoot = projectRoot; _projectId = project.ProjectId;
+            Scope = requestedScope; ChapterId = requestedChapter;
+            Notify();
+        }
+        var request = new TimelineLoadRequest(version,projectRoot,project.ProjectId);
+        try
+        {
+            var timeline = await Task.Run(() => services.AudioTimeline.GetAsync(projectRoot, requestedScope, requestedChapter));
+            if (!IsCurrent(request)) return;
+            bool changedScope = requestedScope != Scope || requestedChapter != ChapterId;
+            MixRenderPlan? parameterPlan = changedScope ? null : await services.TryRefreshMixParametersAsync(() => IsCurrent(request));
+            if (!IsCurrent(request)) return;
+            if (services.PlaybackTarget == "mix" && (changedScope || parameterPlan is null)) services.InvalidateMixPlayback();
+            Scope = requestedScope; ChapterId = requestedChapter; Timeline = timeline; Notice = ReadyNotice;
+            SelectedClipIds.RemoveWhere(id => !timeline.Clips.Any(clip => clip.ClipId == id));
+            if (!timeline.Tracks.Any(track => track.TrackId == SelectedTrackId)) SelectedTrackId = timeline.Tracks.FirstOrDefault()?.TrackId;
+            Notify();
+            await LoadAnnotationsAsync(timeline,version,parameterPlan);
+        }
+        catch (Exception) when (!IsCurrent(request)) { }
+    }
+
+    public async Task RefreshFromSessionAsync()
+    {
+        var request = new TimelineLoadRequest(_loadVersion+1,services.Session.ProjectRoot,services.Session.Project?.ProjectId);
+        try { await LoadAsync(); }
+        catch (Exception error) { if (IsCurrent(request)) SetNotice(error.Message); }
+    }
+
+    private bool IsCurrent(TimelineLoadRequest request) => request.IsCurrent(_loadVersion,services.Session.ProjectRoot,services.Session.Project?.ProjectId);
+    private bool IsCurrent(int version) => IsCurrent(new TimelineLoadRequest(version,_projectRoot,_projectId));
+
+    private void ResetProjectPresentation()
+    {
+        services.InvalidateMixPlayback();
+        Timeline = null; Scope = AudioTimelineScope.Compilation; ChapterId = null;
+        SelectedClipIds.Clear(); MonitorSoloTrackIds.Clear(); SelectedTrackId = null;
+        WordSnapPositions = []; CuePlacements = []; ViewStart = 0; PlayheadSeconds = 0;
+        Notice = services.Session.HasProject ? ReadyNotice : "Open a project to mix audio.";
     }
 
     public async Task EditAsync(params TimelineEdit[] edits)
     {
         if (Timeline is null || edits.Length == 0) return;
-        Timeline = await services.RunTimelineCommandAsync<AudioTimelineDocument>("mix.edit", new
+        var origin = new TimelineLoadRequest(_loadVersion,services.Session.ProjectRoot,services.Session.Project?.ProjectId);
+        var edited = await services.RunTimelineCommandAsync<AudioTimelineDocument>("mix.edit", new
         { scope = Scope, chapterId = ChapterId, expectedRevision = Timeline.Revision, edits });
+        if (!string.Equals(origin.ProjectRoot,services.Session.ProjectRoot,StringComparison.OrdinalIgnoreCase) || origin.ProjectId != services.Session.Project?.ProjectId) return;
+        Timeline = edited;
         int version = ++_loadVersion;
-        MixRenderPlan? parameterPlan = await services.TryRefreshMixParametersAsync(() => version == _loadVersion);
-        if (version != _loadVersion) return;
+        MixRenderPlan? parameterPlan = await services.TryRefreshMixParametersAsync(() => IsCurrent(version));
+        if (!IsCurrent(version)) return;
         if (services.PlaybackTarget == "mix" && parameterPlan is null) services.InvalidateMixPlayback();
         Notice = "Saved · one undoable timeline change";
         Notify();
@@ -86,7 +128,7 @@ public sealed class AudioTimelineWorkspace(AppServices services)
     private async Task LoadAnnotationsAsync(AudioTimelineDocument timeline,int version,MixRenderPlan? parameterPlan)
     {
         await LoadWordSnapPositionsAsync(timeline,version);
-        if (version != _loadVersion || services.Session.Project is not { } project) return;
+        if (!IsCurrent(version) || services.Session.Project is not { } project) return;
         string root = services.Session.RequireProjectRoot();
         AudioTimelineScope scope = Scope;
         string? chapterId = ChapterId;
@@ -133,7 +175,7 @@ public sealed class AudioTimelineWorkspace(AppServices services)
             }
             return result;
         });
-        if (version == _loadVersion) { CuePlacements = cues; Notify(); }
+        if (IsCurrent(version)) { CuePlacements = cues; Notify(); }
 
         static bool CanPlace(MixRenderClip clip,SegmentDocument segment,ParsedScriptDocument? source) =>
             source is not null && TimelinePresentation.CanFollow(clip.Asset.SourceSha256,segment.SourceSha256,source);
@@ -142,7 +184,8 @@ public sealed class AudioTimelineWorkspace(AppServices services)
     private async Task LoadWordSnapPositionsAsync(AudioTimelineDocument timeline,int version)
     {
         VoiceBenchProjectDocument? project = services.Session.Project;
-        if (project is null) return;
+        if (project is null || !IsCurrent(version)) return;
+        string root = services.Session.RequireProjectRoot();
         var assets = AudioTimelineRules.RegisterRenderAssets(project).AudioAssets.ToDictionary(asset => asset.AssetId);
         Dictionary<Guid,WordAlignmentDocument> alignmentCache = [];
         List<double> positions = [];
@@ -157,13 +200,13 @@ public sealed class AudioTimelineWorkspace(AppServices services)
             try
             {
                 if (!alignmentCache.TryGetValue(record.AlignmentId,out var document))
-                    alignmentCache[record.AlignmentId] = document = await FileWordAlignmentService.LoadDocumentAsync(services.Session.RequireProjectRoot(),record);
-                if (version != _loadVersion) return;
+                    alignmentCache[record.AlignmentId] = document = await FileWordAlignmentService.LoadDocumentAsync(root,record);
+                if (!IsCurrent(version)) return;
                 double duration = assets.TryGetValue(clip.AssetId,out var asset) ? asset.DurationSeconds : render.Duration.TotalSeconds;
                 positions.AddRange(TimelinePresentation.ReliableWordSnapPositions(clip,document,duration));
             }
             catch (Exception error) when (error is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException) { }
         }
-        if (version == _loadVersion) { WordSnapPositions = positions; Notify(); }
+        if (IsCurrent(version)) { WordSnapPositions = positions; Notify(); }
     }
 }

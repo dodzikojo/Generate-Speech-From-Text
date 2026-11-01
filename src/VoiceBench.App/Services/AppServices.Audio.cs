@@ -25,11 +25,7 @@ public sealed partial class AppServices
     {
         AudioTimeline = new AudioTimelineService(Projects, AuthoringTransactions);
         AudioWorkspace = new AudioTimelineWorkspace(this);
-        Session.ProjectChanged += async (_, _) =>
-        {
-            try { await AudioWorkspace.LoadAsync(); }
-            catch (Exception error) { AudioWorkspace.SetNotice(error.Message); }
-        };
+        Session.ProjectChanged += async (_, _) => await AudioWorkspace.RefreshFromSessionAsync();
     }
 
     public async Task<AudioAssetService> GetAudioAssetsAsync(CancellationToken cancellationToken = default) =>
