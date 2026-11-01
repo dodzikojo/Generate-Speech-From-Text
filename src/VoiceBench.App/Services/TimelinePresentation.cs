@@ -36,17 +36,18 @@ public static class TimelinePresentation
             .Select(source => clip.StartSeconds+source-clip.SourceStartSeconds)
             .Where(time => time >= clip.StartSeconds && time <= clip.StartSeconds+clip.DurationSeconds).Distinct().ToArray();
     }
-    public static double GridStep(double visibleSeconds)
+    public static double GridStep(double visibleSeconds, double viewportWidth = 800)
     {
-        double rough = Math.Max(.01,visibleSeconds / 8);
+        double divisions = Math.Clamp(Math.Floor(viewportWidth / 100),1,8);
+        double rough = Math.Max(.01,visibleSeconds / divisions);
         double magnitude = Math.Pow(10,Math.Floor(Math.Log10(rough)));
         double scaled = rough / magnitude;
         return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10) * magnitude;
     }
 
-    public static IReadOnlyList<double> RulerTicks(double start,double visibleSeconds)
+    public static IReadOnlyList<double> RulerTicks(double start,double visibleSeconds,double viewportWidth = 800)
     {
-        double step = GridStep(visibleSeconds);
+        double step = GridStep(visibleSeconds,viewportWidth);
         List<double> ticks = [];
         for (double time = Math.Ceiling(start / step) * step; time <= start + visibleSeconds + step * .0001; time += step) ticks.Add(time);
         return ticks;

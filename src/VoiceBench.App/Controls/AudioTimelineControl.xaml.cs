@@ -91,9 +91,9 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private void ApplyLayout()
     {
-        bool narrow = ActualWidth < 820;
+        bool narrow = ActualWidth < 1200;
         LibraryPanel.Visibility = !_collapsed && LibraryToggle.IsChecked == true && !narrow ? Visibility.Visible : Visibility.Collapsed;
-        InspectorPanel.Visibility = !_collapsed && InspectorToggle.IsChecked == true && ActualWidth >= 700 ? Visibility.Visible : Visibility.Collapsed;
+        InspectorPanel.Visibility = !_collapsed && InspectorToggle.IsChecked == true && ActualWidth >= 1000 ? Visibility.Visible : Visibility.Collapsed;
         LibraryColumn.Width = new GridLength(LibraryPanel.Visibility == Visibility.Visible ? 185 : 0);
         InspectorColumn.Width = new GridLength(InspectorPanel.Visibility == Visibility.Visible ? 220 : 0);
         RulerHeaderColumn.Width = new GridLength(_compact ? 120 : 155);
@@ -117,13 +117,13 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private async void Panels_Click(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(sender,LibraryToggle) && ActualWidth < 820 && LibraryToggle.IsChecked == true)
+        if (ReferenceEquals(sender,LibraryToggle) && ActualWidth < 1200 && LibraryToggle.IsChecked == true)
         {
             LibraryToggle.IsChecked = false;
             await RunAsync(ShowCompactLibraryAsync);
             return;
         }
-        if (ReferenceEquals(sender,InspectorToggle) && ActualWidth < 700 && InspectorToggle.IsChecked == true)
+        if (ReferenceEquals(sender,InspectorToggle) && ActualWidth < 1000 && InspectorToggle.IsChecked == true)
         {
             InspectorToggle.IsChecked = false;
             await RunAsync(ShowCompactInspectorAsync);

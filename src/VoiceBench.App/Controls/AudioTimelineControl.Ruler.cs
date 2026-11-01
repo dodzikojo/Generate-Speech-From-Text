@@ -26,16 +26,22 @@ public sealed partial class AudioTimelineControl
         CueLaneCanvas.Width = width;
         CueLaneCanvas.Clip = new RectangleGeometry { Rect = new Rect(0,0,width,32) };
         TimeTicksCanvas.Children.Clear(); CueLaneCanvas.Children.Clear();
-        double step = TimelinePresentation.GridStep(Workspace.VisibleSeconds);
-        foreach (double second in TimelinePresentation.RulerTicks(Workspace.ViewStart,Workspace.VisibleSeconds))
+        double step = TimelinePresentation.GridStep(Workspace.VisibleSeconds,width);
+        double previousLabelRight = -8;
+        foreach (double second in TimelinePresentation.RulerTicks(Workspace.ViewStart,Workspace.VisibleSeconds,width))
         {
             double x = (second-Workspace.ViewStart)/Workspace.VisibleSeconds*width;
+            double left = Math.Clamp(x-38,0,Math.Max(0,width-76));
             TextBlock label = new() { Text = TimeSpan.FromSeconds(second).ToString(step < 1 ? @"mm\:ss\.fff" : second >= 3600 ? @"hh\:mm\:ss" : @"mm\:ss"),
                 FontSize = 11, FontFamily = (FontFamily)Microsoft.UI.Xaml.Application.Current.Resources["UtilityFont"], Foreground = Brush("MutedTextBrush"),
                 Width = 76, TextAlignment = TextAlignment.Center };
             AutomationProperties.SetName(label,$"Timeline {second.ToString("0.###",CultureInfo.InvariantCulture)} seconds");
-            Canvas.SetLeft(label,Math.Clamp(x-38,0,Math.Max(0,width-76))); Canvas.SetTop(label,0);
-            TimeTicksCanvas.Children.Add(label);
+            if (left >= previousLabelRight+8)
+            {
+                Canvas.SetLeft(label,left); Canvas.SetTop(label,0);
+                TimeTicksCanvas.Children.Add(label);
+                previousLabelRight = left+76;
+            }
             Border tick = new() { Width = 1,Height = 7,Background = Brush("DividerBrush") };
             Canvas.SetLeft(tick,x); Canvas.SetTop(tick,21); TimeTicksCanvas.Children.Add(tick);
         }

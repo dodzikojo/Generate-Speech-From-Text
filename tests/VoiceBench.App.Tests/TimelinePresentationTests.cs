@@ -50,6 +50,18 @@ public sealed class TimelinePresentationTests
     }
 
     [Fact]
+    public void Ruler_reduces_label_density_for_narrow_and_long_duration_viewports()
+    {
+        foreach (double duration in new[] { .4,40,7200 })
+        {
+            double step = TimelinePresentation.GridStep(duration,300);
+            Assert.True(step / duration * 300 >= 100);
+            Assert.True(TimelinePresentation.RulerTicks(0,duration,300).Count <= 4);
+        }
+        Assert.True(TimelinePresentation.RulerTicks(0,40,300).Count < TimelinePresentation.RulerTicks(0,40,1000).Count);
+    }
+
+    [Fact]
     public void Cues_map_through_clip_source_offset_and_uncertain_removed_or_stale_anchors_stay_unplaced()
     {
         ProductionCue cue = new(0,ProductionCueKind.Visual,"visual","Show the mix",1,0,20,2);
