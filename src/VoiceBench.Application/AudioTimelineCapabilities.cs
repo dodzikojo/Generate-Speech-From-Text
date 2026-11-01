@@ -56,7 +56,9 @@ internal static class AudioTimelineCapabilities
             schema["type"]="object";
             string[] keys=fields.Split(',',StringSplitOptions.RemoveEmptyEntries);
             var properties=schema["properties"]!.AsObject();
-            foreach(string key in properties.Select(p=>p.Key).Except(keys).ToArray())properties.Remove(key);
+            JsonObject selected=new();
+            foreach(string key in keys)selected[key]=InlineReferences(properties[key]!,schema);
+            schema["properties"]=selected;
             schema["required"]=JsonSerializer.SerializeToNode(required.Split(',',StringSplitOptions.RemoveEmptyEntries));
             schema["additionalProperties"]=false;
             result.Add(new(command,description,readOnly,destructive,JsonSerializer.SerializeToElement(schema,AutomationJson.Options)));
@@ -109,5 +111,34 @@ internal static class AudioTimelineCapabilities
         Add("mix.playback.monitor","Set monitor-only volume/solo; exports ignore these controls.",false,"volume,soloTrackIds");
         Add("mix.playback.device","Select a specific output device or Windows default.",false,"deviceId");
         return result.AsReadOnly();
+    }
+
+    // The exporter shares repeated contract shapes through root-relative references.
+    // Resolve selected fields before pruning the argument root, so anchors/envelopes
+    // do not point into removed edit-batch fields in the individual typed tools.
+    private static JsonNode InlineReferences(JsonNode node,JsonNode root,int depth=0)
+    {
+        if(depth>64)throw new InvalidOperationException("Audio tool schema nesting exceeds its limit.");
+        if(node is JsonObject obj)
+        {
+            JsonObject result=new();
+            if(obj["$ref"] is JsonValue reference)
+            {
+                string pointer=reference.GetValue<string>();
+                if(!pointer.StartsWith("#/",StringComparison.Ordinal))throw new InvalidOperationException("Audio tool schemas require local references.");
+                JsonNode target=root;
+                foreach(string component in pointer[2..].Split('/'))
+                {
+                    string key=component.Replace("~1","/",StringComparison.Ordinal).Replace("~0","~",StringComparison.Ordinal);
+                    target=target is JsonArray array ? array[int.Parse(key,System.Globalization.CultureInfo.InvariantCulture)]! : target[key]!;
+                }
+                result=InlineReferences(target,root,depth+1).AsObject();
+            }
+            foreach(var property in obj.Where(property=>property.Key!="$ref"))
+                result[property.Key]=property.Value is null ? null : InlineReferences(property.Value,root,depth+1);
+            return result;
+        }
+        if(node is JsonArray values)return new JsonArray(values.Select(value=>value is null ? null : InlineReferences(value,root,depth+1)).ToArray());
+        return node.DeepClone();
     }
 }
