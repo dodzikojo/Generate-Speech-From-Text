@@ -20,7 +20,7 @@ public static class AudioTimelineRules
             {
                 AssetId = render.RenderId, RenderId = render.RenderId, SegmentId = segment.SegmentId,
                 Name = $"{segment.Title} · take {render.TakeNumber}",
-                RelativePath = render.RawAudioRelativePath, Sha256 = render.AudioSha256,
+                RelativePath = string.IsNullOrWhiteSpace(render.ProcessedAudioRelativePath) ? render.RawAudioRelativePath : render.ProcessedAudioRelativePath, Sha256 = render.AudioSha256,
                 SourceSha256 = render.SourceSha256, CleanSourceRelativePath = render.CleanSourceRelativePath,
                 AuthoringSourceRelativePath = render.AuthoringSourceRelativePath, AuthoringSourceSha256 = render.AuthoringSourceSha256,
                 DurationSeconds = render.Duration.TotalSeconds, SampleRate = render.SampleRate, Channels = render.Channels,
@@ -152,6 +152,20 @@ public static class AudioTimelineRules
                     Unlocked(previous.TrackId); Unlocked(update.TrackId);
                     if (previous.AssetId != update.AssetId || previous.RenderId != update.RenderId || previous.AssetSha256 != update.AssetSha256 || previous.SourceSha256 != update.SourceSha256 || previous.CleanSourceRelativePath != update.CleanSourceRelativePath)
                         throw new InvalidOperationException("Source pins can only change through a reviewed replacement.");
+                    if (previous.SourceStartFrame != update.SourceStartFrame || previous.DurationFrames != update.DurationFrames)
+                    {
+                        var preserved = PreserveFadePhase(previous, update);
+                        update = update with
+                        {
+                            FadeInOffsetSeconds = preserved.FadeInOffsetSeconds,
+                            FadeOutOffsetSeconds = preserved.FadeOutOffsetSeconds,
+                            Envelope = update.Envelope.SequenceEqual(previous.Envelope)
+                                ? SliceEnvelope(previous, update.SourceStartSeconds - previous.SourceStartSeconds, update.SourceStartSeconds - previous.SourceStartSeconds + update.DurationSeconds)
+                                : update.Envelope,
+                        };
+                    }
+                    if (previous.FadeInSeconds != update.FadeInSeconds) update = update with { FadeInOffsetSeconds = 0 };
+                    if (previous.FadeOutSeconds != update.FadeOutSeconds) update = update with { FadeOutOffsetSeconds = 0 };
                     ReplaceClip(WithRetainedWords(update, project, alignments));
                     break;
                 case TimelineEditOperation.DeleteClip:
@@ -163,24 +177,30 @@ public static class AudioTimelineRules
                     break;
                 case TimelineEditOperation.TrimClip:
                     var trimmed = RequireClip(); Unlocked(trimmed.TrackId);
-                    ReplaceClip(WithRetainedWords(trimmed with
+                    var trimmedRange = trimmed with
                     {
                         SourceStartSeconds = edit.SourceStartSeconds ?? trimmed.SourceStartSeconds,
                         DurationSeconds = edit.DurationSeconds ?? trimmed.DurationSeconds,
                         StartSeconds = edit.StartSeconds ?? trimmed.StartSeconds,
+                    };
+                    double envelopeStart = trimmedRange.SourceStartSeconds - trimmed.SourceStartSeconds;
+                    ReplaceClip(WithRetainedWords(PreserveFadePhase(trimmed, trimmedRange) with
+                    {
+                        Envelope = SliceEnvelope(trimmed, envelopeStart, envelopeStart + trimmedRange.DurationSeconds),
                     }, project, alignments));
                     break;
                 case TimelineEditOperation.SplitClip:
                     var split = RequireClip(); Unlocked(split.TrackId);
-                    double offset = (edit.SplitSeconds ?? throw new InvalidOperationException("A split position is required.")) - split.StartSeconds;
-                    if (offset <= 0 || offset >= split.DurationSeconds) throw new InvalidOperationException("Split inside the clip.");
-                    ReplaceClip(WithRetainedWords(split with { DurationSeconds = offset, FadeOutSeconds = 0, Envelope = SliceEnvelope(split, 0, offset) }, project, alignments));
-                    next.Clips.Add(WithRetainedWords(split with
+                    long offsetFrames = checked(TimelineTime.ToFrames(edit.SplitSeconds ?? throw new InvalidOperationException("A split position is required.")) - split.StartFrame);
+                    if (offsetFrames <= 0 || offsetFrames >= split.DurationFrames) throw new InvalidOperationException("Split inside the clip.");
+                    double offset = TimelineTime.ToSeconds(offsetFrames);
+                    ReplaceClip(WithRetainedWords(PreserveFadePhase(split, split with { DurationFrames = offsetFrames }) with
+                    { Envelope = SliceEnvelope(split, 0, offset) }, project, alignments));
+                    next.Clips.Add(WithRetainedWords(PreserveFadePhase(split, split with
                     {
-                        ClipId = edit.NewClipId ?? Guid.NewGuid(), StartSeconds = split.StartSeconds + offset,
-                        SourceStartSeconds = split.SourceStartSeconds + offset, DurationSeconds = split.DurationSeconds - offset,
-                        FadeInSeconds = 0, Envelope = SliceEnvelope(split, offset, split.DurationSeconds),
-                    }, project, alignments));
+                        ClipId = edit.NewClipId ?? Guid.NewGuid(), StartFrame = checked(split.StartFrame + offsetFrames),
+                        SourceStartFrame = checked(split.SourceStartFrame + offsetFrames), DurationFrames = split.DurationFrames - offsetFrames,
+                    }) with { Envelope = SliceEnvelope(split, offset, split.DurationSeconds) }, project, alignments));
                     break;
                 case TimelineEditOperation.DuplicateClip:
                     var duplicated = RequireClip(); Unlocked(duplicated.TrackId); Unlocked(edit.TrackId ?? duplicated.TrackId);
@@ -267,7 +287,7 @@ public static class AudioTimelineRules
             if (asset is null) { Issue("timeline.asset-missing", "The pinned clip asset is missing.", clip); continue; }
             if (!string.Equals(clip.AssetSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase) || clip.RenderId != asset.RenderId || clip.SegmentId != asset.SegmentId || !string.Equals(clip.SourceSha256, asset.SourceSha256, StringComparison.OrdinalIgnoreCase) || clip.CleanSourceRelativePath != asset.CleanSourceRelativePath) Issue("timeline.asset-pin-mismatch", "The clip must pin the exact immutable asset, take, source and clean snapshot.", clip);
             if (clip.StartFrame < 0 || clip.SourceStartFrame < 0 || clip.DurationFrames <= 0 || !double.IsFinite(asset.DurationSeconds) || asset.DurationSeconds <= 0 || clip.SourceStartSeconds >= asset.DurationSeconds || (!clip.Loop && clip.SourceStartSeconds + clip.DurationSeconds > asset.DurationSeconds + 1d / TimelineTime.SampleRate)) Issue("timeline.invalid-range", "The clip range must stay inside its source audio.", clip);
-            if (!ValidGain(clip.GainDb) || !ValidPan(clip.Pan) || !double.IsFinite(clip.FadeInSeconds) || clip.FadeInSeconds < 0 || !double.IsFinite(clip.FadeOutSeconds) || clip.FadeOutSeconds < 0 || clip.FadeInSeconds + clip.FadeOutSeconds > clip.DurationSeconds + 1d / TimelineTime.SampleRate || !ValidEnvelope(clip)) Issue("timeline.invalid-envelope", "Clip gain, pan, fades and envelope must be valid and fit the clip.", clip);
+            if (!ValidGain(clip.GainDb) || !ValidPan(clip.Pan) || !ValidFades(clip, asset) || !ValidEnvelope(clip)) Issue("timeline.invalid-envelope", "Clip gain, pan, fades and envelope must be valid for the original source range.", clip);
             bool narration = clip.SegmentId is not null || track.Kind == AudioTrackKind.Narration;
             if (!narration) continue;
             if (track.Kind != AudioTrackKind.Narration || timeline.Scope != AudioTimelineScope.Chapter) Issue("timeline.narration-owner", "Narration belongs on a chapter narration track.", clip);
@@ -291,7 +311,12 @@ public static class AudioTimelineRules
             {
                 if (render.Status != RenderStatus.Approved || render.ApprovedAt is null && segment.ApprovedRenderId != render.RenderId) Issue("timeline.take-unapproved", "Approve the pinned narration take before exporting.", clip);
                 if (!string.Equals(clip.SourceSha256, segment.SourceSha256, StringComparison.OrdinalIgnoreCase)) Issue("timeline.narration-stale", "Narration changed after this clip was rendered.", clip);
-                if (!string.Equals(render.AudioSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase) || !string.Equals(render.SourceSha256, clip.SourceSha256, StringComparison.OrdinalIgnoreCase) || render.RawAudioRelativePath != asset.RelativePath || render.CleanSourceRelativePath != clip.CleanSourceRelativePath) Issue("timeline.take-pin-mismatch", "The source asset no longer matches its pinned take.", clip);
+                bool currentArtifact = asset.RelativePath == (string.IsNullOrWhiteSpace(render.ProcessedAudioRelativePath) ? render.RawAudioRelativePath : render.ProcessedAudioRelativePath)
+                    && string.Equals(render.AudioSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase);
+                // Processing creates another artifact of the same take. Existing raw pins keep
+                // their original hash and are still verified against the original file on disk.
+                bool pinnedOriginal = !string.IsNullOrWhiteSpace(render.ProcessedAudioRelativePath) && asset.RelativePath == render.RawAudioRelativePath;
+                if ((!currentArtifact && !pinnedOriginal) || !string.Equals(render.SourceSha256, clip.SourceSha256, StringComparison.OrdinalIgnoreCase) || render.CleanSourceRelativePath != clip.CleanSourceRelativePath) Issue("timeline.take-pin-mismatch", "The source asset no longer matches its pinned take.", clip);
                 if (render.Origin == RenderOrigin.Imported && !render.ReferenceTranscriptConfirmed) Issue("timeline.transcript-unconfirmed", "Confirm the imported recording's reference transcript before export.", clip);
                 if (string.IsNullOrWhiteSpace(clip.CleanSourceRelativePath)) Issue("timeline.snapshot-missing", "The immutable clean narration snapshot is missing.", clip);
             }
@@ -347,11 +372,16 @@ public static class AudioTimelineRules
     {
         if (clip.SegmentId is null) return clip;
         WordAlignmentDocument? alignment = MatchingAlignment(clip, alignments);
-        if (alignment is null) return clip with { RetainedWordRanges = [] };
+        if (alignment is null || alignment.TotalWordCount <= 0) return clip with { RetainedWordRanges = [] };
         int[] ordinals = alignment.Words.Where(w => TimelineTime.ToFrames(w.Start.TotalSeconds) >= clip.SourceStartFrame - 1 && TimelineTime.ToFrames(w.End.TotalSeconds) <= clip.SourceStartFrame + clip.DurationFrames + 1).Select(w => w.NarrationWordOrdinal).Distinct().Order().ToArray();
-        // A continuous retained source span includes uncertain interior words too. Never silently
-        // remove transcript words just because an alignment provider missed them.
-        List<RetainedWordRange> ranges = ordinals.Length == 0 ? [] : [new(ordinals[0], ordinals[^1])];
+        // A continuous retained source span includes uncertain interior words. Keeping an original
+        // audio edge also keeps its unmatched prefix/suffix: absence of timing is not an omission.
+        AudioAssetRecord? asset = project.AudioAssets.FirstOrDefault(a => a.AssetId == clip.AssetId);
+        bool keepsStart = clip.SourceStartFrame == 0;
+        bool keepsEnd = asset is not null && clip.SourceStartFrame + clip.DurationFrames == TimelineTime.ToFrames(asset.DurationSeconds);
+        List<RetainedWordRange> ranges = ordinals.Length == 0
+            ? keepsStart && keepsEnd ? [new(0, alignment.TotalWordCount - 1)] : []
+            : [new(keepsStart ? 0 : ordinals[0], keepsEnd ? alignment.TotalWordCount - 1 : ordinals[^1])];
         return clip with { RetainedWordRanges = ranges };
     }
 
@@ -382,5 +412,48 @@ public static class AudioTimelineRules
         }
         return true;
     }
-    private static List<VolumeEnvelopePoint> SliceEnvelope(AudioClipDocument clip, double start, double end) => clip.Envelope.Where(p => p.OffsetSeconds >= start && p.OffsetSeconds <= end).Select(p => p with { OffsetSeconds = p.OffsetSeconds - start }).ToList();
+    private static AudioClipDocument PreserveFadePhase(AudioClipDocument original, AudioClipDocument retained)
+    {
+        long delta = checked(retained.SourceStartFrame - original.SourceStartFrame);
+        return retained with
+        {
+            FadeInOffsetSeconds = TimelineTime.ToSeconds(checked(TimelineTime.ToFrames(original.FadeInOffsetSeconds) + delta)),
+            FadeOutOffsetSeconds = TimelineTime.ToSeconds(checked(TimelineTime.ToFrames(original.FadeOutOffsetSeconds) + original.DurationFrames - delta - retained.DurationFrames)),
+        };
+    }
+
+    private static bool ValidFades(AudioClipDocument clip, AudioAssetRecord asset)
+    {
+        bool FrameTime(double seconds) => double.IsFinite(seconds) && Math.Abs(seconds) < long.MaxValue / (double)TimelineTime.SampleRate;
+        if (!FrameTime(clip.FadeInSeconds) || !FrameTime(clip.FadeOutSeconds) || !FrameTime(clip.FadeInOffsetSeconds) || !FrameTime(clip.FadeOutOffsetSeconds)
+            || clip.FadeInSeconds < 0 || clip.FadeOutSeconds < 0) return false;
+        // A short slice may retain part of either original fade, including overlapping fade regions.
+        // Looped media can have a fade extending across multiple repetitions of its immutable source.
+        double originalExtent = clip.DurationSeconds + Math.Max(0, clip.FadeInOffsetSeconds) + Math.Max(0, clip.FadeOutOffsetSeconds);
+        double limit = Math.Max(asset.DurationSeconds, originalExtent) + 1d / TimelineTime.SampleRate;
+        return clip.FadeInSeconds <= limit && clip.FadeOutSeconds <= limit;
+    }
+
+    private static List<VolumeEnvelopePoint> SliceEnvelope(AudioClipDocument clip, double start, double end)
+    {
+        if (clip.Envelope.Count == 0 || end <= start) return [];
+        List<VolumeEnvelopePoint> result = [new(0, GainAt(start))];
+        result.AddRange(clip.Envelope.Where(p => p.OffsetSeconds > start && p.OffsetSeconds < end)
+            .Select(p => p with { OffsetSeconds = p.OffsetSeconds - start }));
+        result.Add(new(end - start, GainAt(end)));
+        return result;
+
+        double GainAt(double position)
+        {
+            if (position <= clip.Envelope[0].OffsetSeconds) return clip.Envelope[0].GainDb;
+            for (int index = 1; index < clip.Envelope.Count; index++)
+            {
+                var right = clip.Envelope[index];
+                if (position > right.OffsetSeconds) continue;
+                var left = clip.Envelope[index - 1];
+                return left.GainDb + (right.GainDb - left.GainDb) * (position - left.OffsetSeconds) / (right.OffsetSeconds - left.OffsetSeconds);
+            }
+            return clip.Envelope[^1].GainDb;
+        }
+    }
 }

@@ -64,6 +64,7 @@ public sealed class AudioTimelineService(
         if (graph.Issues.Count > 0) throw new InvalidOperationException(string.Join(" ", graph.Issues.Select(i => i.Message)));
         List<MixRenderClip> clips = [];
         List<MixTranscriptEntry> transcript = [];
+        Dictionary<Guid, ParsedScriptDocument> transcriptSources = [];
         List<TimelineMarker> markers = [];
         foreach (var item in graph.Timelines)
         {
@@ -78,6 +79,7 @@ public sealed class AudioTimelineService(
                     ClipId = clip.ClipId, Asset = asset with { }, Track = track with { Solo = false },
                     StartSeconds = start, SourceStartFrame = clip.SourceStartFrame, DurationFrames = clip.DurationFrames,
                     GainDb = clip.GainDb, Pan = clip.Pan, FadeInSeconds = clip.FadeInSeconds, FadeOutSeconds = clip.FadeOutSeconds,
+                    FadeInOffsetSeconds = clip.FadeInOffsetSeconds, FadeOutOffsetSeconds = clip.FadeOutOffsetSeconds,
                     Muted = clip.Muted, Loop = clip.Loop,
                     Envelope = Array.AsReadOnly(clip.Envelope.ToArray()), RetainedWordRanges = Array.AsReadOnly(clip.RetainedWordRanges.ToArray()),
                     AlignedWords = Array.AsReadOnly(AudioTimelineRules.MatchingAlignment(clip, graph.Alignments)?.Words.ToArray() ?? []),
@@ -97,8 +99,8 @@ public sealed class AudioTimelineService(
                 bool full = clip.SourceStartFrame == 0 && clip.DurationFrames == TimelineTime.ToFrames(asset.DurationSeconds);
                 if (full && parsed.NarrationWords.Count > 0) ranges = [new RetainedWordRange(0, parsed.NarrationWords.Count - 1)];
                 clips[^1] = frozen with { RetainedWordRanges = Array.AsReadOnly(ranges.ToArray()) };
-                string retained = RetainedText(parsed, ranges);
-                transcript.Add(new(clip.ClipId, segmentId, renderId, start, Array.AsReadOnly(ranges.ToArray()), retained));
+                transcriptSources[clip.ClipId] = parsed;
+                AddTranscriptFragments(transcript, clip, segmentId, renderId, start, parsed, ranges, AudioTimelineRules.MatchingAlignment(clip, graph.Alignments));
             }
             foreach (TimelineMarker marker in item.Timeline.Markers)
             {
@@ -117,7 +119,7 @@ public sealed class AudioTimelineService(
             ProjectId = graph.Project.ProjectId, Scope = scope, ChapterId = chapterId, Revision = graph.Requested.Revision,
             CreatedAt = _timeProvider.GetUtcNow(), OutputStandard = graph.Project.MixOutputStandard with { },
             Clips = Array.AsReadOnly(orderedClips), Markers = Array.AsReadOnly(markers.OrderBy(m => m.PositionSeconds).ToArray()),
-            Transcript = Array.AsReadOnly(transcript.OrderBy(t => t.StartSeconds).ToArray()), DurationSeconds = duration,
+            Transcript = Array.AsReadOnly(CoalesceTranscript(transcript, transcriptSources).ToArray()), DurationSeconds = duration,
         };
     }
 
@@ -205,14 +207,18 @@ public sealed class AudioTimelineService(
                 ? chapterStart + anchor.OffsetSeconds + localStart
                 : throw new InvalidOperationException("The anchored chapter is not included in this mix.");
         if (anchor.SegmentId is not string segmentId || anchor.WordOrdinal is not int ordinal) throw new InvalidOperationException("The source-word cue is unplaced.");
+        List<double> candidates = [];
         foreach (var placement in placements)
-        foreach (var clip in placement.Timeline.Clips.Where(c => c.SegmentId == segmentId && c.RenderId is not null))
+        foreach (var clip in placement.Timeline.Clips.Where(c => c.SegmentId == segmentId && c.RenderId is not null && !c.Muted
+            && placement.Timeline.Tracks.Any(t => t.TrackId == c.TrackId && !t.Muted)))
         {
             var alignment = AudioTimelineRules.MatchingAlignment(clip, alignments);
             var word = alignment?.Words.FirstOrDefault(w => w.NarrationWordOrdinal == ordinal);
             if (word is null || word.Start.TotalSeconds < clip.SourceStartSeconds || word.End.TotalSeconds > clip.SourceStartSeconds + clip.DurationSeconds) continue;
-            return placement.OffsetSeconds + clip.StartSeconds + word.Start.TotalSeconds - clip.SourceStartSeconds + anchor.OffsetSeconds + localStart;
+            candidates.Add(placement.OffsetSeconds + clip.StartSeconds + word.Start.TotalSeconds - clip.SourceStartSeconds + anchor.OffsetSeconds + localStart);
         }
+        if (candidates.Count == 1) return candidates[0];
+        if (candidates.Count > 1) throw new InvalidOperationException("The retained cue word has multiple audible occurrences; place its anchor explicitly.");
         throw new InvalidOperationException("The retained cue word is missing or uncertain; place its anchor explicitly.");
     }
 
@@ -231,20 +237,64 @@ public sealed class AudioTimelineService(
         return string.Join(" ", fragments);
     }
 
+    private static void AddTranscriptFragments(List<MixTranscriptEntry> entries, AudioClipDocument clip, string segmentId,
+        Guid renderId, double start, ParsedScriptDocument parsed, IReadOnlyList<RetainedWordRange> ranges, WordAlignmentDocument? alignment)
+    {
+        foreach (var range in ranges)
+        {
+            var words = alignment?.Words.Where(w => w.NarrationWordOrdinal >= range.FirstWordOrdinal && w.NarrationWordOrdinal <= range.LastWordOrdinal)
+                .OrderBy(w => w.NarrationWordOrdinal).ToArray() ?? [];
+            if (words.Length == 0)
+            {
+                entries.Add(new(clip.ClipId, segmentId, renderId, start, Array.AsReadOnly(new[] { range }), RetainedText(parsed, [range])));
+                continue;
+            }
+            // Unknown words remain attached to their retained neighbouring word. Their source
+            // gaps are conservatively occupied speech, so another clip cannot interleave there.
+            for (int index = 0; index < words.Length; index++)
+            {
+                var retained = new RetainedWordRange(index == 0 ? range.FirstWordOrdinal : words[index].NarrationWordOrdinal,
+                    index + 1 < words.Length ? words[index + 1].NarrationWordOrdinal - 1 : range.LastWordOrdinal);
+                double audibleStart = start + words[index].Start.TotalSeconds - clip.SourceStartSeconds;
+                entries.Add(new(clip.ClipId, segmentId, renderId, audibleStart, Array.AsReadOnly(new[] { retained }), RetainedText(parsed, [retained])));
+            }
+        }
+    }
+
+    private static List<MixTranscriptEntry> CoalesceTranscript(IEnumerable<MixTranscriptEntry> fragments, IReadOnlyDictionary<Guid, ParsedScriptDocument> sources)
+    {
+        List<MixTranscriptEntry> result = [];
+        foreach (var entry in fragments.OrderBy(e => e.StartSeconds))
+        {
+            if (result.Count > 0 && result[^1] is var previous && previous.ClipId == entry.ClipId
+                && previous.WordRanges.Count == 1 && entry.WordRanges.Count == 1
+                && previous.WordRanges[0].LastWordOrdinal + 1 == entry.WordRanges[0].FirstWordOrdinal)
+            {
+                var range = new RetainedWordRange(previous.WordRanges[0].FirstWordOrdinal, entry.WordRanges[0].LastWordOrdinal);
+                result[^1] = previous with { WordRanges = Array.AsReadOnly(new[] { range }), Text = RetainedText(sources[entry.ClipId], [range]) };
+            }
+            else result.Add(entry);
+        }
+        return result;
+    }
+
     private static async Task<Dictionary<Guid, WordAlignmentDocument>> LoadAlignmentsAsync(string root, VoiceBenchProjectDocument project, CancellationToken token)
     {
         Dictionary<Guid, WordAlignmentDocument> result = [];
         foreach (RenderRecord render in project.Segments.SelectMany(s => s.RenderHistory))
         {
-            WordAlignmentRecord? record = render.AlignmentHistory.LastOrDefault(a => a.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial && a.AudioSha256.Equals(render.AudioSha256, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(a.ArtifactRelativePath));
+            AudioAssetRecord? pinned = project.AudioAssets.FirstOrDefault(a => a.RenderId == render.RenderId);
+            string audioHash = pinned?.Sha256 ?? render.AudioSha256;
+            double duration = pinned?.DurationSeconds ?? render.Duration.TotalSeconds;
+            WordAlignmentRecord? record = render.AlignmentHistory.LastOrDefault(a => a.Status is WordAlignmentStatus.Aligned or WordAlignmentStatus.Partial && a.AudioSha256.Equals(audioHash, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(a.ArtifactRelativePath));
             if (record?.ArtifactRelativePath is not string path) continue;
             try
             {
                 await using FileStream stream = File.OpenRead(VoiceBenchProjectLayout.ResolveRelativePath(root, path));
                 var document = await JsonSerializer.DeserializeAsync<WordAlignmentDocument>(stream, ProjectJson.SerializerOptions, token).ConfigureAwait(false);
-                if (document is null || document.RenderId != render.RenderId || document.AlignmentId != record.AlignmentId || !document.AudioSha256.Equals(render.AudioSha256, StringComparison.OrdinalIgnoreCase) || !document.SourceSha256.Equals(render.SourceSha256, StringComparison.OrdinalIgnoreCase) || !document.SubmittedTextSha256.Equals(render.SubmittedTextSha256, StringComparison.OrdinalIgnoreCase)) continue;
+                if (document is null || document.RenderId != render.RenderId || document.AlignmentId != record.AlignmentId || !document.AudioSha256.Equals(audioHash, StringComparison.OrdinalIgnoreCase) || !document.SourceSha256.Equals(render.SourceSha256, StringComparison.OrdinalIgnoreCase) || !document.SubmittedTextSha256.Equals(render.SubmittedTextSha256, StringComparison.OrdinalIgnoreCase)) continue;
                 var ordered = document.Words.OrderBy(w => w.NarrationWordOrdinal).ToArray();
-                if (ordered.Any(w => w.NarrationWordOrdinal < 0 || w.NarrationWordOrdinal >= document.TotalWordCount || w.Start < TimeSpan.Zero || w.End <= w.Start || w.End > render.Duration) || ordered.Select(w => w.NarrationWordOrdinal).Distinct().Count() != ordered.Length || ordered.Zip(ordered.Skip(1), (left, right) => left.End > right.Start).Any(overlap => overlap)) continue;
+                if (ordered.Any(w => w.NarrationWordOrdinal < 0 || w.NarrationWordOrdinal >= document.TotalWordCount || w.Start < TimeSpan.Zero || w.End <= w.Start || w.End.TotalSeconds > duration) || ordered.Select(w => w.NarrationWordOrdinal).Distinct().Count() != ordered.Length || ordered.Zip(ordered.Skip(1), (left, right) => left.End > right.Start).Any(overlap => overlap)) continue;
                 result[render.RenderId] = document;
             }
             catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException) { /* Missing/bad alignment never fabricates safe boundaries. */ }
