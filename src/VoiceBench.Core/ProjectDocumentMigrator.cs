@@ -188,6 +188,34 @@ public sealed class ThreeToFourProjectDocumentMigration : IProjectDocumentMigrat
     }
 }
 
+public sealed class FourToFiveProjectDocumentMigration : IProjectDocumentMigration
+{
+    public int FromSchemaVersion => 4;
+    public int ToSchemaVersion => 5;
+
+    public JsonObject Migrate(JsonObject source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        JsonObject result = (JsonObject)source.DeepClone();
+        VoiceBenchProjectDocument project = result.Deserialize<VoiceBenchProjectDocument>(ProjectJson.SerializerOptions)
+            ?? throw new ProjectSchemaException("The project manifest is empty.");
+        project = AudioTimelineRules.RegisterRenderAssets(project);
+        List<AudioTimelineDocument> timelines = [.. project.AudioTimelines];
+        foreach (ChapterDocument chapter in project.Chapters)
+            if (!timelines.Any(t => t.Scope == AudioTimelineScope.Chapter && t.ChapterId == chapter.ChapterId))
+                timelines.Add(AudioTimelineRules.GetOrCreate(project, AudioTimelineScope.Chapter, chapter.ChapterId));
+        if (!timelines.Any(t => t.Scope == AudioTimelineScope.Compilation))
+            timelines.Add(AudioTimelineRules.GetOrCreate(project, AudioTimelineScope.Compilation));
+        result["audioAssets"] = JsonSerializer.SerializeToNode(project.AudioAssets, ProjectJson.SerializerOptions);
+        result["audioTimelines"] = JsonSerializer.SerializeToNode(timelines, ProjectJson.SerializerOptions);
+        result["mixOutputStandard"] ??= JsonSerializer.SerializeToNode(MixOutputStandard.Default, ProjectJson.SerializerOptions);
+        foreach (JsonObject segment in (result["segments"] as JsonArray ?? []).OfType<JsonObject>())
+        foreach (JsonObject render in (segment["renderHistory"] as JsonArray ?? []).OfType<JsonObject>())
+            render["origin"] ??= "generated";
+        return result;
+    }
+}
+
 public static class ProjectJson
 {
     public static JsonSerializerOptions SerializerOptions { get; } = CreateOptions();

@@ -7,11 +7,11 @@ namespace IssueLab.VoiceBench.Core.Tests;
 public sealed class ProjectDocumentTests
 {
     [Fact]
-    public void New_document_uses_schema_four_and_narration_audio_standard()
+    public void New_document_uses_schema_five_and_narration_audio_standard()
     {
         var document = new VoiceBenchProjectDocument();
 
-        Assert.Equal(4, document.SchemaVersion);
+        Assert.Equal(5, document.SchemaVersion);
         Assert.Equal(48_000, document.AudioStandard.SampleRate);
         Assert.Equal(1, document.AudioStandard.Channels);
         Assert.Equal(-16, document.AudioStandard.IntegratedLufs);
@@ -53,11 +53,12 @@ public sealed class ProjectDocumentTests
                 new OneToTwoProjectDocumentMigration(),
                 new TwoToThreeProjectDocumentMigration(),
                 new ThreeToFourProjectDocumentMigration(),
+                new FourToFiveProjectDocumentMigration(),
             ]);
 
         var document = migrator.Deserialize(source);
 
-        Assert.Equal(4, document.SchemaVersion);
+        Assert.Equal(5, document.SchemaVersion);
         Assert.Equal("Training narration", document.Name);
         Assert.Equal(750, document.AudioStandard.PauseMilliseconds);
         Assert.Equal(0, source["schemaVersion"]!.GetValue<int>());
@@ -97,6 +98,7 @@ public sealed class ProjectDocumentTests
             new OneToTwoProjectDocumentMigration(),
             new TwoToThreeProjectDocumentMigration(),
             new ThreeToFourProjectDocumentMigration(),
+            new FourToFiveProjectDocumentMigration(),
         ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
@@ -121,6 +123,7 @@ public sealed class ProjectDocumentTests
             new OneToTwoProjectDocumentMigration(),
             new TwoToThreeProjectDocumentMigration(),
             new ThreeToFourProjectDocumentMigration(),
+            new FourToFiveProjectDocumentMigration(),
         ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
@@ -163,6 +166,7 @@ public sealed class ProjectDocumentTests
         ProjectDocumentMigrator migrator = new([
             new TwoToThreeProjectDocumentMigration(),
             new ThreeToFourProjectDocumentMigration(),
+            new FourToFiveProjectDocumentMigration(),
         ]);
 
         VoiceBenchProjectDocument document = migrator.Deserialize(source);
@@ -193,9 +197,9 @@ public sealed class ProjectDocumentTests
             """)!.AsObject();
 
         VoiceBenchProjectDocument document = new ProjectDocumentMigrator(
-            [new ThreeToFourProjectDocumentMigration()]).Deserialize(source);
+            [new ThreeToFourProjectDocumentMigration(), new FourToFiveProjectDocumentMigration()]).Deserialize(source);
 
-        Assert.Equal(4, document.SchemaVersion);
+        Assert.Equal(5, document.SchemaVersion);
         Assert.Empty(Assert.Single(Assert.Single(document.Segments).RenderHistory).AlignmentHistory);
     }
 
