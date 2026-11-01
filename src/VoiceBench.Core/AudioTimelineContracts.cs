@@ -107,6 +107,9 @@ public sealed record AudioClipDocument
     public double Pan { get; init; }
     public double FadeInSeconds { get; init; }
     public double FadeOutSeconds { get; init; }
+    /// <summary>Phase offsets preserve the original fade function through non-destructive split/trim.</summary>
+    public double FadeInOffsetSeconds { get; init; }
+    public double FadeOutOffsetSeconds { get; init; }
     public bool Muted { get; init; }
     /// <summary>Explicit repeat at original speed; no time stretch.</summary>
     public bool Loop { get; init; }
@@ -221,6 +224,8 @@ public sealed record MixRenderClip
     public double Pan { get; init; }
     public double FadeInSeconds { get; init; }
     public double FadeOutSeconds { get; init; }
+    public double FadeInOffsetSeconds { get; init; }
+    public double FadeOutOffsetSeconds { get; init; }
     public bool Muted { get; init; }
     public bool Loop { get; init; }
     public IReadOnlyList<VolumeEnvelopePoint> Envelope { get; init; } = Array.Empty<VolumeEnvelopePoint>();

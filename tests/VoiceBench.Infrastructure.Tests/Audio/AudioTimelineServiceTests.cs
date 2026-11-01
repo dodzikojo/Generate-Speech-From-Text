@@ -150,6 +150,97 @@ public sealed class AudioTimelineServiceTests
     }
 
     [Fact]
+    public async Task Processing_keeps_a_previously_pinned_raw_clip_and_its_alignment_usable()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        var render = await AddAlignmentAsync(directory.Root, project.Segments[0].RenderHistory[0],
+            [new("One", TimeSpan.FromSeconds(.1), TimeSpan.FromSeconds(.3), 0, 0), new("two", TimeSpan.FromSeconds(.6), TimeSpan.FromSeconds(.9), 1, 1)], 2);
+        await repository.SaveAsync(directory.Root, project with { Segments = [project.Segments[0] with { RenderHistory = [render] }] });
+        var service = new AudioTimelineService(repository);
+        var timeline = await service.GetAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        await service.ApplyAsync(directory.Root, AudioTimelineScope.Chapter, "chapter", timeline.Revision,
+            [new TimelineEdit { Operation = TimelineEditOperation.TrimClip, ClipId = timeline.Clips[0].ClipId, SourceStartSeconds = .6, DurationSeconds = .4 }]);
+        string processed = "04-generated-audio/processed.wav";
+        await File.WriteAllBytesAsync(Path.Combine(directory.Root, processed), [3, 4]);
+        await repository.UpdateAsync(directory.Root, p => p with { Segments = [p.Segments[0] with { RenderHistory = [render with { ProcessedAudioRelativePath = processed, AudioSha256 = Hash([3, 4]) }] }] });
+        var plan = await service.BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal(render.RawAudioRelativePath, Assert.Single(plan.Clips).Asset.RelativePath);
+        Assert.Equal("two.", Assert.Single(plan.Transcript).Text);
+        Assert.True((await service.ValidateAsync(directory.Root, AudioTimelineScope.Chapter, "chapter")).CanExport);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Transcript_follows_audible_words_across_interleaved_or_leading_silence(bool interleaved)
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        var render = await AddAlignmentAsync(directory.Root, project.Segments[0].RenderHistory[0] with { Duration = TimeSpan.FromSeconds(4) },
+            [new("One", TimeSpan.FromSeconds(interleaved ? .2 : 3), TimeSpan.FromSeconds(interleaved ? .4 : 3.2), 0, 0),
+             new("two", TimeSpan.FromSeconds(3.4), TimeSpan.FromSeconds(3.6), 1, 1)], 2);
+        await File.WriteAllTextAsync(Path.Combine(directory.Root, "02-scripts/middle.md"), "Middle.");
+        await File.WriteAllTextAsync(Path.Combine(directory.Root, "03-render-copies/middle.txt"), "Middle.");
+        await File.WriteAllBytesAsync(Path.Combine(directory.Root, "04-generated-audio/middle.wav"), [3, 4]);
+        var middle = await AddAlignmentAsync(directory.Root, new RenderRecord
+        {
+            RawAudioRelativePath = "04-generated-audio/middle.wav", AudioSha256 = Hash([3, 4]), SourceSha256 = SourceTextHasher.Compute("Middle."),
+            CleanSourceRelativePath = "03-render-copies/middle.txt", Duration = TimeSpan.FromSeconds(1), Status = RenderStatus.Approved,
+        }, [new("Middle", TimeSpan.FromSeconds(.1), TimeSpan.FromSeconds(.3), 0, 0)], 1);
+        project = AudioTimelineRules.RegisterRenderAssets(project with
+        {
+            Segments = [project.Segments[0] with { RenderHistory = [render] }, new SegmentDocument { SegmentId = "middle", ChapterId = "chapter", ScriptRelativePath = "02-scripts/middle.md", SourceSha256 = middle.SourceSha256, ApprovedRenderId = middle.RenderId, RenderHistory = [middle] }],
+            Chapters = [project.Chapters[0] with { SegmentOrder = ["segment", "middle"] }],
+        });
+        var timeline = AudioTimelineRules.GetOrCreate(project, AudioTimelineScope.Chapter, "chapter");
+        timeline = timeline with { LayoutMode = TimelineLayoutMode.Manual, Clips = timeline.Clips.Select(c => c.SegmentId == "middle" ? c with { StartSeconds = 1 } : c).ToList() };
+        await repository.SaveAsync(directory.Root, project with { AudioTimelines = [timeline] });
+        var plan = await new AudioTimelineService(repository).BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal(interleaved ? ["One", "Middle.", "two."] : ["Middle.", "One two."], plan.Transcript.Select(t => t.Text));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Source_word_markers_stay_unplaced_when_the_word_is_muted_or_duplicated(bool muted)
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        var render = await AddAlignmentAsync(directory.Root, project.Segments[0].RenderHistory[0],
+            [new("One", TimeSpan.FromSeconds(.1), TimeSpan.FromSeconds(.3), 0, 0), new("two", TimeSpan.FromSeconds(.6), TimeSpan.FromSeconds(.9), 1, 1)], 2);
+        project = AudioTimelineRules.RegisterRenderAssets(project with { Segments = [project.Segments[0] with { RenderHistory = [render] }] });
+        var timeline = AudioTimelineRules.GetOrCreate(project, AudioTimelineScope.Chapter, "chapter");
+        var clip = timeline.Clips[0];
+        timeline = timeline with
+        {
+            Clips = muted ? [clip with { Muted = true }] : [clip, clip with { ClipId = Guid.NewGuid(), StartSeconds = 2 }],
+            Markers = [new TimelineMarker { Name = "Word cue", Anchor = new TimelineAnchor { Kind = TimelineAnchorKind.SourceWord, SegmentId = "segment", WordOrdinal = 1 } }],
+        };
+        await repository.SaveAsync(directory.Root, project with { AudioTimelines = [timeline] });
+        var plan = await new AudioTimelineService(repository).BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.False(Assert.Single(plan.Markers).Anchor.Placed);
+    }
+
+    [Fact]
+    public async Task First_mix_for_a_processed_take_pins_the_processed_file_and_hash()
+    {
+        using TemporaryDirectory directory = new();
+        var repository = new FileProjectRepository();
+        var project = await NarratedProjectAsync(repository, directory.Root);
+        const string processed = "04-generated-audio/processed.wav";
+        await File.WriteAllBytesAsync(Path.Combine(directory.Root, processed), [3, 4]);
+        var render = project.Segments[0].RenderHistory[0] with { ProcessedAudioRelativePath = processed, AudioSha256 = Hash([3, 4]) };
+        await repository.SaveAsync(directory.Root, project with { Segments = [project.Segments[0] with { RenderHistory = [render] }] });
+        var plan = await new AudioTimelineService(repository).BuildPlanAsync(directory.Root, AudioTimelineScope.Chapter, "chapter");
+        Assert.Equal(processed, Assert.Single(plan.Clips).Asset.RelativePath);
+        Assert.Equal(Hash([3, 4]), plan.Clips[0].Asset.Sha256);
+    }
+
+    [Fact]
     public async Task Old_schema_transaction_snapshots_are_migrated_when_restored()
     {
         using TemporaryDirectory directory = new();
@@ -184,4 +275,11 @@ public sealed class AudioTimelineServiceTests
         return project;
     }
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    private static async Task<RenderRecord> AddAlignmentAsync(string root, RenderRecord render, List<WordTiming> words, int total)
+    {
+        var record = new WordAlignmentRecord { Status = WordAlignmentStatus.Aligned, AudioSha256 = render.AudioSha256, AudioRelativePath = render.RawAudioRelativePath, ArtifactRelativePath = $"03-render-copies/{render.RenderId:N}.alignment.json" };
+        var document = new WordAlignmentDocument { AlignmentId = record.AlignmentId, RenderId = render.RenderId, AudioRelativePath = record.AudioRelativePath, AudioSha256 = render.AudioSha256, SourceSha256 = render.SourceSha256, SubmittedTextSha256 = render.SubmittedTextSha256, TotalWordCount = total, MatchedWordCount = words.Count, Words = words };
+        await File.WriteAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root, record.ArtifactRelativePath), JsonSerializer.Serialize(document, ProjectJson.SerializerOptions));
+        return render with { AlignmentHistory = [record] };
+    }
 }
