@@ -24,12 +24,19 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <TextBlock Text="AUDIO LIBRARY" Style="{StaticResource UtilityLabelTextStyle}"/>
                     <Button Grid.Row="1" Content="＋ Import audio…" Click="Import_Click" HorizontalAlignment="Stretch"/>
-                    <ListView x:Name="AssetsList" Grid.Row="2" SelectionMode="Single" DisplayMemberPath="Name" AutomationProperties.Name="Immutable audio assets"/>
+                    <ListView x:Name="AssetsList" Grid.Row="2" SelectionMode="Single" DisplayMemberPath="Name" RightTapped="Asset_RightTapped" AutomationProperties.Name="Immutable audio assets">
+                        <ListView.ContextFlyout><MenuFlyout>
+                            <MenuFlyoutItem Text="Reveal source location" Click="RevealAsset_Click"/>
+                            <MenuFlyoutItem Text="Relink original source…" Click="RelinkAsset_Click"/>
+                            <MenuFlyoutSeparator/>
+                            <MenuFlyoutItem Text="Import a new asset…" Click="Import_Click"/>
+                        </MenuFlyout></ListView.ContextFlyout>
+                    </ListView>
                     <Button Grid.Row="3" Content="Place on selected track" Click="PlaceAsset_Click"/>
                 </Grid>
             </Border>
-            <Grid Grid.Column="1" RowSpacing="4">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid x:Name="TimelineCanvasHost" Grid.Column="1" RowSpacing="4" SizeChanged="TimelineCanvasHost_SizeChanged">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <CommandBar x:Name="TimelineTools" Padding="0" Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="True" ClosedDisplayMode="Compact" AutomationProperties.Name="Timeline editing tools">
                     <AppBarButton Label="Undo" Icon="Undo" Click="Undo_Click"/>
                     <AppBarButton Label="Redo" Icon="Redo" Click="Redo_Click"/>
@@ -40,23 +47,38 @@
                     <AppBarButton Label="Duplicate" Icon="Copy" Click="Duplicate_Click"/>
                     <AppBarButton Label="Lift" Icon="Delete" Click="Lift_Click"/>
                     <CommandBar.SecondaryCommands>
-                        <AppBarButton Label="Close gap at playhead" Click="CloseGap_Click"/>
+                        <AppBarButton Label="Close gap before selected clip" Click="CloseGap_Click"/>
                         <AppBarButton Label="Place marker at playhead" Click="Marker_Click"/>
                         <AppBarButton Label="Markers and cue anchors…" Click="Markers_Click"/>
                         <AppBarButton Label="Unplaced or omitted narration…" Click="PendingSegments_Click"/>
                         <AppBarButton Label="Review replacement takes…" Click="Replacements_Click"/>
                         <AppBarButton Label="Automatic placeholder layout" Click="AutoLayout_Click"/>
+                        <AppBarButton Label="Track height">
+                            <AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem Text="Compact · 62 px" Tag="62" Click="TrackHeight_Click"/><MenuFlyoutItem Text="Standard · 88 px" Tag="88" Click="TrackHeight_Click"/><MenuFlyoutItem Text="Large · 120 px" Tag="120" Click="TrackHeight_Click"/></MenuFlyout></AppBarButton.Flyout>
+                        </AppBarButton>
                         <AppBarButton Label="Set end marker at playhead" Click="EndMarker_Click"/>
                         <AppBarButton Label="Select all clips" Click="SelectAll_Click"/>
                         <AppBarButton Label="Export mix…" Click="Export_Click"/>
                     </CommandBar.SecondaryCommands>
                 </CommandBar>
-                <Slider x:Name="Ruler" Grid.Row="1" Minimum="0" Maximum="40" ValueChanged="Ruler_ValueChanged" AutomationProperties.Name="Timeline playhead seconds"/>
-                <ListView x:Name="TrackRows" Grid.Row="2" SelectionMode="None" IsItemClickEnabled="False" Padding="0" AutomationProperties.Name="Audio tracks and clips">
+                <Grid Grid.Row="1" ColumnSpacing="0">
+                    <Grid.ColumnDefinitions><ColumnDefinition x:Name="RulerHeaderColumn" Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="TIME / SECONDS" FontSize="11" Margin="5,5,0,0" Foreground="{ThemeResource MutedTextBrush}"/>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Left">
+                        <Canvas x:Name="TimeTicksCanvas" Height="28" AutomationProperties.Name="Visible timeline time ruler"/>
+                        <Slider x:Name="Ruler" Minimum="0" Maximum="40" Height="20" MinHeight="20" Margin="-8,0,-8,0" ValueChanged="Ruler_ValueChanged" AutomationProperties.Name="Timeline playhead seconds"/>
+                    </StackPanel>
+                </Grid>
+                <Grid Grid.Row="2" ColumnSpacing="0" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,1">
+                    <Grid.ColumnDefinitions><ColumnDefinition x:Name="CueHeaderColumn" Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Button x:Name="CuePlacementStatus" Content="CUES · 0 unplaced" FontSize="11" Padding="5,2" HorizontalAlignment="Stretch" Click="CuePlacementStatus_Click" AutomationProperties.Name="Production cue placement status"/>
+                    <Canvas x:Name="CueLaneCanvas" Grid.Column="1" Height="32" HorizontalAlignment="Left" AutomationProperties.Name="Production cues anchored to retained narration"/>
+                </Grid>
+                <ListView x:Name="TrackRows" Grid.Row="3" SelectionMode="None" IsItemClickEnabled="False" Padding="0" AutomationProperties.Name="Audio tracks and clips">
                     <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel/></ItemsPanelTemplate></ListView.ItemsPanel>
                     <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListView.ItemContainerStyle>
                 </ListView>
-                <Grid Grid.Row="3" ColumnSpacing="6">
+                <Grid Grid.Row="4" ColumnSpacing="6">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
                     <ToggleButton x:Name="SnapToggle" Content="Snap" IsChecked="True" Click="Snap_Click" AutomationProperties.Name="Snap to grid, clip edges and markers"/>
                     <Slider x:Name="ScrollTime" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="Viewport_Changed" AutomationProperties.Name="Timeline visible start seconds"/>

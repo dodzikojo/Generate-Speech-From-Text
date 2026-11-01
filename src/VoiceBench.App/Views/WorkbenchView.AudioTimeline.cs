@@ -1,6 +1,7 @@
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
 using IssueLab.VoiceBench.Infrastructure.Projects;
+using IssueLab.VoiceBench.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
@@ -11,6 +12,7 @@ public sealed partial class WorkbenchView
 {
     private readonly DispatcherTimer _mixFollowTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly Dictionary<Guid,MixFollowSource> _mixFollowSources = [];
+    private readonly Dictionary<string,ParsedScriptDocument> _mixFollowDrafts = [];
     private Guid? _mixFollowClipId;
     private bool _mixFollowing;
     private int _mixFollowLoadVersion;
@@ -25,6 +27,11 @@ public sealed partial class WorkbenchView
             if (DispatcherQueue.HasThreadAccess) _ = PrepareMixFollowAsync();
             else DispatcherQueue.TryEnqueue(async () => await PrepareMixFollowAsync());
         };
+        App.Services.MixParametersUpdated += (_, _) =>
+        {
+            if (DispatcherQueue.HasThreadAccess) RefreshMixFollowParameters();
+            else DispatcherQueue.TryEnqueue(RefreshMixFollowParameters);
+        };
     }
 
     private async Task PrepareMixFollowAsync()
@@ -36,8 +43,9 @@ public sealed partial class WorkbenchView
         if (App.Services.PlaybackTarget != "mix" || App.Services.ActiveMixPlan is not { } plan || App.Services.Session.Project is not { } project) return;
         string root = App.Services.Session.RequireProjectRoot();
         string liveDraftText = GetEditorText();
+        if (_segment is not null) _mixFollowDrafts[_segment.SegmentId] = new ProductionScriptParser().Parse(liveDraftText);
         string? liveDraftHash = _segment is null ? null : SourceTextHasher.Compute(new ProductionScriptParser().Parse(liveDraftText).NarrationText);
-        foreach (MixRenderClip clip in plan.Clips.Where(clip => clip.Track.Kind == AudioTrackKind.Narration && !clip.Muted && !clip.Track.Muted))
+        foreach (MixRenderClip clip in plan.Clips.Where(clip => clip.Track.Kind == AudioTrackKind.Narration))
         {
             AudioAssetRecord asset = clip.Asset;
             var segment = project.Segments.FirstOrDefault(item => item.SegmentId == asset.SegmentId);
@@ -55,12 +63,63 @@ public sealed partial class WorkbenchView
                 var parsed = new ProductionScriptParser().Parse(text);
                 var alignment = await FileWordAlignmentService.LoadDocumentAsync(root,record);
                 if (version != _mixFollowLoadVersion) return;
+                if (_mixFollowDrafts.TryGetValue(segment.SegmentId,out var latestDraft))
+                {
+                    if (!TimelinePresentation.CanFollow(render.SourceSha256,segment.SourceSha256,latestDraft)) continue;
+                    text = latestDraft.AuthoringText; parsed = latestDraft;
+                }
                 if (!WordFollowPlaybackRules.IsNarrationCurrent(render.SourceSha256,parsed.NarrationText)
                     || alignment.SourceSha256 != render.SourceSha256 || alignment.AudioSha256 != record.AudioSha256) continue;
-                _mixFollowSources[clip.ClipId] = new(clip,text,parsed,alignment);
+                MixRenderClip? activeClip = App.Services.ActiveMixPlan?.Clips.FirstOrDefault(item => item.ClipId == clip.ClipId);
+                if (activeClip is not null) _mixFollowSources[clip.ClipId] = new(activeClip,text,parsed,alignment);
             }
             catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException) { }
         }
+    }
+
+    private void RefreshMixFollowParameters()
+    {
+        if (App.Services.ActiveMixPlan is not { } plan) return;
+        var clips = plan.Clips.ToDictionary(clip => clip.ClipId);
+        foreach (var source in _mixFollowSources.ToArray())
+            if (clips.TryGetValue(source.Key,out var clip)) _mixFollowSources[source.Key] = source.Value with { Clip = clip };
+            else _mixFollowSources.Remove(source.Key);
+        if (_mixFollowing && _mixFollowClipId is Guid active && _mixFollowSources.TryGetValue(active,out var current)
+            && (current.Clip.Muted || current.Clip.Track.Muted))
+        { PlaybackScriptText.TextHighlighters.Clear(); _activeFollowWordOrdinal = -1; }
+    }
+
+    private void SyncMixFollowDraft(ParsedScriptDocument draft)
+    {
+        if (_segment is null) return;
+        _mixFollowDrafts[_segment.SegmentId] = draft;
+        foreach (var entry in _mixFollowSources.Where(entry => entry.Value.Clip.Asset.SegmentId == _segment.SegmentId).ToArray())
+        {
+            if (!TimelinePresentation.CanFollow(entry.Value.Clip.Asset.SourceSha256,_segment.SourceSha256,draft))
+                _mixFollowSources.Remove(entry.Key);
+            else _mixFollowSources[entry.Key] = entry.Value with { Text = draft.AuthoringText, Parsed = draft };
+            if (_mixFollowClipId == entry.Key) _mixFollowClipId = null;
+        }
+        if (_mixFollowing && !_mixFollowSources.Values.Any(source => !source.Clip.Muted && !source.Clip.Track.Muted && App.Services.AudioPlayback is { } playback && playback.Position.TotalSeconds >= source.Clip.StartSeconds && playback.Position.TotalSeconds < source.Clip.StartSeconds + source.Clip.DurationSeconds))
+        { _mixFollowing = false; EndFollowSession(); }
+    }
+
+    private void InvalidateMixFollowForProject()
+    {
+        var project = App.Services.Session.Project;
+        if (project is null || App.Services.ActiveMixPlan?.ProjectId != project.ProjectId)
+        {
+            _mixFollowSources.Clear(); _mixFollowDrafts.Clear(); ++_mixFollowLoadVersion;
+            if (_mixFollowing) { _mixFollowing = false; EndFollowSession(); }
+            return;
+        }
+        foreach (var source in _mixFollowSources.ToArray())
+        {
+            var segment = project.Segments.FirstOrDefault(item => item.SegmentId == source.Value.Clip.Asset.SegmentId);
+            if (segment is null || !TimelinePresentation.CanFollow(source.Value.Clip.Asset.SourceSha256,segment.SourceSha256)) _mixFollowSources.Remove(source.Key);
+        }
+        if (_mixFollowing && _mixFollowClipId.HasValue && !_mixFollowSources.ContainsKey(_mixFollowClipId.Value))
+        { _mixFollowClipId = null; _mixFollowing = false; EndFollowSession(); }
     }
 
     private void UpdateMixFollow()
@@ -71,10 +130,10 @@ public sealed partial class WorkbenchView
             return;
         }
         double seconds = App.Services.AudioPlayback.Position.TotalSeconds;
-        MixFollowSource? source = _mixFollowSources.Values.FirstOrDefault(item => seconds >= item.Clip.StartSeconds && seconds < item.Clip.StartSeconds + item.Clip.DurationSeconds);
+        MixFollowSource? source = _mixFollowSources.Values.FirstOrDefault(item => !item.Clip.Muted && !item.Clip.Track.Muted && seconds >= item.Clip.StartSeconds && seconds < item.Clip.StartSeconds + item.Clip.DurationSeconds);
         if (source is null)
         {
-            if (_mixFollowing) PlaybackScriptText.TextHighlighters.Clear();
+            if (_mixFollowing) { PlaybackScriptText.TextHighlighters.Clear(); _activeFollowWordOrdinal = -1; }
             return;
         }
         if (!_followSessionActive)

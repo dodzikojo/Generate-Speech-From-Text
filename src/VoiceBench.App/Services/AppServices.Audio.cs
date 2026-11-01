@@ -10,13 +10,14 @@ public sealed partial class AppServices
     private AudioAssetService? _audioAssets;
     private AudioPlaybackEngine? _audioPlayback;
     private Task<AudioPlaybackEngine>? _audioPlaybackInitialization;
-    private double _mixResumeSeconds;
+    private int _mixParameterRefreshVersion;
     public AudioTimelineService AudioTimeline { get; private set; } = null!;
     public AudioTimelineWorkspace AudioWorkspace { get; private set; } = null!;
     public AudioPlaybackEngine? AudioPlayback => _audioPlayback;
     public string PlaybackTarget { get; internal set; } = "none";
     public string? PlaybackSourcePath { get; internal set; }
     public event EventHandler? AudioTargetChanged;
+    public event EventHandler? MixParametersUpdated;
     public Action? SelectedTakePlayback { get; set; }
     public MixRenderPlan? ActiveMixPlan { get; private set; }
 
@@ -54,6 +55,7 @@ public sealed partial class AppServices
     public async Task LoadPlaybackFileAsync(string path, string target, CancellationToken cancellationToken = default)
     {
         AudioPlaybackEngine playback = await GetAudioPlaybackAsync(cancellationToken);
+        if (PlaybackTarget == "mix") AudioWorkspace.PlayheadSeconds = playback.Position.TotalSeconds;
         await Task.Run(() => playback.LoadFileAsync(path, cancellationToken),cancellationToken);
         PlaybackTarget = target;
         PlaybackSourcePath = path;
@@ -67,8 +69,7 @@ public sealed partial class AppServices
         AudioPlaybackEngine playback = await GetAudioPlaybackAsync(cancellationToken);
         await Task.Run(() => playback.LoadMixAsync(mixRoot, plan, cancellationToken),cancellationToken);
         if (AudioWorkspace.MonitorSoloTrackIds.Count > 0) await playback.SetSoloTracksAsync(AudioWorkspace.MonitorSoloTrackIds,cancellationToken);
-        if (_mixResumeSeconds > 0) await playback.SeekAsync(TimeSpan.FromSeconds(Math.Min(_mixResumeSeconds,plan.DurationSeconds)),cancellationToken);
-        _mixResumeSeconds = 0;
+        if (AudioWorkspace.PlayheadSeconds > 0) await playback.SeekAsync(TimeSpan.FromSeconds(Math.Min(AudioWorkspace.PlayheadSeconds,plan.DurationSeconds)),cancellationToken);
         PlaybackTarget = "mix";
         ActiveMixPlan = plan;
         PlaybackSourcePath = null;
@@ -79,9 +80,31 @@ public sealed partial class AppServices
     public void InvalidateMixPlayback()
     {
         if (PlaybackTarget != "mix") return;
-        _mixResumeSeconds = AudioPlayback?.Position.TotalSeconds ?? 0;
+        AudioWorkspace.PlayheadSeconds = AudioPlayback?.Position.TotalSeconds ?? AudioWorkspace.PlayheadSeconds;
         AudioPlayback?.Pause(); PlaybackTarget = "none"; ActiveMixPlan = null;
         AudioTargetChanged?.Invoke(this,EventArgs.Empty);
+    }
+
+    public async Task<MixRenderPlan?> TryRefreshMixParametersAsync(Func<bool>? isCurrent = null,CancellationToken cancellationToken = default)
+    {
+        if (PlaybackTarget != "mix" || ActiveMixPlan is not { } previous || AudioPlayback is not { } playback) return null;
+        int version = ++_mixParameterRefreshVersion;
+        string root = Session.RequireProjectRoot();
+        MixRenderPlan candidate;
+        try
+        {
+            candidate = await Task.Run(() => AudioTimeline.BuildParameterUpdatePlanAsync(root,previous.Scope,previous.ChapterId,cancellationToken),cancellationToken);
+        }
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException) { return null; }
+        if (PlaybackTarget != "mix") return null;
+        if (isCurrent?.Invoke() == false || version != _mixParameterRefreshVersion || ActiveMixPlan?.PlanId != previous.PlanId) return ActiveMixPlan;
+        bool accepted = await playback.UpdateMixParametersAsync(candidate,cancellationToken);
+        if (PlaybackTarget != "mix") return null;
+        if (isCurrent?.Invoke() == false || version != _mixParameterRefreshVersion || ActiveMixPlan?.PlanId != previous.PlanId) return ActiveMixPlan;
+        if (!accepted) return null;
+        ActiveMixPlan = candidate;
+        MixParametersUpdated?.Invoke(this,EventArgs.Empty);
+        return candidate;
     }
 
     public async Task<T> RunTimelineCommandAsync<T>(string command, object arguments, CancellationToken cancellationToken = default)

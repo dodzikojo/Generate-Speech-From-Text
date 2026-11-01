@@ -353,6 +353,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private void Session_ProjectChanged(object? sender, EventArgs e)
     {
+        DispatcherQueue.TryEnqueue(InvalidateMixFollowForProject);
         if (_suppressProjectChangedReload) return;
         int version = Interlocked.Increment(ref _projectChangeVersion);
         string? preferredSegmentId = _segment?.SegmentId;
@@ -364,6 +365,16 @@ public sealed partial class WorkbenchView : UserControl
             {
                 if (_suppressProjectChangedReload || version != _projectChangeVersion)
                 {
+                    completion.TrySetResult();
+                    return;
+                }
+                if (_project is { } previous && App.Services.Session.Project is { } refreshed
+                    && string.Equals(_monitoredProjectRoot,App.Services.Session.ProjectRoot,StringComparison.OrdinalIgnoreCase)
+                    && IssueLab.VoiceBench.App.Services.TimelinePresentation.SameScriptWorkspace(previous,refreshed))
+                {
+                    _project = refreshed;
+                    if (_segment is not null) _segment = refreshed.Segments.FirstOrDefault(item => item.SegmentId == _segment.SegmentId);
+                    await RefreshAuthoringHistoryAsync();
                     completion.TrySetResult();
                     return;
                 }
@@ -3225,17 +3236,18 @@ public sealed partial class WorkbenchView : UserControl
 
     private void UpdateFollowEligibility(ParsedScriptDocument? parsed = null)
     {
+        ParsedScriptDocument current = parsed ?? new ProductionScriptParser().Parse(GetEditorText());
+        SyncMixFollowDraft(current);
         if (_activeWordAlignment is null || _activeAlignmentRender is null)
         {
-            FollowScriptToggle.IsEnabled = false;
+            FollowScriptToggle.IsEnabled = App.Services.PlaybackTarget == "mix";
             return;
         }
 
-        ParsedScriptDocument current = parsed ?? new ProductionScriptParser().Parse(GetEditorText());
         bool narrationCurrent = WordFollowPlaybackRules.IsNarrationCurrent(
             _activeAlignmentRender.SourceSha256,
             current.NarrationText);
-        FollowScriptToggle.IsEnabled = narrationCurrent;
+        FollowScriptToggle.IsEnabled = narrationCurrent || App.Services.PlaybackTarget == "mix";
         if (!narrationCurrent)
         {
             EndFollowSession();

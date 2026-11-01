@@ -2,9 +2,71 @@ using IssueLab.VoiceBench.Core;
 
 namespace IssueLab.VoiceBench.App.Services;
 
+public sealed record TimelineCuePlacement(Guid? ClipId,string? SegmentId,string Type,string Content,int SourceWordOrdinal,double? PositionSeconds,string Status);
+
 /// <summary>Viewport calculations stay independent of drawing and authoring state.</summary>
 public static class TimelinePresentation
 {
+    public static bool SameScriptWorkspace(VoiceBenchProjectDocument before,VoiceBenchProjectDocument after)
+    {
+        VoiceBenchProjectDocument WithoutAudio(VoiceBenchProjectDocument project) => project with
+        {
+            UpdatedAt = default,AudioAssets = [],AudioTimelines = [],AudioTimelineRevisionCounters = [],MixOutputStandard = MixOutputStandard.Default,
+        };
+        return string.Equals(System.Text.Json.JsonSerializer.Serialize(WithoutAudio(before),ProjectJson.SerializerOptions),
+            System.Text.Json.JsonSerializer.Serialize(WithoutAudio(after),ProjectJson.SerializerOptions),StringComparison.Ordinal);
+    }
+
+    public static bool SameWaveformGeometry(AudioTimelineDocument? previous,AudioTimelineDocument next)
+    {
+        if (previous is null || previous.TimelineId != next.TimelineId || previous.Clips.Count != next.Clips.Count) return false;
+        var clips = previous.Clips.ToDictionary(clip => clip.ClipId);
+        return next.Clips.All(clip => clips.TryGetValue(clip.ClipId,out var before)
+            && before.AssetId == clip.AssetId && before.AssetSha256 == clip.AssetSha256 && before.TrackId == clip.TrackId
+            && before.StartFrame == clip.StartFrame && before.SourceStartFrame == clip.SourceStartFrame && before.DurationFrames == clip.DurationFrames && before.Loop == clip.Loop);
+    }
+
+    public static IReadOnlyList<double> ReliableWordSnapPositions(AudioClipDocument clip,WordAlignmentDocument document,double sourceDuration)
+    {
+        if (clip.RenderId != document.RenderId || !string.Equals(clip.AssetSha256,document.AudioSha256,StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(clip.SourceSha256,document.SourceSha256,StringComparison.OrdinalIgnoreCase)) return [];
+        return document.Words.SelectMany(word => new[] { word.Start.TotalSeconds,word.End.TotalSeconds })
+            .Where(source => source >= clip.SourceStartSeconds && source <= clip.SourceStartSeconds+clip.DurationSeconds)
+            .Where(source => AudioTimelineRules.CanCutAt(document,source,sourceDuration))
+            .Select(source => clip.StartSeconds+source-clip.SourceStartSeconds)
+            .Where(time => time >= clip.StartSeconds && time <= clip.StartSeconds+clip.DurationSeconds).Distinct().ToArray();
+    }
+    public static double GridStep(double visibleSeconds)
+    {
+        double rough = Math.Max(.01,visibleSeconds / 8);
+        double magnitude = Math.Pow(10,Math.Floor(Math.Log10(rough)));
+        double scaled = rough / magnitude;
+        return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10) * magnitude;
+    }
+
+    public static IReadOnlyList<double> RulerTicks(double start,double visibleSeconds)
+    {
+        double step = GridStep(visibleSeconds);
+        List<double> ticks = [];
+        for (double time = Math.Ceiling(start / step) * step; time <= start + visibleSeconds + step * .0001; time += step) ticks.Add(time);
+        return ticks;
+    }
+
+    public static TimelineCuePlacement PlaceCue(MixRenderClip clip,ProductionCue cue,bool current)
+    {
+        int ordinal = cue.PrecedingNarrationWords;
+        bool retained = clip.RetainedWordRanges.Any(range => ordinal >= range.FirstWordOrdinal && ordinal <= range.LastWordOrdinal);
+        var timing = clip.AlignedWords.FirstOrDefault(word => word.NarrationWordOrdinal == ordinal);
+        bool inside = timing is not null && timing.Start.TotalSeconds >= clip.SourceStartSeconds && timing.Start.TotalSeconds < clip.SourceStartSeconds + clip.DurationSeconds;
+        double? position = current && retained && inside ? clip.StartSeconds + timing!.Start.TotalSeconds - clip.SourceStartSeconds : null;
+        string status = position.HasValue ? "Placed" : !current ? "Stale source · unplaced" : !retained ? "Removed anchor · unplaced" : "Uncertain word · unplaced";
+        return new(clip.ClipId,clip.Asset.SegmentId,cue.Type,cue.Content,ordinal,position,status);
+    }
+
+    public static bool CanFollow(string pinnedSourceSha256,string savedSourceSha256,ParsedScriptDocument? liveDraft = null) =>
+        string.Equals(pinnedSourceSha256,savedSourceSha256,StringComparison.OrdinalIgnoreCase)
+        && (liveDraft is null || WordFollowPlaybackRules.IsNarrationCurrent(pinnedSourceSha256,liveDraft.NarrationText));
+
     public static double Duration(AudioTimelineDocument? timeline) => Math.Max(1,
         timeline?.EndMarkerSeconds ?? timeline?.Clips.Select(clip => clip.StartSeconds + clip.DurationSeconds).DefaultIfEmpty(0).Max() ?? 0);
 

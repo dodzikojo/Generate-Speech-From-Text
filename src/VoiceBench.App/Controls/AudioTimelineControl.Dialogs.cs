@@ -6,6 +6,28 @@ namespace IssueLab.VoiceBench.App.Controls;
 
 public sealed partial class AudioTimelineControl
 {
+    private async Task ShowCompactLibraryAsync()
+    {
+        ListView assets = new() { ItemsSource = AssetsList.ItemsSource, DisplayMemberPath = "Name", MaxHeight = 420, MinWidth = 250, SelectionMode = ListViewSelectionMode.Single };
+        ContentDialog dialog = new() { XamlRoot = XamlRoot, Title = "Audio library", Content = assets, PrimaryButtonText = "Place selected asset", SecondaryButtonText = "Import audio…", CloseButtonText = "Close" };
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            AssetsList.SelectedItem = assets.SelectedItem;
+            PlaceAsset_Click(this,new RoutedEventArgs());
+        }
+        else if (result == ContentDialogResult.Secondary) Import_Click(this,new RoutedEventArgs());
+    }
+
+    private async Task ShowCompactInspectorAsync()
+    {
+        UIElement content = InspectorPanel.Child;
+        InspectorPanel.Child = null;
+        ContentDialog dialog = new() { XamlRoot = XamlRoot, Title = "Clip inspector", Content = content, CloseButtonText = "Close" };
+        try { await dialog.ShowAsync(); }
+        finally { dialog.Content = null; InspectorPanel.Child = content; }
+    }
+
     private async void Markers_Click(object sender,RoutedEventArgs e) => await RunAsync(async () =>
     {
         if (Workspace.Timeline is not { } timeline) return;

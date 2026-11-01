@@ -44,8 +44,13 @@ public sealed partial class AudioTimelineControl : UserControl
     private CancellationTokenSource _peakCancellation = new();
     private readonly SemaphoreSlim _peakSlots = new(2,2);
     private readonly Dictionary<Guid, WaveStrip> _peakStrips = [];
+    private AudioTimelineDocument? _waveTimeline;
+    private double _waveViewStart = -1;
+    private double _waveVisibleSeconds;
     private sealed record WaveStrip(double TimelineStart, double TimelineDuration, float[] Minimum, float[] Maximum);
     private sealed record ScopeChoice(string Label, AudioTimelineScope Scope, string? ChapterId);
+    private string LayoutSettingPrefix => _compact ? "Audio.Dock" : "Audio";
+    private double TrackHeight => ApplicationData.Current.LocalSettings.Values[LayoutSettingPrefix + ".TrackHeight"] is double height ? Math.Clamp(height,62,120) : _compact ? 62 : 88;
 
     public AudioTimelineControl()
     {
@@ -65,16 +70,18 @@ public sealed partial class AudioTimelineControl : UserControl
         {
             _compact = value;
             CollapseToggle.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-            LibraryToggle.IsChecked = !value && ReadSetting("Audio.Library", true);
-            InspectorToggle.IsChecked = !value && ReadSetting("Audio.Inspector", true);
+            LibraryToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Library",!value);
+            InspectorToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Inspector",!value);
+            _collapsed = value && ReadSetting("Audio.DockCollapsed",false);
+            CollapseToggle.IsChecked = _collapsed;
             ApplyLayout();
         }
     }
 
     private async void Control_Loaded(object sender, RoutedEventArgs e)
     {
-        LibraryToggle.IsChecked = !_compact && ReadSetting("Audio.Library", true);
-        InspectorToggle.IsChecked = !_compact && ReadSetting("Audio.Inspector", true);
+        LibraryToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Library",!_compact);
+        InspectorToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Inspector",!_compact);
         RefreshScopes();
         await RunAsync(() => Workspace.LoadAsync());
         _timer.Start();
@@ -89,6 +96,8 @@ public sealed partial class AudioTimelineControl : UserControl
         InspectorPanel.Visibility = !_collapsed && InspectorToggle.IsChecked == true && ActualWidth >= 700 ? Visibility.Visible : Visibility.Collapsed;
         LibraryColumn.Width = new GridLength(LibraryPanel.Visibility == Visibility.Visible ? 185 : 0);
         InspectorColumn.Width = new GridLength(InspectorPanel.Visibility == Visibility.Visible ? 220 : 0);
+        RulerHeaderColumn.Width = new GridLength(_compact ? 120 : 155);
+        CueHeaderColumn.Width = RulerHeaderColumn.Width;
         ArrangementBody.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
         if (_compact) ArrangementBody.MaxHeight = ReadDockHeight();
         TimelineRoot.RowDefinitions[1].Height = _collapsed ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
@@ -96,27 +105,41 @@ public sealed partial class AudioTimelineControl : UserControl
         Refresh();
     }
 
-    private static double ReadDockHeight() => ApplicationData.Current.LocalSettings.Values["Audio.DockHeight"] is double height ? Math.Clamp(height, 110, 400) : 170;
+    private static double ReadDockHeight() => ApplicationData.Current.LocalSettings.Values["Audio.DockHeight"] is double height ? Math.Clamp(height, 210, 400) : 260;
 
     public void ResizeDock(double delta)
     {
-        double height = Math.Clamp(ReadDockHeight() + delta, 110, 400);
+        double height = Math.Clamp(ReadDockHeight() + delta, 210, 400);
         ApplicationData.Current.LocalSettings.Values["Audio.DockHeight"] = height;
         ArrangementBody.MaxHeight = height;
         ArrangementBody.Height = height;
     }
 
-    private void Panels_Click(object sender, RoutedEventArgs e)
+    private async void Panels_Click(object sender, RoutedEventArgs e)
     {
-        if (!_compact)
+        if (ReferenceEquals(sender,LibraryToggle) && ActualWidth < 820 && LibraryToggle.IsChecked == true)
         {
-            ApplicationData.Current.LocalSettings.Values["Audio.Library"] = LibraryToggle.IsChecked == true;
-            ApplicationData.Current.LocalSettings.Values["Audio.Inspector"] = InspectorToggle.IsChecked == true;
+            LibraryToggle.IsChecked = false;
+            await RunAsync(ShowCompactLibraryAsync);
+            return;
         }
+        if (ReferenceEquals(sender,InspectorToggle) && ActualWidth < 700 && InspectorToggle.IsChecked == true)
+        {
+            InspectorToggle.IsChecked = false;
+            await RunAsync(ShowCompactInspectorAsync);
+            return;
+        }
+        ApplicationData.Current.LocalSettings.Values[LayoutSettingPrefix + ".Library"] = LibraryToggle.IsChecked == true;
+        ApplicationData.Current.LocalSettings.Values[LayoutSettingPrefix + ".Inspector"] = InspectorToggle.IsChecked == true;
         ApplyLayout();
     }
 
-    private void Collapse_Click(object sender, RoutedEventArgs e) { _collapsed = CollapseToggle.IsChecked == true; ApplyLayout(); }
+    private void Collapse_Click(object sender, RoutedEventArgs e)
+    {
+        _collapsed = CollapseToggle.IsChecked == true;
+        if (_compact) ApplicationData.Current.LocalSettings.Values["Audio.DockCollapsed"] = _collapsed;
+        ApplyLayout();
+    }
 
     private void RefreshScopes()
     {
@@ -151,7 +174,8 @@ public sealed partial class AudioTimelineControl : UserControl
         Zoom.Value = Workspace.VisibleSeconds;
         ScrollTime.Maximum = Math.Max(1, TimelinePresentation.Duration(timeline) - Workspace.VisibleSeconds + 2);
         ScrollTime.Value = Math.Clamp(Workspace.ViewStart, 0, ScrollTime.Maximum);
-        Ruler.Maximum = Math.Max(1, TimelinePresentation.Duration(timeline));
+        Ruler.Minimum = Workspace.ViewStart;
+        Ruler.Maximum = Workspace.ViewStart + Workspace.VisibleSeconds;
         foreach (var solo in _soloButtons) solo.Value.IsChecked = Workspace.MonitorSoloTrackIds.Contains(solo.Key);
         if (timeline is not null && (_drawnRevision != timeline.Revision || _drawnTimeline != timeline.TimelineId || _drawnStart != Workspace.ViewStart || _drawnVisible != Workspace.VisibleSeconds))
         {
@@ -161,19 +185,26 @@ public sealed partial class AudioTimelineControl : UserControl
         }
         else if (timeline is null) TrackRows.Items.Clear();
         UpdateInspector();
+        RefreshTimeAxis();
         InvalidateWaves();
         _refreshing = false;
     }
 
     private void BuildRows(AudioTimelineDocument timeline)
     {
-        _peakCancellation.Cancel(); _peakCancellation.Dispose(); _peakCancellation = new();
-        _peakStrips.Clear();
+        bool preservePeaks = _waveViewStart == Workspace.ViewStart && _waveVisibleSeconds == Workspace.VisibleSeconds
+            && TimelinePresentation.SameWaveformGeometry(_waveTimeline,timeline);
+        if (!preservePeaks)
+        {
+            _peakCancellation.Cancel(); _peakCancellation.Dispose(); _peakCancellation = new();
+            _peakStrips.Clear();
+        }
+        _waveTimeline = timeline; _waveViewStart = Workspace.ViewStart; _waveVisibleSeconds = Workspace.VisibleSeconds;
         foreach (CanvasControl canvas in _canvases) canvas.RemoveFromVisualTree();
         _canvases.Clear(); _soloButtons.Clear(); TrackRows.Items.Clear();
         foreach (AudioTrackDocument track in timeline.Tracks.OrderBy(track => track.Order))
         {
-            Grid row = new() { Height = _compact ? 62 : 88, BorderBrush = Brush("DividerBrush"), BorderThickness = new Thickness(0,0,0,1) };
+            Grid row = new() { Height = TrackHeight, BorderBrush = Brush("DividerBrush"), BorderThickness = new Thickness(0,0,0,1) };
             row.ColumnDefinitions.Add(new() { Width = new GridLength(_compact ? 120 : 155) });
             row.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
             StackPanel header = new() { Spacing = 3, Padding = new Thickness(5) };
@@ -183,7 +214,7 @@ public sealed partial class AudioTimelineControl : UserControl
             header.Children.Add(title);
             StackPanel toggles = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
             AddTrackToggle(toggles, track, "M", "Mute", track.Muted, value => track with { Muted = value });
-            Microsoft.UI.Xaml.Controls.Primitives.ToggleButton solo = new() { Content = "S", IsChecked = Workspace.MonitorSoloTrackIds.Contains(track.TrackId), Width = 28, MinWidth = 0, Height = 24, MinHeight = 0, Padding = new Thickness(0), FontSize = 10 };
+            Microsoft.UI.Xaml.Controls.Primitives.ToggleButton solo = new() { Content = "S", IsChecked = Workspace.MonitorSoloTrackIds.Contains(track.TrackId), Width = 28, MinWidth = 0, Height = 24, MinHeight = 0, Padding = new Thickness(0), FontSize = 11 };
             AutomationProperties.SetName(solo,$"Monitor solo track {track.Name}");
             solo.Click += async (_, _) => await RunAsync(async () =>
             {
@@ -206,19 +237,20 @@ public sealed partial class AudioTimelineControl : UserControl
                 _timelineWidth = Math.Max(1, args.NewSize.Width);
                 lane.Clip = new RectangleGeometry { Rect = new Rect(0,0,args.NewSize.Width,args.NewSize.Height) };
                 PositionClips(hits, track, _timelineWidth);
+                RefreshTimeAxis();
                 waves.Invalidate();
             };
             PositionClips(hits, track, _timelineWidth);
             TrackRows.Items.Add(row);
         }
-        QueueVisiblePeaks(timeline,_peakCancellation.Token);
+        if (!preservePeaks) QueueVisiblePeaks(timeline,_peakCancellation.Token);
     }
 
     private static Brush Brush(string key) => (Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
 
     private void AddTrackToggle(StackPanel panel, AudioTrackDocument track, string caption, string name, bool initial, Func<bool, AudioTrackDocument> update)
     {
-        Microsoft.UI.Xaml.Controls.Primitives.ToggleButton button = new() { Content = caption, IsChecked = initial, Width = 28, MinWidth = 0, Height = 24, MinHeight = 0, Padding = new Thickness(0), FontSize = 10 };
+        Microsoft.UI.Xaml.Controls.Primitives.ToggleButton button = new() { Content = caption, IsChecked = initial, Width = 28, MinWidth = 0, Height = 24, MinHeight = 0, Padding = new Thickness(0), FontSize = 11 };
         AutomationProperties.SetName(button, $"{name} track {track.Name}");
         button.Click += async (_, _) => await RunAsync(() => Workspace.EditAsync(new TimelineEdit { Operation = TimelineEditOperation.UpdateTrack, TrackId = track.TrackId, Track = update(button.IsChecked == true) }));
         panel.Children.Add(button);
@@ -255,7 +287,7 @@ public sealed partial class AudioTimelineControl : UserControl
         foreach (AudioClipDocument clip in timeline.Clips.Where(clip => clip.TrackId == track.TrackId && TimelinePresentation.Intersects(clip, Workspace.ViewStart, Workspace.VisibleSeconds)))
         {
             double left = (clip.StartSeconds - Workspace.ViewStart) * scale;
-            Button hit = new() { Content = clip.Name, Width = Math.Max(8, clip.DurationSeconds * scale), Height = _compact ? 50 : 76,
+            Button hit = new() { Content = clip.Name, Width = Math.Max(8, clip.DurationSeconds * scale), Height = TrackHeight - 12,
                 Background = new SolidColorBrush(Colors.Transparent), BorderBrush = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(1), Padding = new Thickness(7,2,7,35),
                 HorizontalContentAlignment = HorizontalAlignment.Left, VerticalContentAlignment = VerticalAlignment.Top, FontSize = 11, Tag = clip.ClipId };
             AutomationProperties.SetName(hit, $"{clip.Name}, {track.Name}, start {TimelinePresentation.Time(clip.StartSeconds)}, duration {TimelinePresentation.Time(clip.DurationSeconds)}");
@@ -328,11 +360,11 @@ public sealed partial class AudioTimelineControl : UserControl
         Color color = track.Kind switch { AudioTrackKind.Music => Color.FromArgb(255,179,157,219), AudioTrackKind.Effects => Color.FromArgb(255,244,173,104), _ => Color.FromArgb(255,53,199,232) };
         if (_accessibility.HighContrast) color = ((SolidColorBrush)Brush("ActiveSignalBrush")).Color;
         Color muted = Color.FromArgb(60, color.R, color.G, color.B);
-        double grid = Math.Max(.1, Math.Pow(10, Math.Floor(Math.Log10(Workspace.VisibleSeconds / 8))));
+        double grid = TimelinePresentation.GridStep(Workspace.VisibleSeconds);
         for (double second = Math.Ceiling(Workspace.ViewStart / grid) * grid; second < Workspace.ViewStart + Workspace.VisibleSeconds; second += grid)
         {
             float x = (float)((second - Workspace.ViewStart) * scale);
-            draw.DrawLine(x, 0, x, (float)height, Color.FromArgb(55,128,128,128));
+            draw.DrawLine(x, 0, x, (float)height, ((SolidColorBrush)Brush("DividerBrush")).Color);
         }
         if (Workspace.Timeline is not { } timeline) return;
         foreach (AudioClipDocument clip in timeline.Clips.Where(clip => clip.TrackId == track.TrackId && TimelinePresentation.Intersects(clip, Workspace.ViewStart, Workspace.VisibleSeconds)))
@@ -354,8 +386,28 @@ public sealed partial class AudioTimelineControl : UserControl
             }
             else draw.DrawLine((float)rect.X, (float)(height * .62), (float)rect.Right, (float)(height * .62), color);
             float yTop = 25, yBottom = (float)height - 9;
-            draw.DrawLine((float)rect.Left,yBottom,(float)(rect.Left + clip.FadeInSeconds * scale),yTop,color);
-            draw.DrawLine((float)(rect.Right - clip.FadeOutSeconds * scale),yTop,(float)rect.Right,yBottom,color);
+            DrawFade(clip.FadeInSeconds,clip.FadeInOffsetSeconds+(_dragEdge < 0 ? delta : 0),true);
+            DrawFade(clip.FadeOutSeconds,clip.FadeOutOffsetSeconds-(_dragEdge > 0 ? delta : 0),false);
+            void DrawFade(double length,double offset,bool incoming)
+            {
+                if (length <= 0 || duration <= 0) return;
+                double first = incoming ? 0 : Math.Clamp(duration+offset-length,0,duration);
+                double last = incoming ? Math.Clamp(length-offset,0,duration) : duration;
+                if (last <= first) return;
+                Vector2 previous = FadePoint(first);
+                for (int point = 1; point <= 24; point++)
+                {
+                    Vector2 next = FadePoint(first+(last-first)*point/24);
+                    draw.DrawLine(previous,next,color);
+                    previous = next;
+                }
+                Vector2 FadePoint(double time)
+                {
+                    double phase = (incoming ? time+offset : duration-time+offset)/length;
+                    double gain = Math.Sin(Math.Clamp(phase,0,1)*Math.PI/2);
+                    return new((float)(rect.Left+time*scale),(float)(yBottom-gain*(yBottom-yTop)));
+                }
+            }
             if (clip.Envelope.Count > 1)
                 for (int index = 1; index < clip.Envelope.Count; index++)
                 {
@@ -367,12 +419,12 @@ public sealed partial class AudioTimelineControl : UserControl
         foreach (TimelineMarker marker in timeline.Markers.Where(marker => marker.Anchor.Placed))
         {
             float x = (float)((marker.PositionSeconds - Workspace.ViewStart) * scale);
-            draw.DrawLine(x,0,x,(float)height,Colors.Orange);
+            draw.DrawLine(x,0,x,(float)height,((SolidColorBrush)Brush("PickupBrush")).Color);
         }
         if (App.Services.PlaybackTarget == "mix" && App.Services.AudioPlayback is { } playback)
         {
             float x = (float)((playback.Position.TotalSeconds - Workspace.ViewStart) * scale);
-            draw.DrawLine(x,0,x,(float)height,Colors.White,1.5f);
+            draw.DrawLine(x,0,x,(float)height,((SolidColorBrush)Brush("ReadingTextBrush")).Color,1.5f);
         }
     }
 
@@ -384,7 +436,7 @@ public sealed partial class AudioTimelineControl : UserControl
         string root = App.Services.Session.RequireProjectRoot();
         var assets = AudioTimelineRules.RegisterRenderAssets(project).AudioAssets.ToDictionary(asset => asset.AssetId);
         double viewStart = Workspace.ViewStart, visible = Workspace.VisibleSeconds;
-        foreach (AudioClipDocument clip in timeline.Clips.Where(clip => TimelinePresentation.Intersects(clip,viewStart,visible)).Take(512))
+        foreach (AudioClipDocument clip in timeline.Clips.Where(clip => TimelinePresentation.Intersects(clip,viewStart,visible)).Take(2048))
             if (assets.TryGetValue(clip.AssetId,out var asset))
                 _ = LoadPeakStripAsync(root,clip,asset,viewStart,visible,token);
     }
@@ -399,6 +451,7 @@ public sealed partial class AudioTimelineControl : UserControl
                 WaveStrip strip = await Task.Run(async () =>
                 {
                     var service = await App.Services.GetAudioAssetsAsync(token);
+                    var prepared = await service.PrepareAsync(root,asset,token);
                     double start = Math.Max(clip.StartSeconds,viewStart), end = Math.Min(clip.StartSeconds+clip.DurationSeconds,viewStart+visible);
                     const int bins = 640;
                     float[] min = new float[bins], max = new float[bins];
@@ -412,7 +465,7 @@ public sealed partial class AudioTimelineControl : UserControl
                         long mapped = clip.Loop ? offset % sourceBuckets : offset;
                         int count = (int)Math.Min(8192,Math.Min(last-offset,sourceBuckets-mapped));
                         if (count <= 0) break;
-                        var page = await service.ReadPeaksAsync(root,asset,mapped,count,token);
+                        var page = await service.ReadPeaksAsync(prepared,mapped,count,token);
                         for (int index = 0; index < page.Peaks.Count; index++)
                         {
                             int bin = Math.Clamp((int)((offset+index-first)/(double)Math.Max(1,last-first)*bins),0,bins-1);
@@ -465,6 +518,8 @@ public sealed partial class AudioTimelineControl : UserControl
         AudioClipDocument update = clip with { Name = ClipName.Text, TrackId = (ClipTrack.SelectedItem as AudioTrackDocument)?.TrackId ?? clip.TrackId,
             StartSeconds = ClipStart.Value, SourceStartSeconds = ClipSourceStart.Value, DurationSeconds = ClipDuration.Value, GainDb = ClipGain.Value,
             Pan = ClipPan.Value, FadeInSeconds = ClipFadeIn.Value, FadeOutSeconds = ClipFadeOut.Value, Loop = ClipLoop.IsChecked == true, Muted = ClipMuted.IsChecked == true, Envelope = envelope,
+            FadeInOffsetSeconds = Math.Abs(ClipFadeIn.Value-clip.FadeInSeconds) > 1d / TimelineTime.SampleRate ? 0 : clip.FadeInOffsetSeconds,
+            FadeOutOffsetSeconds = Math.Abs(ClipFadeOut.Value-clip.FadeOutSeconds) > 1d / TimelineTime.SampleRate ? 0 : clip.FadeOutOffsetSeconds,
             Anchor = new() { Kind = Enum.Parse<TimelineAnchorKind>((string)((ComboBoxItem)ClipAnchorKind.SelectedItem).Tag), ChapterId = (ClipAnchorChapter.SelectedItem as ChapterDocument)?.ChapterId, OffsetSeconds = ClipAnchorOffset.Value } };
         await Workspace.EditAsync(new TimelineEdit { Operation = TimelineEditOperation.UpdateClip, ClipId = clip.ClipId, Clip = update });
     });
@@ -501,14 +556,16 @@ public sealed partial class AudioTimelineControl : UserControl
         AudioAssetRecord asset = AssetsList.SelectedItem as AudioAssetRecord ?? throw new InvalidOperationException("Select an audio asset from the library.");
         Guid trackId = Workspace.SelectedTrackId ?? throw new InvalidOperationException("Add or select a track first.");
         AudioClipDocument clip = new() { TrackId = trackId, AssetId = asset.AssetId, AssetSha256 = asset.Sha256, Name = asset.Name,
-            StartSeconds = App.Services.AudioPlayback?.Position.TotalSeconds ?? Workspace.ViewStart, DurationSeconds = asset.DurationSeconds,
+            StartSeconds = Playhead, DurationSeconds = asset.DurationSeconds,
             RenderId = asset.RenderId, SegmentId = asset.SegmentId, SourceSha256 = asset.SourceSha256, CleanSourceRelativePath = asset.CleanSourceRelativePath };
         return Workspace.EditAsync(new TimelineEdit { Operation = TimelineEditOperation.AddClip, Clip = clip });
     });
 
-    private double Playhead => App.Services.AudioPlayback?.Position.TotalSeconds ?? Ruler.Value;
+    private double Playhead => App.Services.PlaybackTarget == "mix" ? App.Services.AudioPlayback?.Position.TotalSeconds ?? Workspace.PlayheadSeconds : Workspace.PlayheadSeconds;
     private async void Split_Click(object sender, RoutedEventArgs e) => await SplitAsync();
-    private async Task SplitAsync() => await RunAsync(() => Workspace.EditAsync(Workspace.SelectedClipIds.Select(id => new TimelineEdit { Operation = TimelineEditOperation.SplitClip, ClipId = id, SplitSeconds = Playhead }).ToArray()));
+    private async Task SplitAsync() => await RunAsync(() => Workspace.EditAsync(Workspace.Timeline?.Clips
+        .Where(clip => Workspace.SelectedClipIds.Contains(clip.ClipId) && Playhead > clip.StartSeconds && Playhead < clip.StartSeconds + clip.DurationSeconds)
+        .Select(clip => new TimelineEdit { Operation = TimelineEditOperation.SplitClip, ClipId = clip.ClipId, SplitSeconds = Playhead }).ToArray() ?? []));
     private async void Duplicate_Click(object sender, RoutedEventArgs e) => await DuplicateAsync();
     private async Task DuplicateAsync() => await RunAsync(() => Workspace.EditAsync(Workspace.SelectedClipIds.Select(id => new TimelineEdit { Operation = TimelineEditOperation.DuplicateClip, ClipId = id }).ToArray()));
     private async void Lift_Click(object sender, RoutedEventArgs e) => await LiftAsync();
@@ -533,7 +590,9 @@ public sealed partial class AudioTimelineControl : UserControl
     private void Zoom_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e) { if (_refreshing || TimelineNotice is null) return; Workspace.VisibleSeconds = e.NewValue; Workspace.Notify(); }
     private async void Ruler_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (!_refreshing && App.Services.AudioPlayback is { } playback) await RunAsync(() => playback.SeekAsync(TimeSpan.FromSeconds(e.NewValue)));
+        if (_refreshing) return;
+        Workspace.PlayheadSeconds = Workspace.Snap(e.NewValue,_timelineWidth / Workspace.VisibleSeconds);
+        if (App.Services.PlaybackTarget == "mix" && App.Services.AudioPlayback is { } playback) await RunAsync(() => playback.SeekAsync(TimeSpan.FromSeconds(Workspace.PlayheadSeconds)));
     }
 
     private async void Play_Click(object sender, RoutedEventArgs e) => await RunAsync(async () =>
@@ -552,7 +611,8 @@ public sealed partial class AudioTimelineControl : UserControl
         _refreshing = true;
         MixPlayButton.Content = playback.IsPlaying ? "Ⅱ Pause" : "▶ Play";
         PositionText.Text = TimelinePresentation.Time(playback.Position.TotalSeconds);
-        Ruler.Value = Math.Clamp(playback.Position.TotalSeconds,0,Ruler.Maximum);
+        if (App.Services.PlaybackTarget == "mix") Workspace.PlayheadSeconds = playback.Position.TotalSeconds;
+        Ruler.Value = Math.Clamp(Workspace.PlayheadSeconds,Ruler.Minimum,Ruler.Maximum);
         LoopToggle.IsChecked = playback.Loop;
         LeftMeter.Value = Math.Clamp(playback.Meter.PeakLeft,0,1);
         RightMeter.Value = Math.Clamp(playback.Meter.PeakRight,0,1);
