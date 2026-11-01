@@ -12,11 +12,11 @@ public sealed class FfmpegToolchainManagerTests
     {
         PinnedFfmpegRelease release = PinnedFfmpegRelease.WindowsX64;
 
-        Assert.Equal("9.0.1", release.Version);
+        Assert.Equal("9.0.2", release.Version);
         Assert.Contains("BtbN/FFmpeg-Builds", release.DownloadUri.AbsoluteUri, StringComparison.Ordinal);
         Assert.Equal(64, release.Sha256.Length);
         Assert.Equal(
-            "ccaa910db95451121482a5ebcb8c682123cb4f8a5bd5170fde4a814d7b437772",
+            "9d37c564e0d01c18cde184a079fa6ef04d7d2783ada41da81d04165cc8f1a650",
             release.Sha256);
     }
 

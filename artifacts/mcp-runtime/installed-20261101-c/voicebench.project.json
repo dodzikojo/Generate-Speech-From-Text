@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 4,
+  "projectId": "ec5513c6-1ccc-48b1-85d0-32dd5e244ae0",
+  "name": "MCP Runtime Verification",
+  "createdAt": "2026-11-01T06:20:16.7150284+00:00",
+  "updatedAt": "2026-11-01T06:20:16.7617711+00:00",
+  "audioStandard": {
+    "sampleRate": 48000,
+    "channels": 1,
+    "pcmBitsPerSample": 24,
+    "integratedLufs": -16,
+    "truePeakDbtp": -1,
+    "pauseMilliseconds": 500,
+    "chapterPauseMilliseconds": 1000
+  },
+  "chapterOrder": [
+    "e9fab7c3e70c4e3ab0aaaa7adcae1e7e"
+  ],
+  "chapters": [
+    {
+      "chapterId": "e9fab7c3e70c4e3ab0aaaa7adcae1e7e",
+      "title": "MCP chapter",
+      "status": "active",
+      "includedInCompilation": true,
+      "brief": null,
+      "referenceIds": [],
+      "segmentOrder": [
+        "acdd752316c149389dea027472d3abb3"
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "segmentId": "acdd752316c149389dea027472d3abb3",
+      "chapterId": "e9fab7c3e70c4e3ab0aaaa7adcae1e7e",
+      "title": "Opening",
+      "scriptRelativePath": "02-scripts/001-mcp-chapter--e9fab7/001-opening--acdd75.md",
+      "status": "draft",
+      "sourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "authoringSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "voicePresetId": null,
+      "directions": null,
+      "approvedRenderId": null,
+      "renderHistory": [],
+      "writingRevisions": []
+    }
+  ],
+  "voicePresets": [],
+  "defaultVoicePresetId": null,
+  "lexicon": [],
+  "writingProfile": {
+    "purpose": "",
+    "audience": "",
+    "tone": "Clear, confident, and conversational",
+    "styleNotes": "",
+    "defaultProviderId": "openai",
+    "defaultModelId": "gpt-5.6-terra",
+    "generateProductionCues": false
+  },
+  "sourceReferences": []
+}

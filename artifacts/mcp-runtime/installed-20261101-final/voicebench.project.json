@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 4,
+  "projectId": "bc71adc5-6f0d-46b3-829d-27a56a88288d",
+  "name": "MCP Runtime Verification",
+  "createdAt": "2026-11-01T06:23:48.9714298+00:00",
+  "updatedAt": "2026-11-01T06:23:49.6551389+00:00",
+  "audioStandard": {
+    "sampleRate": 48000,
+    "channels": 1,
+    "pcmBitsPerSample": 24,
+    "integratedLufs": -16,
+    "truePeakDbtp": -1,
+    "pauseMilliseconds": 500,
+    "chapterPauseMilliseconds": 1000
+  },
+  "chapterOrder": [
+    "6d54299357274335a18ac33845549a53"
+  ],
+  "chapters": [
+    {
+      "chapterId": "6d54299357274335a18ac33845549a53",
+      "title": "MCP chapter",
+      "status": "active",
+      "includedInCompilation": true,
+      "brief": null,
+      "referenceIds": [],
+      "segmentOrder": [
+        "328ae489f03c4768844ecce98c4cee65"
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "segmentId": "328ae489f03c4768844ecce98c4cee65",
+      "chapterId": "6d54299357274335a18ac33845549a53",
+      "title": "Opening",
+      "scriptRelativePath": "02-scripts/001-mcp-chapter--6d5429/001-opening--328ae4.md",
+      "status": "draft",
+      "sourceSha256": "21573cf059db9c9bb314b5b5dd8e0997a77dfdcb04e9ec90e8d24f26643b9be2",
+      "authoringSha256": "5f0f485b4a9cd3d3c657412e0a595d3c45b79627338b36348468995b311986fc",
+      "voicePresetId": null,
+      "directions": "Calm and clear, with a brief pause between ideas.",
+      "approvedRenderId": null,
+      "renderHistory": [],
+      "writingRevisions": []
+    }
+  ],
+  "voicePresets": [
+    {
+      "presetId": "mcp-runtime",
+      "name": "Runtime voice",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "directions": null,
+      "auditionRenderIds": []
+    }
+  ],
+  "defaultVoicePresetId": "mcp-runtime",
+  "lexicon": [],
+  "writingProfile": {
+    "purpose": "",
+    "audience": "",
+    "tone": "Clear, confident, and conversational",
+    "styleNotes": "",
+    "defaultProviderId": "openai",
+    "defaultModelId": "gpt-5.6-terra",
+    "generateProductionCues": false
+  },
+  "sourceReferences": []
+}

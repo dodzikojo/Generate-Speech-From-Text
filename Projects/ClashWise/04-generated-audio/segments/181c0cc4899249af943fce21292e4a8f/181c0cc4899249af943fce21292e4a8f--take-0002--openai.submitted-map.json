@@ -1,0 +1,750 @@
+{
+  "schemaVersion": 1,
+  "renderId": "32abd821-1c91-4383-aa08-7eb502a0d81c",
+  "sourceSha256": "fb87e616c4106710490ab02010af41ab03d5434cb50382777fab566a0df2ef91",
+  "submittedTextSha256": "d208a83a2dba2be38e676855b8885dc476ae2b0399e01f7d1ba92e254ec2c778",
+  "submittedText": "The workflow moves between two connected workspaces.\n\nInside Nav-is-works, the ClashWiseAI ribbon prepares and publishes clash results. Its Clash Management panel gives you three important actions: Publish, Update, and Sync.\n\nOn the web, the same clash set becomes a shared coordination workspace. That is where you create the Clash Matrix, run analysis, triage the worklist, review clashes in detail or in three dimensions, coordinate with the team, and produce a record of the outcome.",
+  "totalNarrationWordCount": 74,
+  "words": [
+    {
+      "submittedOrdinal": 0,
+      "text": "The",
+      "normalized": "the",
+      "submittedStart": 0,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        0
+      ]
+    },
+    {
+      "submittedOrdinal": 1,
+      "text": "workflow",
+      "normalized": "workflow",
+      "submittedStart": 4,
+      "submittedLength": 8,
+      "narrationWordOrdinals": [
+        1
+      ]
+    },
+    {
+      "submittedOrdinal": 2,
+      "text": "moves",
+      "normalized": "moves",
+      "submittedStart": 13,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        2
+      ]
+    },
+    {
+      "submittedOrdinal": 3,
+      "text": "between",
+      "normalized": "between",
+      "submittedStart": 19,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        3
+      ]
+    },
+    {
+      "submittedOrdinal": 4,
+      "text": "two",
+      "normalized": "2",
+      "submittedStart": 27,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        4
+      ]
+    },
+    {
+      "submittedOrdinal": 5,
+      "text": "connected",
+      "normalized": "connected",
+      "submittedStart": 31,
+      "submittedLength": 9,
+      "narrationWordOrdinals": [
+        5
+      ]
+    },
+    {
+      "submittedOrdinal": 6,
+      "text": "workspaces",
+      "normalized": "workspaces",
+      "submittedStart": 41,
+      "submittedLength": 10,
+      "narrationWordOrdinals": [
+        6
+      ]
+    },
+    {
+      "submittedOrdinal": 7,
+      "text": "Inside",
+      "normalized": "inside",
+      "submittedStart": 54,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        7
+      ]
+    },
+    {
+      "submittedOrdinal": 8,
+      "text": "Nav-is-works",
+      "normalized": "nav-is-works",
+      "submittedStart": 61,
+      "submittedLength": 12,
+      "narrationWordOrdinals": [
+        8
+      ]
+    },
+    {
+      "submittedOrdinal": 9,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 75,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        9
+      ]
+    },
+    {
+      "submittedOrdinal": 10,
+      "text": "ClashWiseAI",
+      "normalized": "clashwiseai",
+      "submittedStart": 79,
+      "submittedLength": 11,
+      "narrationWordOrdinals": [
+        10
+      ]
+    },
+    {
+      "submittedOrdinal": 11,
+      "text": "ribbon",
+      "normalized": "ribbon",
+      "submittedStart": 91,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        11
+      ]
+    },
+    {
+      "submittedOrdinal": 12,
+      "text": "prepares",
+      "normalized": "prepares",
+      "submittedStart": 98,
+      "submittedLength": 8,
+      "narrationWordOrdinals": [
+        12
+      ]
+    },
+    {
+      "submittedOrdinal": 13,
+      "text": "and",
+      "normalized": "and",
+      "submittedStart": 107,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        13
+      ]
+    },
+    {
+      "submittedOrdinal": 14,
+      "text": "publishes",
+      "normalized": "publishes",
+      "submittedStart": 111,
+      "submittedLength": 9,
+      "narrationWordOrdinals": [
+        14
+      ]
+    },
+    {
+      "submittedOrdinal": 15,
+      "text": "clash",
+      "normalized": "clash",
+      "submittedStart": 121,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        15
+      ]
+    },
+    {
+      "submittedOrdinal": 16,
+      "text": "results",
+      "normalized": "results",
+      "submittedStart": 127,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        16
+      ]
+    },
+    {
+      "submittedOrdinal": 17,
+      "text": "Its",
+      "normalized": "its",
+      "submittedStart": 136,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        17
+      ]
+    },
+    {
+      "submittedOrdinal": 18,
+      "text": "Clash",
+      "normalized": "clash",
+      "submittedStart": 140,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        18
+      ]
+    },
+    {
+      "submittedOrdinal": 19,
+      "text": "Management",
+      "normalized": "management",
+      "submittedStart": 146,
+      "submittedLength": 10,
+      "narrationWordOrdinals": [
+        19
+      ]
+    },
+    {
+      "submittedOrdinal": 20,
+      "text": "panel",
+      "normalized": "panel",
+      "submittedStart": 157,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        20
+      ]
+    },
+    {
+      "submittedOrdinal": 21,
+      "text": "gives",
+      "normalized": "gives",
+      "submittedStart": 163,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        21
+      ]
+    },
+    {
+      "submittedOrdinal": 22,
+      "text": "you",
+      "normalized": "you",
+      "submittedStart": 169,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        22
+      ]
+    },
+    {
+      "submittedOrdinal": 23,
+      "text": "three",
+      "normalized": "3",
+      "submittedStart": 173,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        23
+      ]
+    },
+    {
+      "submittedOrdinal": 24,
+      "text": "important",
+      "normalized": "important",
+      "submittedStart": 179,
+      "submittedLength": 9,
+      "narrationWordOrdinals": [
+        24
+      ]
+    },
+    {
+      "submittedOrdinal": 25,
+      "text": "actions",
+      "normalized": "actions",
+      "submittedStart": 189,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        25
+      ]
+    },
+    {
+      "submittedOrdinal": 26,
+      "text": "Publish",
+      "normalized": "publish",
+      "submittedStart": 198,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        26
+      ]
+    },
+    {
+      "submittedOrdinal": 27,
+      "text": "Update",
+      "normalized": "update",
+      "submittedStart": 207,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        27
+      ]
+    },
+    {
+      "submittedOrdinal": 28,
+      "text": "and",
+      "normalized": "and",
+      "submittedStart": 215,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        28
+      ]
+    },
+    {
+      "submittedOrdinal": 29,
+      "text": "Sync",
+      "normalized": "sync",
+      "submittedStart": 219,
+      "submittedLength": 4,
+      "narrationWordOrdinals": [
+        29
+      ]
+    },
+    {
+      "submittedOrdinal": 30,
+      "text": "On",
+      "normalized": "on",
+      "submittedStart": 226,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        30
+      ]
+    },
+    {
+      "submittedOrdinal": 31,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 229,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        31
+      ]
+    },
+    {
+      "submittedOrdinal": 32,
+      "text": "web",
+      "normalized": "web",
+      "submittedStart": 233,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        32
+      ]
+    },
+    {
+      "submittedOrdinal": 33,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 238,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        33
+      ]
+    },
+    {
+      "submittedOrdinal": 34,
+      "text": "same",
+      "normalized": "same",
+      "submittedStart": 242,
+      "submittedLength": 4,
+      "narrationWordOrdinals": [
+        34
+      ]
+    },
+    {
+      "submittedOrdinal": 35,
+      "text": "clash",
+      "normalized": "clash",
+      "submittedStart": 247,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        35
+      ]
+    },
+    {
+      "submittedOrdinal": 36,
+      "text": "set",
+      "normalized": "set",
+      "submittedStart": 253,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        36
+      ]
+    },
+    {
+      "submittedOrdinal": 37,
+      "text": "becomes",
+      "normalized": "becomes",
+      "submittedStart": 257,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        37
+      ]
+    },
+    {
+      "submittedOrdinal": 38,
+      "text": "a",
+      "normalized": "a",
+      "submittedStart": 265,
+      "submittedLength": 1,
+      "narrationWordOrdinals": [
+        38
+      ]
+    },
+    {
+      "submittedOrdinal": 39,
+      "text": "shared",
+      "normalized": "shared",
+      "submittedStart": 267,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        39
+      ]
+    },
+    {
+      "submittedOrdinal": 40,
+      "text": "coordination",
+      "normalized": "coordination",
+      "submittedStart": 274,
+      "submittedLength": 12,
+      "narrationWordOrdinals": [
+        40
+      ]
+    },
+    {
+      "submittedOrdinal": 41,
+      "text": "workspace",
+      "normalized": "workspace",
+      "submittedStart": 287,
+      "submittedLength": 9,
+      "narrationWordOrdinals": [
+        41
+      ]
+    },
+    {
+      "submittedOrdinal": 42,
+      "text": "That",
+      "normalized": "that",
+      "submittedStart": 298,
+      "submittedLength": 4,
+      "narrationWordOrdinals": [
+        42
+      ]
+    },
+    {
+      "submittedOrdinal": 43,
+      "text": "is",
+      "normalized": "is",
+      "submittedStart": 303,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        43
+      ]
+    },
+    {
+      "submittedOrdinal": 44,
+      "text": "where",
+      "normalized": "where",
+      "submittedStart": 306,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        44
+      ]
+    },
+    {
+      "submittedOrdinal": 45,
+      "text": "you",
+      "normalized": "you",
+      "submittedStart": 312,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        45
+      ]
+    },
+    {
+      "submittedOrdinal": 46,
+      "text": "create",
+      "normalized": "create",
+      "submittedStart": 316,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        46
+      ]
+    },
+    {
+      "submittedOrdinal": 47,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 323,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        47
+      ]
+    },
+    {
+      "submittedOrdinal": 48,
+      "text": "Clash",
+      "normalized": "clash",
+      "submittedStart": 327,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        48
+      ]
+    },
+    {
+      "submittedOrdinal": 49,
+      "text": "Matrix",
+      "normalized": "matrix",
+      "submittedStart": 333,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        49
+      ]
+    },
+    {
+      "submittedOrdinal": 50,
+      "text": "run",
+      "normalized": "run",
+      "submittedStart": 341,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        50
+      ]
+    },
+    {
+      "submittedOrdinal": 51,
+      "text": "analysis",
+      "normalized": "analysis",
+      "submittedStart": 345,
+      "submittedLength": 8,
+      "narrationWordOrdinals": [
+        51
+      ]
+    },
+    {
+      "submittedOrdinal": 52,
+      "text": "triage",
+      "normalized": "triage",
+      "submittedStart": 355,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        52
+      ]
+    },
+    {
+      "submittedOrdinal": 53,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 362,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        53
+      ]
+    },
+    {
+      "submittedOrdinal": 54,
+      "text": "worklist",
+      "normalized": "worklist",
+      "submittedStart": 366,
+      "submittedLength": 8,
+      "narrationWordOrdinals": [
+        54
+      ]
+    },
+    {
+      "submittedOrdinal": 55,
+      "text": "review",
+      "normalized": "review",
+      "submittedStart": 376,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        55
+      ]
+    },
+    {
+      "submittedOrdinal": 56,
+      "text": "clashes",
+      "normalized": "clashes",
+      "submittedStart": 383,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        56
+      ]
+    },
+    {
+      "submittedOrdinal": 57,
+      "text": "in",
+      "normalized": "in",
+      "submittedStart": 391,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        57
+      ]
+    },
+    {
+      "submittedOrdinal": 58,
+      "text": "detail",
+      "normalized": "detail",
+      "submittedStart": 394,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        58
+      ]
+    },
+    {
+      "submittedOrdinal": 59,
+      "text": "or",
+      "normalized": "or",
+      "submittedStart": 401,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        59
+      ]
+    },
+    {
+      "submittedOrdinal": 60,
+      "text": "in",
+      "normalized": "in",
+      "submittedStart": 404,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        60
+      ]
+    },
+    {
+      "submittedOrdinal": 61,
+      "text": "three",
+      "normalized": "3",
+      "submittedStart": 407,
+      "submittedLength": 5,
+      "narrationWordOrdinals": [
+        61
+      ]
+    },
+    {
+      "submittedOrdinal": 62,
+      "text": "dimensions",
+      "normalized": "dimensions",
+      "submittedStart": 413,
+      "submittedLength": 10,
+      "narrationWordOrdinals": [
+        62
+      ]
+    },
+    {
+      "submittedOrdinal": 63,
+      "text": "coordinate",
+      "normalized": "coordinate",
+      "submittedStart": 425,
+      "submittedLength": 10,
+      "narrationWordOrdinals": [
+        63
+      ]
+    },
+    {
+      "submittedOrdinal": 64,
+      "text": "with",
+      "normalized": "with",
+      "submittedStart": 436,
+      "submittedLength": 4,
+      "narrationWordOrdinals": [
+        64
+      ]
+    },
+    {
+      "submittedOrdinal": 65,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 441,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        65
+      ]
+    },
+    {
+      "submittedOrdinal": 66,
+      "text": "team",
+      "normalized": "team",
+      "submittedStart": 445,
+      "submittedLength": 4,
+      "narrationWordOrdinals": [
+        66
+      ]
+    },
+    {
+      "submittedOrdinal": 67,
+      "text": "and",
+      "normalized": "and",
+      "submittedStart": 451,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        67
+      ]
+    },
+    {
+      "submittedOrdinal": 68,
+      "text": "produce",
+      "normalized": "produce",
+      "submittedStart": 455,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        68
+      ]
+    },
+    {
+      "submittedOrdinal": 69,
+      "text": "a",
+      "normalized": "a",
+      "submittedStart": 463,
+      "submittedLength": 1,
+      "narrationWordOrdinals": [
+        69
+      ]
+    },
+    {
+      "submittedOrdinal": 70,
+      "text": "record",
+      "normalized": "record",
+      "submittedStart": 465,
+      "submittedLength": 6,
+      "narrationWordOrdinals": [
+        70
+      ]
+    },
+    {
+      "submittedOrdinal": 71,
+      "text": "of",
+      "normalized": "of",
+      "submittedStart": 472,
+      "submittedLength": 2,
+      "narrationWordOrdinals": [
+        71
+      ]
+    },
+    {
+      "submittedOrdinal": 72,
+      "text": "the",
+      "normalized": "the",
+      "submittedStart": 475,
+      "submittedLength": 3,
+      "narrationWordOrdinals": [
+        72
+      ]
+    },
+    {
+      "submittedOrdinal": 73,
+      "text": "outcome",
+      "normalized": "outcome",
+      "submittedStart": 479,
+      "submittedLength": 7,
+      "narrationWordOrdinals": [
+        73
+      ]
+    }
+  ]
+}

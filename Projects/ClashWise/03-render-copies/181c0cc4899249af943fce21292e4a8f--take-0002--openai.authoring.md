@@ -1,0 +1,7 @@
+@screen: Navisworks with the ClashWiseAI ribbon beside the ClashWise web dashboard.
+
+The workflow moves between two connected workspaces.
+
+Inside Navisworks, the ClashWiseAI ribbon prepares and publishes clash results. Its Clash Management panel gives you three important actions: Publish, Update, and Sync.
+
+On the web, the same clash set becomes a shared coordination workspace. That is where you create the Clash Matrix, run analysis, triage the worklist, review clashes in detail or in three dimensions, coordinate with the team, and produce a record of the outcome.

@@ -1,0 +1,613 @@
+{
+  "schemaVersion": 1,
+  "alignmentId": "dc2ea119-da46-4e5d-9459-ef1c4261030a",
+  "renderId": "39459dce-d8d5-4457-85b1-b732ddfed0e1",
+  "providerId": "openai",
+  "modelId": "whisper-1",
+  "createdAt": "2026-08-30T21:37:46.5797401+00:00",
+  "audioRelativePath": "04-generated-audio/segments/9399c12e65e645b182fdbbb7cd2bf0d2/9399c12e65e645b182fdbbb7cd2bf0d2--take-0003.raw.wav",
+  "audioSha256": "803395a862f74bf14d424f924c687283c2e92f8d4d90d6c959c69a900b5963b3",
+  "sourceSha256": "21707e5c652ed5395655474a0967de152edc7a9b7655a46a9687f01d0e8e4d7f",
+  "submittedTextSha256": "c7c4b5af744a0e065cb7e34e1dde92ef0b7c1dee9c59771846d41a9cecc53606",
+  "audioDuration": "00:00:39.1500015",
+  "coverage": 0.9550561797752809,
+  "matchedWordCount": 85,
+  "totalWordCount": 89,
+  "words": [
+    {
+      "recognizedText": "Clashwise",
+      "start": "00:00:00",
+      "end": "00:00:01.0199999",
+      "submittedWordOrdinal": 0,
+      "narrationWordOrdinal": 0
+    },
+    {
+      "recognizedText": "turns",
+      "start": "00:00:01.0199999",
+      "end": "00:00:01.4199999",
+      "submittedWordOrdinal": 1,
+      "narrationWordOrdinal": 1
+    },
+    {
+      "recognizedText": "detected",
+      "start": "00:00:01.4199999",
+      "end": "00:00:01.9400000",
+      "submittedWordOrdinal": 2,
+      "narrationWordOrdinal": 2
+    },
+    {
+      "recognizedText": "clashes",
+      "start": "00:00:01.9400000",
+      "end": "00:00:02.2599999",
+      "submittedWordOrdinal": 3,
+      "narrationWordOrdinal": 3
+    },
+    {
+      "recognizedText": "into",
+      "start": "00:00:02.2599999",
+      "end": "00:00:02.6600000",
+      "submittedWordOrdinal": 4,
+      "narrationWordOrdinal": 4
+    },
+    {
+      "recognizedText": "coordinated",
+      "start": "00:00:02.6600000",
+      "end": "00:00:03.1800000",
+      "submittedWordOrdinal": 5,
+      "narrationWordOrdinal": 5
+    },
+    {
+      "recognizedText": "decisions",
+      "start": "00:00:03.1800000",
+      "end": "00:00:03.6400001",
+      "submittedWordOrdinal": 6,
+      "narrationWordOrdinal": 6
+    },
+    {
+      "recognizedText": "your",
+      "start": "00:00:03.6400001",
+      "end": "00:00:04.1199998",
+      "submittedWordOrdinal": 7,
+      "narrationWordOrdinal": 7
+    },
+    {
+      "recognizedText": "team",
+      "start": "00:00:04.1199998",
+      "end": "00:00:04.3000001",
+      "submittedWordOrdinal": 8,
+      "narrationWordOrdinal": 8
+    },
+    {
+      "recognizedText": "can",
+      "start": "00:00:04.3000001",
+      "end": "00:00:04.5799999",
+      "submittedWordOrdinal": 9,
+      "narrationWordOrdinal": 9
+    },
+    {
+      "recognizedText": "act",
+      "start": "00:00:04.5799999",
+      "end": "00:00:04.7199997",
+      "submittedWordOrdinal": 10,
+      "narrationWordOrdinal": 10
+    },
+    {
+      "recognizedText": "on",
+      "start": "00:00:04.7199997",
+      "end": "00:00:04.9800000",
+      "submittedWordOrdinal": 11,
+      "narrationWordOrdinal": 11
+    },
+    {
+      "recognizedText": "The",
+      "start": "00:00:05.6199998",
+      "end": "00:00:05.7600002",
+      "submittedWordOrdinal": 12,
+      "narrationWordOrdinal": 12
+    },
+    {
+      "recognizedText": "boundary",
+      "start": "00:00:05.7600002",
+      "end": "00:00:06.0199999",
+      "submittedWordOrdinal": 13,
+      "narrationWordOrdinal": 13
+    },
+    {
+      "recognizedText": "is",
+      "start": "00:00:06.0199999",
+      "end": "00:00:06.4400000",
+      "submittedWordOrdinal": 14,
+      "narrationWordOrdinal": 14
+    },
+    {
+      "recognizedText": "important",
+      "start": "00:00:06.4400000",
+      "end": "00:00:06.8800001",
+      "submittedWordOrdinal": 15,
+      "narrationWordOrdinal": 15
+    },
+    {
+      "recognizedText": "Clash",
+      "start": "00:00:08.3599996",
+      "end": "00:00:08.8599996",
+      "submittedWordOrdinal": 17,
+      "narrationWordOrdinal": 17
+    },
+    {
+      "recognizedText": "Detective",
+      "start": "00:00:08.8599996",
+      "end": "00:00:09.3000001",
+      "submittedWordOrdinal": 18,
+      "narrationWordOrdinal": 18
+    },
+    {
+      "recognizedText": "finds",
+      "start": "00:00:09.3000001",
+      "end": "00:00:09.9399995",
+      "submittedWordOrdinal": 19,
+      "narrationWordOrdinal": 19
+    },
+    {
+      "recognizedText": "the",
+      "start": "00:00:09.9399995",
+      "end": "00:00:10.6599998",
+      "submittedWordOrdinal": 20,
+      "narrationWordOrdinal": 20
+    },
+    {
+      "recognizedText": "clashes",
+      "start": "00:00:10.6599998",
+      "end": "00:00:10.6799998",
+      "submittedWordOrdinal": 21,
+      "narrationWordOrdinal": 21
+    },
+    {
+      "recognizedText": "Clashwise",
+      "start": "00:00:12",
+      "end": "00:00:12.2600002",
+      "submittedWordOrdinal": 22,
+      "narrationWordOrdinal": 22
+    },
+    {
+      "recognizedText": "does",
+      "start": "00:00:12.2600002",
+      "end": "00:00:12.5200004",
+      "submittedWordOrdinal": 23,
+      "narrationWordOrdinal": 23
+    },
+    {
+      "recognizedText": "not",
+      "start": "00:00:12.5200004",
+      "end": "00:00:12.8000001",
+      "submittedWordOrdinal": 24,
+      "narrationWordOrdinal": 24
+    },
+    {
+      "recognizedText": "run",
+      "start": "00:00:12.8000001",
+      "end": "00:00:13.0200004",
+      "submittedWordOrdinal": 25,
+      "narrationWordOrdinal": 25
+    },
+    {
+      "recognizedText": "clash",
+      "start": "00:00:13.0200004",
+      "end": "00:00:13.3199996",
+      "submittedWordOrdinal": 26,
+      "narrationWordOrdinal": 26
+    },
+    {
+      "recognizedText": "detection",
+      "start": "00:00:13.3199996",
+      "end": "00:00:13.6999998",
+      "submittedWordOrdinal": 27,
+      "narrationWordOrdinal": 27
+    },
+    {
+      "recognizedText": "Instead",
+      "start": "00:00:14.4600000",
+      "end": "00:00:14.7200002",
+      "submittedWordOrdinal": 28,
+      "narrationWordOrdinal": 28
+    },
+    {
+      "recognizedText": "it",
+      "start": "00:00:14.9399995",
+      "end": "00:00:15.2399997",
+      "submittedWordOrdinal": 29,
+      "narrationWordOrdinal": 29
+    },
+    {
+      "recognizedText": "adds",
+      "start": "00:00:15.2399997",
+      "end": "00:00:15.4200000",
+      "submittedWordOrdinal": 30,
+      "narrationWordOrdinal": 30
+    },
+    {
+      "recognizedText": "the",
+      "start": "00:00:15.4200000",
+      "end": "00:00:15.6999998",
+      "submittedWordOrdinal": 31,
+      "narrationWordOrdinal": 31
+    },
+    {
+      "recognizedText": "management",
+      "start": "00:00:15.6999998",
+      "end": "00:00:15.9799995",
+      "submittedWordOrdinal": 32,
+      "narrationWordOrdinal": 32
+    },
+    {
+      "recognizedText": "layer",
+      "start": "00:00:15.9799995",
+      "end": "00:00:16.3199996",
+      "submittedWordOrdinal": 33,
+      "narrationWordOrdinal": 33
+    },
+    {
+      "recognizedText": "around",
+      "start": "00:00:16.3199996",
+      "end": "00:00:16.6399993",
+      "submittedWordOrdinal": 34,
+      "narrationWordOrdinal": 34
+    },
+    {
+      "recognizedText": "those",
+      "start": "00:00:16.6399993",
+      "end": "00:00:16.9200000",
+      "submittedWordOrdinal": 35,
+      "narrationWordOrdinal": 35
+    },
+    {
+      "recognizedText": "results",
+      "start": "00:00:16.9200000",
+      "end": "00:00:17.2399997",
+      "submittedWordOrdinal": 36,
+      "narrationWordOrdinal": 36
+    },
+    {
+      "recognizedText": "Clearer",
+      "start": "00:00:17.9799995",
+      "end": "00:00:18.4200000",
+      "submittedWordOrdinal": 37,
+      "narrationWordOrdinal": 37
+    },
+    {
+      "recognizedText": "names",
+      "start": "00:00:18.4200000",
+      "end": "00:00:18.4400000",
+      "submittedWordOrdinal": 38,
+      "narrationWordOrdinal": 38
+    },
+    {
+      "recognizedText": "consistent",
+      "start": "00:00:19.2399997",
+      "end": "00:00:19.2599997",
+      "submittedWordOrdinal": 39,
+      "narrationWordOrdinal": 39
+    },
+    {
+      "recognizedText": "responsibility",
+      "start": "00:00:20.2999992",
+      "end": "00:00:20.8199996",
+      "submittedWordOrdinal": 41,
+      "narrationWordOrdinal": 41
+    },
+    {
+      "recognizedText": "review",
+      "start": "00:00:21.4799995",
+      "end": "00:00:21.7600002",
+      "submittedWordOrdinal": 42,
+      "narrationWordOrdinal": 42
+    },
+    {
+      "recognizedText": "meeting",
+      "start": "00:00:22.3999996",
+      "end": "00:00:22.4799995",
+      "submittedWordOrdinal": 43,
+      "narrationWordOrdinal": 43
+    },
+    {
+      "recognizedText": "records",
+      "start": "00:00:22.4799995",
+      "end": "00:00:22.8400001",
+      "submittedWordOrdinal": 44,
+      "narrationWordOrdinal": 44
+    },
+    {
+      "recognizedText": "reporting",
+      "start": "00:00:23.5599994",
+      "end": "00:00:23.5799994",
+      "submittedWordOrdinal": 45,
+      "narrationWordOrdinal": 45
+    },
+    {
+      "recognizedText": "and",
+      "start": "00:00:23.7399997",
+      "end": "00:00:24.1000003",
+      "submittedWordOrdinal": 46,
+      "narrationWordOrdinal": 46
+    },
+    {
+      "recognizedText": "a",
+      "start": "00:00:24.1000003",
+      "end": "00:00:24.3799991",
+      "submittedWordOrdinal": 47,
+      "narrationWordOrdinal": 47
+    },
+    {
+      "recognizedText": "route",
+      "start": "00:00:24.3799991",
+      "end": "00:00:24.3999991",
+      "submittedWordOrdinal": 48,
+      "narrationWordOrdinal": 48
+    },
+    {
+      "recognizedText": "into",
+      "start": "00:00:24.7199993",
+      "end": "00:00:24.9799995",
+      "submittedWordOrdinal": 50,
+      "narrationWordOrdinal": 50
+    },
+    {
+      "recognizedText": "So",
+      "start": "00:00:25.9400005",
+      "end": "00:00:26.2600002",
+      "submittedWordOrdinal": 52,
+      "narrationWordOrdinal": 52
+    },
+    {
+      "recognizedText": "you",
+      "start": "00:00:26.2600002",
+      "end": "00:00:26.4200000",
+      "submittedWordOrdinal": 53,
+      "narrationWordOrdinal": 53
+    },
+    {
+      "recognizedText": "keep",
+      "start": "00:00:26.4200000",
+      "end": "00:00:26.6200008",
+      "submittedWordOrdinal": 54,
+      "narrationWordOrdinal": 54
+    },
+    {
+      "recognizedText": "the",
+      "start": "00:00:26.6200008",
+      "end": "00:00:26.8600006",
+      "submittedWordOrdinal": 55,
+      "narrationWordOrdinal": 55
+    },
+    {
+      "recognizedText": "detection",
+      "start": "00:00:26.8600006",
+      "end": "00:00:27.1800003",
+      "submittedWordOrdinal": 56,
+      "narrationWordOrdinal": 56
+    },
+    {
+      "recognizedText": "workflow",
+      "start": "00:00:27.1800003",
+      "end": "00:00:27.5799999",
+      "submittedWordOrdinal": 57,
+      "narrationWordOrdinal": 57
+    },
+    {
+      "recognizedText": "you",
+      "start": "00:00:27.5799999",
+      "end": "00:00:28.0799999",
+      "submittedWordOrdinal": 58,
+      "narrationWordOrdinal": 58
+    },
+    {
+      "recognizedText": "already",
+      "start": "00:00:28.0799999",
+      "end": "00:00:28.5200004",
+      "submittedWordOrdinal": 59,
+      "narrationWordOrdinal": 59
+    },
+    {
+      "recognizedText": "trust",
+      "start": "00:00:28.5200004",
+      "end": "00:00:28.8400001",
+      "submittedWordOrdinal": 60,
+      "narrationWordOrdinal": 60
+    },
+    {
+      "recognizedText": "Clashwise",
+      "start": "00:00:29.6200008",
+      "end": "00:00:30.1399993",
+      "submittedWordOrdinal": 61,
+      "narrationWordOrdinal": 61
+    },
+    {
+      "recognizedText": "helps",
+      "start": "00:00:30.1399993",
+      "end": "00:00:30.4599990",
+      "submittedWordOrdinal": 62,
+      "narrationWordOrdinal": 62
+    },
+    {
+      "recognizedText": "with",
+      "start": "00:00:30.4599990",
+      "end": "00:00:30.6800003",
+      "submittedWordOrdinal": 63,
+      "narrationWordOrdinal": 63
+    },
+    {
+      "recognizedText": "what",
+      "start": "00:00:30.6800003",
+      "end": "00:00:30.8999996",
+      "submittedWordOrdinal": 64,
+      "narrationWordOrdinal": 64
+    },
+    {
+      "recognizedText": "happens",
+      "start": "00:00:30.8999996",
+      "end": "00:00:31.1399993",
+      "submittedWordOrdinal": 65,
+      "narrationWordOrdinal": 65
+    },
+    {
+      "recognizedText": "next",
+      "start": "00:00:31.1399993",
+      "end": "00:00:31.5799999",
+      "submittedWordOrdinal": 66,
+      "narrationWordOrdinal": 66
+    },
+    {
+      "recognizedText": "deciding",
+      "start": "00:00:32.1599998",
+      "end": "00:00:32.4000015",
+      "submittedWordOrdinal": 67,
+      "narrationWordOrdinal": 67
+    },
+    {
+      "recognizedText": "which",
+      "start": "00:00:32.4000015",
+      "end": "00:00:32.7400016",
+      "submittedWordOrdinal": 68,
+      "narrationWordOrdinal": 68
+    },
+    {
+      "recognizedText": "clashes",
+      "start": "00:00:32.7400016",
+      "end": "00:00:33.0600013",
+      "submittedWordOrdinal": 69,
+      "narrationWordOrdinal": 69
+    },
+    {
+      "recognizedText": "matter",
+      "start": "00:00:33.0600013",
+      "end": "00:00:33.4199981",
+      "submittedWordOrdinal": 70,
+      "narrationWordOrdinal": 70
+    },
+    {
+      "recognizedText": "who",
+      "start": "00:00:33.9000015",
+      "end": "00:00:34.0800018",
+      "submittedWordOrdinal": 71,
+      "narrationWordOrdinal": 71
+    },
+    {
+      "recognizedText": "owns",
+      "start": "00:00:34.0800018",
+      "end": "00:00:34.2999992",
+      "submittedWordOrdinal": 72,
+      "narrationWordOrdinal": 72
+    },
+    {
+      "recognizedText": "them",
+      "start": "00:00:34.2999992",
+      "end": "00:00:34.5800018",
+      "submittedWordOrdinal": 73,
+      "narrationWordOrdinal": 73
+    },
+    {
+      "recognizedText": "what",
+      "start": "00:00:35",
+      "end": "00:00:35.0400009",
+      "submittedWordOrdinal": 74,
+      "narrationWordOrdinal": 74
+    },
+    {
+      "recognizedText": "the",
+      "start": "00:00:35.0400009",
+      "end": "00:00:35.2400016",
+      "submittedWordOrdinal": 75,
+      "narrationWordOrdinal": 75
+    },
+    {
+      "recognizedText": "team",
+      "start": "00:00:35.2400016",
+      "end": "00:00:35.3800010",
+      "submittedWordOrdinal": 76,
+      "narrationWordOrdinal": 76
+    },
+    {
+      "recognizedText": "agreed",
+      "start": "00:00:35.3800010",
+      "end": "00:00:35.6800003",
+      "submittedWordOrdinal": 77,
+      "narrationWordOrdinal": 77
+    },
+    {
+      "recognizedText": "and",
+      "start": "00:00:36.1399993",
+      "end": "00:00:36.3400001",
+      "submittedWordOrdinal": 78,
+      "narrationWordOrdinal": 78
+    },
+    {
+      "recognizedText": "whether",
+      "start": "00:00:36.3400001",
+      "end": "00:00:36.4599990",
+      "submittedWordOrdinal": 79,
+      "narrationWordOrdinal": 79
+    },
+    {
+      "recognizedText": "that",
+      "start": "00:00:36.4599990",
+      "end": "00:00:36.7200012",
+      "submittedWordOrdinal": 80,
+      "narrationWordOrdinal": 80
+    },
+    {
+      "recognizedText": "decision",
+      "start": "00:00:36.7200012",
+      "end": "00:00:37.0999984",
+      "submittedWordOrdinal": 81,
+      "narrationWordOrdinal": 81
+    },
+    {
+      "recognizedText": "made",
+      "start": "00:00:37.0999984",
+      "end": "00:00:37.2799987",
+      "submittedWordOrdinal": 82,
+      "narrationWordOrdinal": 82
+    },
+    {
+      "recognizedText": "it",
+      "start": "00:00:37.2799987",
+      "end": "00:00:37.4599990",
+      "submittedWordOrdinal": 83,
+      "narrationWordOrdinal": 83
+    },
+    {
+      "recognizedText": "back",
+      "start": "00:00:37.4599990",
+      "end": "00:00:37.6800003",
+      "submittedWordOrdinal": 84,
+      "narrationWordOrdinal": 84
+    },
+    {
+      "recognizedText": "into",
+      "start": "00:00:37.6800003",
+      "end": "00:00:38",
+      "submittedWordOrdinal": 85,
+      "narrationWordOrdinal": 85
+    },
+    {
+      "recognizedText": "the",
+      "start": "00:00:38",
+      "end": "00:00:38.2200012",
+      "submittedWordOrdinal": 86,
+      "narrationWordOrdinal": 86
+    },
+    {
+      "recognizedText": "coordination",
+      "start": "00:00:38.2200012",
+      "end": "00:00:38.6399993",
+      "submittedWordOrdinal": 87,
+      "narrationWordOrdinal": 87
+    },
+    {
+      "recognizedText": "model",
+      "start": "00:00:38.6399993",
+      "end": "00:00:38.9799995",
+      "submittedWordOrdinal": 88,
+      "narrationWordOrdinal": 88
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+[
+  {
+    "jobId": "04166a3d-03bd-44d6-a73b-2b439290bc71",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "ceadd31d89f341d08ff2dfc4c5e8b7ca",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/ceadd31d89f341d08ff2dfc4c5e8b7ca--take-0001--openai.md",
+      "takeNumber": 1
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T12:57:13.5399432+00:00",
+    "startedAt": "2026-08-30T12:57:13.550625+00:00",
+    "finishedAt": "2026-08-30T12:57:16.1530058+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/ceadd31d89f341d08ff2dfc4c5e8b7ca/ceadd31d89f341d08ff2dfc4c5e8b7ca--take-0001.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "3553c387-dd02-4980-a8d0-51a44a42fa0c",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "ceadd31d89f341d08ff2dfc4c5e8b7ca",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "verse",
+      "renderCopyRelativePath": "03-render-copies/ceadd31d89f341d08ff2dfc4c5e8b7ca--take-0002--openai.md",
+      "takeNumber": 2
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T12:59:26.0336878+00:00",
+    "startedAt": "2026-08-30T12:59:26.0404169+00:00",
+    "finishedAt": "2026-08-30T12:59:27.6088005+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/ceadd31d89f341d08ff2dfc4c5e8b7ca/ceadd31d89f341d08ff2dfc4c5e8b7ca--take-0002.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "5996a1e8-67c5-4226-8608-9d27cf6ea6fe",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "79068f8eb96043e89ff4c7a6bdb7a3b0",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/79068f8eb96043e89ff4c7a6bdb7a3b0--take-0001--openai.md",
+      "takeNumber": 1
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T13:28:41.3679498+00:00",
+    "startedAt": "2026-08-30T13:28:41.3764276+00:00",
+    "finishedAt": "2026-08-30T13:28:48.8204818+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/79068f8eb96043e89ff4c7a6bdb7a3b0/79068f8eb96043e89ff4c7a6bdb7a3b0--take-0001.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "7e53c12e-42f6-4739-ab39-25f820b5e555",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "9399c12e65e645b182fdbbb7cd2bf0d2",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/9399c12e65e645b182fdbbb7cd2bf0d2--take-0001--openai.md",
+      "takeNumber": 1
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:28:59.475061+00:00",
+    "startedAt": "2026-08-30T21:28:59.4809735+00:00",
+    "finishedAt": "2026-08-30T21:29:05.6268831+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/9399c12e65e645b182fdbbb7cd2bf0d2/9399c12e65e645b182fdbbb7cd2bf0d2--take-0001.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "086a14fd-8fc1-49f1-87c6-4db31d9aa413",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "9399c12e65e645b182fdbbb7cd2bf0d2",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/9399c12e65e645b182fdbbb7cd2bf0d2--take-0002--openai.md",
+      "takeNumber": 2
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:29:39.6951879+00:00",
+    "startedAt": "2026-08-30T21:29:39.7011014+00:00",
+    "finishedAt": "2026-08-30T21:29:45.2648382+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/9399c12e65e645b182fdbbb7cd2bf0d2/9399c12e65e645b182fdbbb7cd2bf0d2--take-0002.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "315f955d-bd13-42a0-9656-dc41533c316a",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "9399c12e65e645b182fdbbb7cd2bf0d2",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/9399c12e65e645b182fdbbb7cd2bf0d2--take-0003--openai.md",
+      "takeNumber": 3
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:37:38.1810989+00:00",
+    "startedAt": "2026-08-30T21:37:38.1915235+00:00",
+    "finishedAt": "2026-08-30T21:37:44.5187978+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/9399c12e65e645b182fdbbb7cd2bf0d2/9399c12e65e645b182fdbbb7cd2bf0d2--take-0003.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "74beedf0-5791-4f7e-94f8-f68e5eed1e33",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "9399c12e65e645b182fdbbb7cd2bf0d2",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/9399c12e65e645b182fdbbb7cd2bf0d2--take-0004--openai.md",
+      "takeNumber": 4
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:38:51.5993194+00:00",
+    "startedAt": "2026-08-30T21:38:51.6051013+00:00",
+    "finishedAt": "2026-08-30T21:38:57.9409265+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/9399c12e65e645b182fdbbb7cd2bf0d2/9399c12e65e645b182fdbbb7cd2bf0d2--take-0004.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "51256af1-5990-4041-8377-142d1cc71dc6",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "181c0cc4899249af943fce21292e4a8f",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/181c0cc4899249af943fce21292e4a8f--take-0001--openai.md",
+      "takeNumber": 1
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:50:48.5017638+00:00",
+    "startedAt": "2026-08-30T21:50:48.5080099+00:00",
+    "finishedAt": "2026-08-30T21:50:54.8418211+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/181c0cc4899249af943fce21292e4a8f/181c0cc4899249af943fce21292e4a8f--take-0001.raw.wav",
+    "failureCode": null
+  },
+  {
+    "jobId": "a45a276f-537d-43b8-9ad6-7451c94a1994",
+    "request": {
+      "projectRoot": "C:\\Users\\dodzi\\source\\repos\\ClashWiseApp\\ClashWise",
+      "segmentId": "181c0cc4899249af943fce21292e4a8f",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "marin",
+      "renderCopyRelativePath": "03-render-copies/181c0cc4899249af943fce21292e4a8f--take-0002--openai.md",
+      "takeNumber": 2
+    },
+    "status": "completed",
+    "createdAt": "2026-08-30T21:51:43.7835405+00:00",
+    "startedAt": "2026-08-30T21:51:43.7904116+00:00",
+    "finishedAt": "2026-08-30T21:51:48.1165776+00:00",
+    "rawAudioRelativePath": "04-generated-audio/segments/181c0cc4899249af943fce21292e4a8f/181c0cc4899249af943fce21292e4a8f--take-0002.raw.wav",
+    "failureCode": null
+  }
+]
