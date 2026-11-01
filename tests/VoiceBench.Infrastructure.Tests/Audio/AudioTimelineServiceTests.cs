@@ -272,7 +272,7 @@ public sealed class AudioTimelineServiceTests
         string production = await File.ReadAllTextAsync(cuePath[..^".cues.csv".Length] + ".production.md");
         Assert.Contains("Updated guidance.", csv); Assert.Contains("Latest trailing guidance.", csv);
         Assert.Contains(",2,false,,", csv); // An end-of-script cue has no following aligned word.
-        Assert.Contains("Latest trailing guidance.", production);
+        Assert.Contains("- Unplaced: @note: Latest trailing guidance.", production);
         Assert.DoesNotContain("Stale guidance", production);
         Assert.Equal("One two.", await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(directory.Root, exported.TranscriptRelativePath)));
 

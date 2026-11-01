@@ -195,7 +195,7 @@ public sealed class MixExportService(AudioAssetService assets, IProcessRunner ru
                     && timing.Start.TotalSeconds < clip.SourceStartSeconds + clip.DurationSeconds
                     ? clip.StartSeconds + timing.Start.TotalSeconds - clip.SourceStartSeconds : null;
                 rows.Add($"{clip.ClipId},{word},{placed.HasValue.ToString().ToLowerInvariant()},{placed?.ToString("0.######", CultureInfo.InvariantCulture)},{Quote(cue.Type)},{Quote(cue.Content)}");
-                guidance.AppendLine($"- {(placed.HasValue ? placed.Value.ToString("0.###", CultureInfo.InvariantCulture) + "s" : retained ? "Unplaced" : "Removed anchor")}: @{cue.Type}: {cue.Content}");
+                guidance.AppendLine($"- {(placed.HasValue ? placed.Value.ToString("0.###", CultureInfo.InvariantCulture) + "s" : "Unplaced")}: @{cue.Type}: {cue.Content}");
             }
         }
         foreach (var marker in plan.Markers)
