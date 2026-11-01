@@ -42,8 +42,10 @@ public sealed class StdioIntegrationTests
             Assert.NotNull(tool.Annotations);
             Assert.Equal("object", tool.InputSchema.GetProperty("type").GetString());
         });
-        Assert.Equal(7, (await client.ListResourcesAsync()).Count);
-        Assert.Equal(2, (await client.ListResourceTemplatesAsync()).Count);
+        Assert.Equal(10, (await client.ListResourcesAsync()).Count);
+        Assert.Equal(4, (await client.ListResourceTemplatesAsync()).Count);
+        Assert.Contains(tools, tool => tool.Name == "voicebench_mix_clip_split");
+        Assert.Contains(tools, tool => tool.Name == "voicebench_assets_import");
     }
 
     [Fact]
@@ -85,6 +87,31 @@ public sealed class StdioIntegrationTests
         Assert.True(result.IsError);
         Assert.Equal("revision_conflict", result.StructuredContent!.Value.GetProperty("code").GetString());
         await Assert.ThrowsAsync<McpProtocolException>(() => client.CallToolAsync("voicebench_unknown").AsTask());
+    }
+
+    [Theory]
+    [InlineData("voicebench_mix_clip_add","clip")]
+    [InlineData("voicebench_mix_marker_set","marker")]
+    [InlineData("voicebench_mix_track_create","track")]
+    [InlineData("voicebench_mix_envelope_set","envelope")]
+    public async Task TypedMixContractsKeepNestedSchemasAfterToolFieldFiltering(string tool,string field)
+    {
+        var pipe=UniquePipe();
+        await using var server=new LocalControlServer(new TestDesktopProgram.EchoDispatcher(),new(){PipeName=pipe});
+        await server.StartAsync();
+        await using var client=await ClientAsync(pipe);
+        object value=field switch
+        {
+            "clip"=>new AudioClipDocument { Anchor=new(){Kind=TimelineAnchorKind.ChapterStart,ChapterId="chapter"},Envelope=[new(0,-4),new(1,0)] },
+            "marker"=>new TimelineMarker { Anchor=new(){Kind=TimelineAnchorKind.ChapterStart,ChapterId="chapter"} },
+            "track"=>new AudioTrackDocument { Kind=AudioTrackKind.Music },
+            _=>new[]{new VolumeEnvelopePoint(0,-4),new VolumeEnvelopePoint(1,0)},
+        };
+        var args=new Dictionary<string,object?>{["scope"]="Compilation",["expectedRevision"]=0,[field]=AutomationJson.Element(value)};
+        if(field=="envelope")args["clipId"]=Guid.NewGuid();
+        var result=await client.CallToolAsync(tool,args);
+        Assert.False(result.IsError,result.StructuredContent?.GetRawText());
+        Assert.Equal(JsonValueKind.Object,result.StructuredContent!.Value.GetProperty("data").GetProperty("arguments").ValueKind);
     }
 
     [Fact]

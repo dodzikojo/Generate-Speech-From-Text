@@ -4,6 +4,7 @@ using IssueLab.VoiceBench.Application.Bridge;
 using System.Text.Json;
 using IssueLab.VoiceBench.Infrastructure.Credentials;
 using IssueLab.VoiceBench.Infrastructure.Mastering;
+using IssueLab.VoiceBench.Infrastructure.Audio;
 using IssueLab.VoiceBench.Infrastructure.Processes;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Providers;
@@ -118,7 +119,9 @@ public sealed class CliApplication(
                 string? chapter = GetOption(args[2..], "--chapter");
                 if (string.IsNullOrWhiteSpace(name) || (chapter is not null && args.Contains("--compilation", StringComparer.Ordinal)))
                 { _routedExitCode = Usage(); return null; }
-                JsonElement result = await RunDesktopJobAsync(client, "master.start", new
+                JsonElement result = args.Contains("--mix", StringComparer.Ordinal)
+                    ? await RunDesktopJobAsync(client, "mix.export", new { name, scope = chapter is null ? "Compilation" : "Chapter", chapterId = chapter, mp3 = args.Contains("--mp3",StringComparer.Ordinal), stems = args.Contains("--stems",StringComparer.Ordinal) }, cancellationToken).ConfigureAwait(false)
+                    : await RunDesktopJobAsync(client, "master.start", new
                 {
                     name, scope = chapter is null ? "Compilation" : "Chapter", chapterId = chapter,
                 }, cancellationToken).ConfigureAwait(false);
@@ -336,6 +339,17 @@ public sealed class CliApplication(
             ToolchainPaths tools = await new FfmpegToolchainManager(httpClient)
                 .EnsureAsync(cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
+            if(options.Contains("--mix",StringComparer.Ordinal))
+            {
+                var timeline=new AudioTimelineService(projects);
+                MixRenderPlan plan=await timeline.BuildPlanAsync(folder,chapterId is null?AudioTimelineScope.Compilation:AudioTimelineScope.Chapter,chapterId,cancellationToken).ConfigureAwait(false);
+                var assets=new AudioAssetService(projects,new ProcessRunner(),tools);
+                MixExportResult mix=await new MixExportService(assets,new ProcessRunner(),tools).ExportAsync(folder,plan,name,
+                    options.Contains("--mp3",StringComparer.Ordinal),options.Contains("--stems",StringComparer.Ordinal),cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync($"Master: {mix.MasterRelativePath}").ConfigureAwait(false);
+                await output.WriteLineAsync($"Report: {mix.ReportRelativePath}").ConfigureAwait(false);
+                return (int)CliExitCode.Success;
+            }
             FfmpegMasteringService mastering = new(projects, new ProcessRunner(), tools);
             MasteringResult result = await mastering.BuildAsync(
                 new MasteringRequest(
@@ -367,6 +381,7 @@ public sealed class CliApplication(
               voicebench render <project> --ready
               voicebench master <project> --name <name> [--compilation]
               voicebench master <project> --name <name> --chapter <id>
+              voicebench master <project> --mix --name <name> [--chapter <id> | --compilation] [--mp3] [--stems]
             """);
         return (int)CliExitCode.Usage;
     }
