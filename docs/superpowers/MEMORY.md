@@ -1,5 +1,9 @@
 # Active program index
 
+- VoiceBench audio timeline, 2026-11-01: active implementation on codex/audio-timeline.
+  See [ratified specification](specs/2026-11-01-audio-timeline.md) and
+  [execution ledger](plans/2026-11-01-audio-timeline.md). Target 1.1.0.0. No smoke skill.
+
 - VoiceBench local MCP, 2026-11-01: implementation, installed-runtime verification,
   and master integration complete; operator live-provider checklist remains. See
   [execution ledger](plans/2026-11-01-local-mcp-control.md) and

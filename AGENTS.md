@@ -15,7 +15,7 @@ It combines a packaged WinUI 3 desktop app with a small automation-friendly CLI.
 ## Verified toolchain
 
 - Windows 11 x64.
-- .NET SDK 10.0.303, selected through `global.json`.
+- .NET SDK 10.0.402, selected through `global.json`.
 - Visual Studio 2026 with the **WinUI Application Development** workload.
 - Windows App SDK 1.8.11 (`1.8.260804001`).
 - Developer Mode is required for local packaged-app deployment.
@@ -78,7 +78,7 @@ exact binary and command that Windows blocked.
 
 - Cross-platform builds or a browser client.
 - Cloud sync, collaboration, team accounts, or automatic updates.
-- Voice cloning, a DAW timeline, waveform editing, or caption timing.
+- Voice cloning, MIDI/VST hosting, spectral editing, or caption timing.
 - Direct ClashWise repository coupling or ClashWise-specific project semantics.
 - Legacy Python CLI compatibility.
 
