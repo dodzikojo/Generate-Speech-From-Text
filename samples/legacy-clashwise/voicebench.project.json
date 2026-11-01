@@ -3,7 +3,7 @@
   "projectId": "3cc01fb0-e2ce-4ec9-a83f-8b5c708cc899",
   "name": "Legacy ClashWise narration",
   "createdAt": "2026-08-26T00:00:00+00:00",
-  "updatedAt": "2026-08-26T07:23:33.2845513+00:00",
+  "updatedAt": "2026-08-26T20:56:29.8135486+00:00",
   "audioStandard": {
     "sampleRate": 48000,
     "channels": 1,
@@ -40,7 +40,32 @@
       "renderHistory": []
     }
   ],
-  "voicePresets": [],
+  "voicePresets": [
+    {
+      "presetId": "voice-lab-a",
+      "name": "Audition A",
+      "providerId": "openai",
+      "modelId": "gpt-4o-mini-tts",
+      "voice": "verse",
+      "directions": "Calm, measured, technically clear. Ease through acronyms.",
+      "auditionRenderIds": [
+        "69b7d539-e6e8-45bc-b5ce-08b8eb6b0392",
+        "02997bd4-fe4b-4323-b219-3045fd2339f0"
+      ]
+    },
+    {
+      "presetId": "voice-lab-b",
+      "name": "Audition B",
+      "providerId": "gemini",
+      "modelId": "gemini-3.1-flash-tts-preview",
+      "voice": "Kore",
+      "directions": "Warm and assured. Keep technical terms precise and transitions unhurried.",
+      "auditionRenderIds": [
+        "69b7d539-e6e8-45bc-b5ce-08b8eb6b0392",
+        "02997bd4-fe4b-4323-b219-3045fd2339f0"
+      ]
+    }
+  ],
   "defaultVoicePresetId": null,
   "lexicon": []
 }
