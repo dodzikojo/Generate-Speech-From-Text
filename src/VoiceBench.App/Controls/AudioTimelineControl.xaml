@@ -36,7 +36,7 @@
                 </Grid>
             </Border>
             <Grid x:Name="TimelineCanvasHost" Grid.Column="1" RowSpacing="4" SizeChanged="TimelineCanvasHost_SizeChanged">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <CommandBar x:Name="TimelineTools" Padding="0" Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="True" ClosedDisplayMode="Compact" AutomationProperties.Name="Timeline editing tools">
                     <AppBarButton Label="Undo" Icon="Undo" Click="Undo_Click"/>
                     <AppBarButton Label="Redo" Icon="Redo" Click="Redo_Click"/>
@@ -69,20 +69,33 @@
                         <Slider x:Name="Ruler" Minimum="0" Maximum="40" Height="20" MinHeight="20" Margin="-8,0,-8,0" ValueChanged="Ruler_ValueChanged" AutomationProperties.Name="Timeline playhead seconds"/>
                     </StackPanel>
                 </Grid>
-                <Grid Grid.Row="2" ColumnSpacing="0" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,1">
+                <Grid x:Name="ChapterRegionLane" Grid.Row="2" ColumnSpacing="0" Visibility="Collapsed" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,1">
+                    <Grid.ColumnDefinitions><ColumnDefinition x:Name="ChapterHeaderColumn" Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="CHAPTERS" FontSize="11" Margin="5,0" VerticalAlignment="Center" Foreground="{ThemeResource MutedTextBrush}" ToolTipService.ToolTip="Read-only chapter context. Open a chapter region to edit its narration arrangement."/>
+                    <Canvas x:Name="ChapterRegionCanvas" Grid.Column="1" Height="32" HorizontalAlignment="Left" AutomationProperties.Name="Ordered compilation chapter regions"/>
+                </Grid>
+                <Grid Grid.Row="3" ColumnSpacing="0" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,1">
                     <Grid.ColumnDefinitions><ColumnDefinition x:Name="CueHeaderColumn" Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Button x:Name="CuePlacementStatus" Content="CUES · 0 unplaced" FontSize="11" Padding="5,2" HorizontalAlignment="Stretch" Click="CuePlacementStatus_Click" AutomationProperties.Name="Production cue placement status"/>
                     <Canvas x:Name="CueLaneCanvas" Grid.Column="1" Height="32" HorizontalAlignment="Left" AutomationProperties.Name="Production cues anchored to retained narration"/>
                 </Grid>
-                <ListView x:Name="TrackRows" Grid.Row="3" SelectionMode="None" IsItemClickEnabled="False" Padding="0" AutomationProperties.Name="Audio tracks and clips">
+                <Grid x:Name="PendingNarrationTray" Grid.Row="4" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions><ColumnDefinition x:Name="PendingHeaderColumn" Width="155"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="UNPLACED" FontSize="11" Margin="5,0" VerticalAlignment="Center" Foreground="{ThemeResource MutedTextBrush}"/>
+                    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" MaxHeight="48" AutomationProperties.Name="Unplaced narration estimates, read only">
+                        <StackPanel x:Name="PendingNarrationCards" Orientation="Horizontal" Spacing="6"/>
+                    </ScrollViewer>
+                </Grid>
+                <ListView x:Name="TrackRows" Grid.Row="5" SelectionMode="None" IsItemClickEnabled="False" Padding="0" AutomationProperties.Name="Audio tracks and clips">
                     <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel/></ItemsPanelTemplate></ListView.ItemsPanel>
                     <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListView.ItemContainerStyle>
                 </ListView>
-                <Grid Grid.Row="4" ColumnSpacing="6">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                <Grid Grid.Row="6" ColumnSpacing="6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <ToggleButton x:Name="SnapToggle" Content="Snap" IsChecked="True" Click="Snap_Click" AutomationProperties.Name="Snap to grid, clip edges and markers"/>
                     <Slider x:Name="ScrollTime" Grid.Column="1" Minimum="0" Maximum="1" ValueChanged="Viewport_Changed" AutomationProperties.Name="Timeline visible start seconds"/>
                     <Slider x:Name="Zoom" Grid.Column="2" Minimum="2" Maximum="120" Value="40" ValueChanged="Zoom_Changed" AutomationProperties.Name="Visible timeline duration seconds"/>
+                    <Button Grid.Column="3" Content="Fit" Click="FitArrangement_Click" AutomationProperties.Name="Fit complete resolved arrangement"/>
                 </Grid>
             </Grid>
             <Border x:Name="InspectorPanel" Grid.Column="2" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1,0,0,0" Padding="10,4,0,0">

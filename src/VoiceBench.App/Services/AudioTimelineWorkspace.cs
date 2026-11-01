@@ -24,6 +24,9 @@ public sealed class AudioTimelineWorkspace(AppServices services)
     public double SnapInterval { get; set; } = .1;
     public IReadOnlyList<double> WordSnapPositions { get; private set; } = [];
     public IReadOnlyList<TimelineCuePlacement> CuePlacements { get; private set; } = [];
+    public IReadOnlyList<MixChapterRegion> ChapterRegions { get; private set; } = [];
+    public IReadOnlyList<PendingNarrationEstimate> PendingNarration { get; private set; } = [];
+    public double ResolvedDurationSeconds { get; private set; }
     public string Notice { get; private set; } = "Choose a chapter or compilation. Source audio stays immutable.";
     public event EventHandler? Changed;
 
@@ -58,6 +61,7 @@ public sealed class AudioTimelineWorkspace(AppServices services)
             if (!IsCurrent(request)) return;
             if (services.PlaybackTarget == "mix" && (changedScope || parameterPlan is null)) services.InvalidateMixPlayback();
             Scope = requestedScope; ChapterId = requestedChapter; Timeline = timeline; Notice = ReadyNotice;
+            if (changedScope) { ChapterRegions = []; PendingNarration = []; ResolvedDurationSeconds = TimelinePresentation.Duration(timeline); }
             SelectedClipIds.RemoveWhere(id => !timeline.Clips.Any(clip => clip.ClipId == id));
             if (!timeline.Tracks.Any(track => track.TrackId == SelectedTrackId)) SelectedTrackId = timeline.Tracks.FirstOrDefault()?.TrackId;
             Notify();
@@ -81,7 +85,7 @@ public sealed class AudioTimelineWorkspace(AppServices services)
         services.InvalidateMixPlayback();
         Timeline = null; Scope = AudioTimelineScope.Compilation; ChapterId = null;
         SelectedClipIds.Clear(); MonitorSoloTrackIds.Clear(); SelectedTrackId = null;
-        WordSnapPositions = []; CuePlacements = []; ViewStart = 0; PlayheadSeconds = 0;
+        WordSnapPositions = []; CuePlacements = []; ChapterRegions = []; PendingNarration = []; ResolvedDurationSeconds = 0; ViewStart = 0; PlayheadSeconds = 0;
         Notice = services.Session.HasProject ? ReadyNotice : "Open a project to mix audio.";
     }
 
@@ -132,17 +136,18 @@ public sealed class AudioTimelineWorkspace(AppServices services)
         string root = services.Session.RequireProjectRoot();
         AudioTimelineScope scope = Scope;
         string? chapterId = ChapterId;
-        var cues = await Task.Run(async () =>
+        var annotations = await Task.Run(async () =>
         {
             List<TimelineCuePlacement> result = [];
             List<MixRenderClip> clips = [];
+            MixRenderPlan? resolvedPlan = null;
             try
             {
-                MixRenderPlan plan = parameterPlan is not null && parameterPlan.Scope == scope && parameterPlan.ChapterId == chapterId
+                resolvedPlan = parameterPlan is not null && parameterPlan.Scope == scope && parameterPlan.ChapterId == chapterId
                     ? parameterPlan : parameterPlan is not null
                         ? await services.AudioTimeline.BuildParameterUpdatePlanAsync(root,scope,chapterId)
                         : await services.AudioTimeline.BuildPreviewPlanAsync(root,scope,chapterId);
-                clips.AddRange(plan.Clips);
+                clips.AddRange(resolvedPlan.Clips);
             }
             catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException) { }
             HashSet<string> represented = [];
@@ -173,9 +178,22 @@ public sealed class AudioTimelineWorkspace(AppServices services)
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             }
-            return result;
+            var pendingIds = scope == AudioTimelineScope.Chapter ? timeline.PlaceholderSegmentIds.ToHashSet()
+                : project.Chapters.Where(chapter => activeChapters.Contains(chapter.ChapterId))
+                    .SelectMany(chapter => AudioTimelineRules.GetOrCreate(project,AudioTimelineScope.Chapter,chapter.ChapterId).PlaceholderSegmentIds).ToHashSet();
+            List<PendingNarrationEstimate> pending = [];
+            foreach (var segment in project.Segments.Where(segment => pendingIds.Contains(segment.SegmentId)))
+            {
+                try { pending.Add(TimelinePresentation.EstimateUnplacedNarration(segment,await File.ReadAllTextAsync(VoiceBenchProjectLayout.ResolveRelativePath(root,segment.ScriptRelativePath)))); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+            return (Cues:result,Regions:resolvedPlan?.ChapterRegions ?? Array.Empty<MixChapterRegion>(),Duration:resolvedPlan?.DurationSeconds ?? TimelinePresentation.Duration(timeline),Pending:pending);
         });
-        if (IsCurrent(version)) { CuePlacements = cues; Notify(); }
+        if (IsCurrent(version))
+        {
+            CuePlacements = annotations.Cues; ChapterRegions = annotations.Regions; ResolvedDurationSeconds = annotations.Duration; PendingNarration = annotations.Pending;
+            Notify();
+        }
 
         static bool CanPlace(MixRenderClip clip,SegmentDocument segment,ParsedScriptDocument? source) =>
             source is not null && TimelinePresentation.CanFollow(clip.Asset.SourceSha256,segment.SourceSha256,source);

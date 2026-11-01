@@ -1,5 +1,6 @@
 using System.Globalization;
 using IssueLab.VoiceBench.App.Services;
+using IssueLab.VoiceBench.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -26,6 +27,8 @@ public sealed partial class AudioTimelineControl
         CueLaneCanvas.Width = width;
         CueLaneCanvas.Clip = new RectangleGeometry { Rect = new Rect(0,0,width,32) };
         TimeTicksCanvas.Children.Clear(); CueLaneCanvas.Children.Clear();
+        RefreshChapterRegions(width);
+        RefreshPendingNarration();
         double step = TimelinePresentation.GridStep(Workspace.VisibleSeconds,width);
         double previousLabelRight = -8;
         foreach (double second in TimelinePresentation.RulerTicks(Workspace.ViewStart,Workspace.VisibleSeconds,width))
@@ -53,6 +56,57 @@ public sealed partial class AudioTimelineControl
         if (Workspace.Timeline is { } timeline)
             foreach (var marker in timeline.Markers.Where(marker => marker.Anchor.Placed && marker.PositionSeconds >= Workspace.ViewStart && marker.PositionSeconds <= Workspace.ViewStart+Workspace.VisibleSeconds))
                 AddCueChip("marker",marker.Name,marker.PositionSeconds,"Placed timeline marker");
+    }
+
+    private void RefreshChapterRegions(double width)
+    {
+        ChapterRegionCanvas.Width = width;
+        ChapterRegionCanvas.Clip = new RectangleGeometry { Rect = new Rect(0,0,width,32) };
+        ChapterRegionCanvas.Children.Clear();
+        ChapterRegionLane.Visibility = Workspace.Scope == AudioTimelineScope.Compilation ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var region in Workspace.ChapterRegions)
+        {
+            if (TimelinePresentation.ClipChapterRegion(region,Workspace.ViewStart,Workspace.VisibleSeconds,width) is not { } bounds) continue;
+            string title = string.IsNullOrWhiteSpace(region.Title) ? region.ChapterId : region.Title;
+            string duration = TimelinePresentation.Time(region.DurationSeconds);
+            TextBlock label = new() { Text = $"{title} · {duration}",FontSize = 11,TextTrimming = TextTrimming.CharacterEllipsis };
+            Button chapter = new() { Content = label,Width = bounds.Width,MinWidth = 0,Height = 28,MinHeight = 0,Padding = new Thickness(5,1,5,1),
+                Background = Brush("PanelRaisedBrush"),Foreground = Brush("ReadingTextBrush"),BorderBrush = Brush("ActiveSignalBrush"),BorderThickness = new Thickness(1),HorizontalContentAlignment = HorizontalAlignment.Left };
+            AutomationProperties.SetName(chapter,$"Chapter {title}, start {TimelinePresentation.Time(region.StartSeconds)}, duration {duration}. Open chapter narration arrangement.");
+            ToolTipService.SetToolTip(chapter,$"{title} · {duration}\nStarts {TimelinePresentation.Time(region.StartSeconds)}. Open this chapter to edit narration; compilation overlays remain here.");
+            Canvas.SetLeft(chapter,bounds.Left); Canvas.SetTop(chapter,2);
+            chapter.Click += async (_, _) => await RunAsync(async () =>
+            {
+                Workspace.ViewStart = 0;
+                await Workspace.LoadAsync(AudioTimelineScope.Chapter,region.ChapterId);
+                Workspace.PlayheadSeconds = 0;
+                Workspace.VisibleSeconds = Math.Max(2,Math.Min(Workspace.VisibleSeconds,Workspace.ResolvedDurationSeconds));
+                Workspace.Notify();
+            });
+            ChapterRegionCanvas.Children.Add(chapter);
+        }
+    }
+
+    private void RefreshPendingNarration()
+    {
+        PendingNarrationCards.Children.Clear();
+        PendingNarrationTray.Visibility = Workspace.PendingNarration.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var item in Workspace.PendingNarration)
+        {
+            string title = string.IsNullOrWhiteSpace(item.Title) ? item.SegmentId : item.Title;
+            string text = $"{title} · ~{TimelinePresentation.Time(item.EstimatedDurationSeconds)} · {item.Status}";
+            TextBlock label = new() { Text = text,FontSize = 11,Foreground = Brush("ReadingTextBrush"),TextTrimming = TextTrimming.CharacterEllipsis,MaxWidth = 420 };
+            AutomationProperties.SetName(label,text+". Spoken estimate only; no audio position is assigned.");
+            ToolTipService.SetToolTip(label,text+"\nEstimate uses spoken narration only. Render or place a take, or explicitly omit this segment.");
+            PendingNarrationCards.Children.Add(new Border { Child = label,Padding = new Thickness(6,5,6,5),Background = Brush("PanelRaisedBrush"),BorderBrush = Brush("PickupBrush"),BorderThickness = new Thickness(1) });
+        }
+    }
+
+    private void FitArrangement_Click(object sender,RoutedEventArgs e)
+    {
+        Workspace.ViewStart = 0;
+        Workspace.VisibleSeconds = Math.Max(2,Workspace.ResolvedDurationSeconds > 0 ? Workspace.ResolvedDurationSeconds : TimelinePresentation.Duration(Workspace.Timeline));
+        Workspace.Notify();
     }
 
     private void AddCueChip(string type,string content,double seconds,string source)

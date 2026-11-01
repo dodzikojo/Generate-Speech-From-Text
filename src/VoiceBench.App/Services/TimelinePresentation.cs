@@ -3,6 +3,7 @@ using IssueLab.VoiceBench.Core;
 namespace IssueLab.VoiceBench.App.Services;
 
 public sealed record TimelineCuePlacement(Guid? ClipId,string? SegmentId,string Type,string Content,int SourceWordOrdinal,double? PositionSeconds,string Status);
+public sealed record PendingNarrationEstimate(string SegmentId,string Title,double EstimatedDurationSeconds,string Status);
 
 public readonly record struct TimelineLoadRequest(int Version,string? ProjectRoot,Guid? ProjectId)
 {
@@ -13,6 +14,22 @@ public readonly record struct TimelineLoadRequest(int Version,string? ProjectRoo
 /// <summary>Viewport calculations stay independent of drawing and authoring state.</summary>
 public static class TimelinePresentation
 {
+    public static (double Left,double Width)? ClipChapterRegion(MixChapterRegion region,double viewStart,double visibleSeconds,double viewportWidth)
+    {
+        if (visibleSeconds <= 0 || viewportWidth <= 0) return null;
+        double first = Math.Max(viewStart,region.StartSeconds), last = Math.Min(viewStart+visibleSeconds,region.StartSeconds+region.DurationSeconds);
+        if (last <= first) return null;
+        return ((first-viewStart)/visibleSeconds*viewportWidth,(last-first)/visibleSeconds*viewportWidth);
+    }
+
+    public static PendingNarrationEstimate EstimateUnplacedNarration(SegmentDocument segment,string authoringText)
+    {
+        var parsed = new ProductionScriptParser().Parse(authoringText);
+        double estimate = IssueLab.VoiceBench.Infrastructure.Rendering.SegmentRenderService.EstimateDuration(parsed.NarrationText).TotalSeconds;
+        bool takeAvailable = segment.RenderHistory.Any(render => render.Status is not (RenderStatus.Failed or RenderStatus.Cancelled) && !string.IsNullOrWhiteSpace(render.RawAudioRelativePath));
+        return new(segment.SegmentId,segment.Title,estimate,takeAvailable ? "Unplaced · choose / approve a take" : "Unplaced · render required");
+    }
+
     public static (AudioTimelineScope Scope,string? ChapterId) ResolveTimelineTarget(VoiceBenchProjectDocument project,AudioTimelineScope preferredScope,string? preferredChapterId)
     {
         if (preferredScope == AudioTimelineScope.Compilation) return (AudioTimelineScope.Compilation,null);

@@ -49,6 +49,7 @@ public sealed partial class AudioTimelineControl : UserControl
     private double _waveVisibleSeconds;
     private double? _pendingTrackScrollOffset;
     private int _trackRowsVersion;
+    private bool _subscriptionsActive;
     private sealed record WaveStrip(double TimelineStart, double TimelineDuration, float[] Minimum, float[] Maximum);
     private sealed record ScopeChoice(string Label, AudioTimelineScope Scope, string? ChapterId);
     private string LayoutSettingPrefix => _compact ? "Audio.Dock" : "Audio";
@@ -58,11 +59,9 @@ public sealed partial class AudioTimelineControl : UserControl
     {
         InitializeComponent();
         Loaded += Control_Loaded;
-        Unloaded += (_, _) => _timer.Stop();
+        Unloaded += Control_Unloaded;
         _timer.Tick += (_, _) => UpdateTransport();
         SizeChanged += (_, _) => ApplyLayout();
-        App.Services.AudioWorkspace.Changed += (_, _) => DispatcherQueue.TryEnqueue(Refresh);
-        App.Services.Session.ProjectChanged += (_, _) => DispatcherQueue.TryEnqueue(RefreshScopes);
     }
 
     public bool Compact
@@ -82,12 +81,30 @@ public sealed partial class AudioTimelineControl : UserControl
 
     private async void Control_Loaded(object sender, RoutedEventArgs e)
     {
+        if (!_subscriptionsActive)
+        {
+            App.Services.AudioWorkspace.Changed += Workspace_Changed;
+            App.Services.Session.ProjectChanged += Project_Changed;
+            _subscriptionsActive = true;
+        }
         LibraryToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Library",!_compact);
         InspectorToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Inspector",!_compact);
         RefreshScopes();
         await RunAsync(() => Workspace.LoadAsync());
-        _timer.Start();
+        if (IsLoaded) _timer.Start();
     }
+
+    private void Control_Unloaded(object sender,RoutedEventArgs e)
+    {
+        _timer.Stop();
+        if (!_subscriptionsActive) return;
+        App.Services.AudioWorkspace.Changed -= Workspace_Changed;
+        App.Services.Session.ProjectChanged -= Project_Changed;
+        _subscriptionsActive = false;
+    }
+
+    private void Workspace_Changed(object? sender,EventArgs e) => DispatcherQueue.TryEnqueue(() => { if (IsLoaded) Refresh(); });
+    private void Project_Changed(object? sender,EventArgs e) => DispatcherQueue.TryEnqueue(() => { if (IsLoaded) RefreshScopes(); });
 
     private static bool ReadSetting(string key, bool fallback) => ApplicationData.Current.LocalSettings.Values[key] is bool value ? value : fallback;
 
@@ -100,6 +117,8 @@ public sealed partial class AudioTimelineControl : UserControl
         InspectorColumn.Width = new GridLength(InspectorPanel.Visibility == Visibility.Visible ? 220 : 0);
         RulerHeaderColumn.Width = new GridLength(_compact ? 120 : 155);
         CueHeaderColumn.Width = RulerHeaderColumn.Width;
+        ChapterHeaderColumn.Width = RulerHeaderColumn.Width;
+        PendingHeaderColumn.Width = RulerHeaderColumn.Width;
         ArrangementBody.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
         if (_compact) ArrangementBody.MaxHeight = ReadDockHeight();
         TimelineRoot.RowDefinitions[1].Height = _collapsed ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
@@ -169,12 +188,15 @@ public sealed partial class AudioTimelineControl : UserControl
         TimelineNotice.Text = Workspace.Timeline is { } summary ? $"{summary.Tracks.Count} tracks · {summary.Clips.Count} clips · {summary.PlaceholderSegmentIds.Count} unplaced · {summary.ReplacementProposals.Count} replacements · {Workspace.Notice}" : Workspace.Notice;
         ToolTipService.SetToolTip(TimelineNotice, Workspace.Notice);
         var timeline = Workspace.Timeline;
+        ScopePicker.SelectedItem = (ScopePicker.ItemsSource as IEnumerable<ScopeChoice>)?.FirstOrDefault(choice => choice.Scope == Workspace.Scope && choice.ChapterId == Workspace.ChapterId) ?? ScopePicker.SelectedItem;
         Guid? selectedAsset = (AssetsList.SelectedItem as AudioAssetRecord)?.AssetId;
         AssetsList.ItemsSource = App.Services.Session.Project is { } project ? AudioTimelineRules.RegisterRenderAssets(project).AudioAssets : null;
         AssetsList.SelectedItem = (AssetsList.ItemsSource as IEnumerable<AudioAssetRecord>)?.FirstOrDefault(asset => asset.AssetId == selectedAsset);
         if (_drawnRevision != timeline?.Revision || _drawnTimeline != timeline?.TimelineId) ClipTrack.ItemsSource = timeline?.Tracks.OrderBy(track => track.Order).ToArray();
-        Zoom.Value = Workspace.VisibleSeconds;
-        ScrollTime.Maximum = Math.Max(1, TimelinePresentation.Duration(timeline) - Workspace.VisibleSeconds + 2);
+        double resolvedDuration = Workspace.ResolvedDurationSeconds > 0 ? Workspace.ResolvedDurationSeconds : TimelinePresentation.Duration(timeline);
+        Zoom.Maximum = Math.Max(120,resolvedDuration);
+        Zoom.Value = Math.Clamp(Workspace.VisibleSeconds,Zoom.Minimum,Zoom.Maximum);
+        ScrollTime.Maximum = Math.Max(1, resolvedDuration - Workspace.VisibleSeconds + 2);
         ScrollTime.Value = Math.Clamp(Workspace.ViewStart, 0, ScrollTime.Maximum);
         Ruler.Minimum = Workspace.ViewStart;
         Ruler.Maximum = Workspace.ViewStart + Workspace.VisibleSeconds;
@@ -380,7 +402,7 @@ public sealed partial class AudioTimelineControl : UserControl
         Color color = track.Kind switch { AudioTrackKind.Music => Color.FromArgb(255,179,157,219), AudioTrackKind.Effects => Color.FromArgb(255,244,173,104), _ => Color.FromArgb(255,53,199,232) };
         if (_accessibility.HighContrast) color = ((SolidColorBrush)Brush("ActiveSignalBrush")).Color;
         Color muted = Color.FromArgb(60, color.R, color.G, color.B);
-        double grid = TimelinePresentation.GridStep(Workspace.VisibleSeconds);
+        double grid = TimelinePresentation.GridStep(Workspace.VisibleSeconds,width);
         for (double second = Math.Ceiling(Workspace.ViewStart / grid) * grid; second < Workspace.ViewStart + Workspace.VisibleSeconds; second += grid)
         {
             float x = (float)((second - Workspace.ViewStart) * scale);

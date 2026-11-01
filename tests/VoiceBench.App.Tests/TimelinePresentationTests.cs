@@ -7,6 +7,30 @@ namespace IssueLab.VoiceBench.App.Tests;
 public sealed class TimelinePresentationTests
 {
     [Fact]
+    public void Chapter_regions_clip_to_the_time_viewport_without_moving_their_authored_bounds()
+    {
+        MixChapterRegion region = new("chapter","Narration",TimelineTime.ToFrames(20),TimelineTime.ToFrames(20));
+        Assert.Equal((0d,500d),TimelinePresentation.ClipChapterRegion(region,30,5,500));
+        Assert.Equal((250d,250d),TimelinePresentation.ClipChapterRegion(region,10,20,500));
+        Assert.Null(TimelinePresentation.ClipChapterRegion(region,40,10,500));
+        Assert.Null(TimelinePresentation.ClipChapterRegion(region,0,20,500));
+        Assert.Equal(20,region.StartSeconds); Assert.Equal(20,region.DurationSeconds);
+    }
+
+    [Fact]
+    public void Pending_narration_estimates_exclude_production_guidance_and_do_not_assign_positions()
+    {
+        SegmentDocument segment = new() { SegmentId = "pending",Title = "Opening" };
+        var plain = TimelinePresentation.EstimateUnplacedNarration(segment,"One two three.");
+        var guided = TimelinePresentation.EstimateUnplacedNarration(segment,"@visual: Many production words that are not spoken during the narration.\nOne two three.\n@note: Another detailed production direction.");
+        Assert.Equal(plain.EstimatedDurationSeconds,guided.EstimatedDurationSeconds);
+        Assert.Equal(1.2,guided.EstimatedDurationSeconds,8);
+        Assert.Equal("Unplaced · render required",guided.Status);
+        Assert.Equal("Opening",guided.Title);
+        Assert.Equal(0,TimelinePresentation.EstimateUnplacedNarration(segment,"@note: Do not speak these words.").EstimatedDurationSeconds);
+    }
+
+    [Fact]
     public void Previous_project_chapter_selection_resolves_to_an_active_chapter_or_compilation()
     {
         VoiceBenchProjectDocument project = new() { ChapterOrder = ["second","archived","first"],Chapters =
