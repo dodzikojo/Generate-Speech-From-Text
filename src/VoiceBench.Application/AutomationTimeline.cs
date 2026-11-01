@@ -60,7 +60,8 @@ public sealed partial class AutomationDispatcher
             return new {plan.PlanId,plan.ProjectId,plan.Scope,plan.ChapterId,plan.Revision,plan.CreatedAt,plan.OutputStandard,plan.DurationFrames,
                 clips=plan.Clips.Skip(offset).Take(count).Select(c=>new {c.ClipId,c.Asset,c.Track,c.StartFrame,c.SourceStartFrame,c.DurationFrames,c.GainDb,c.Pan,c.FadeInSeconds,c.FadeOutSeconds,c.Muted,c.Loop,c.RetainedWordRanges}).ToArray(),
                 transcript=plan.Transcript.Skip(offset).Take(count).ToArray(),totalClips=plan.Clips.Count,totalTranscriptEntries=plan.Transcript.Count,offset,
-                nextOffset=offset+count<Math.Max(plan.Clips.Count,plan.Transcript.Count)?(int?)(offset+count):null};
+                chapterRegions=plan.ChapterRegions.Skip(offset).Take(count).ToArray(),totalChapterRegions=plan.ChapterRegions.Count,
+                nextOffset=offset+count<Math.Max(plan.ChapterRegions.Count,Math.Max(plan.Clips.Count,plan.Transcript.Count))?(int?)(offset+count):null};
         }
         if(command=="mix.replacements") return (await service.GetAsync(root,scope,chapter,ct).ConfigureAwait(false)).ReplacementProposals;
         if(command=="mix.configure")
