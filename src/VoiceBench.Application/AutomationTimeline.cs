@@ -43,9 +43,25 @@ public sealed partial class AutomationDispatcher
             return record;
         }
         if(command=="mix.get") return await service.GetAsync(root,scope,chapter,ct).ConfigureAwait(false);
+        if(command=="mix.clips.list")
+        {
+            var timeline=await service.GetAsync(root,scope,chapter,ct).ConfigureAwait(false);
+            int offset=Math.Max(0,Int(args,"offset")),count=Math.Clamp(Int(args,"count",200),1,1000);
+            return new {timeline.TimelineId,timeline.Scope,timeline.ChapterId,timeline.Revision,timeline.Tracks,
+                clips=timeline.Clips.Skip(offset).Take(count).ToArray(),timeline.EndMarkerFrame,
+                totalClips=timeline.Clips.Count,offset,nextOffset=offset+count<timeline.Clips.Count?(int?)(offset+count):null};
+        }
         if(command=="mix.list") return (await ReloadAsync(ct).ConfigureAwait(false)).AudioTimelines.Select(t=>new{t.TimelineId,t.Scope,t.ChapterId,t.Revision}).ToArray();
         if(command=="mix.validate") return await service.ValidateAsync(root,scope,chapter,ct).ConfigureAwait(false);
-        if(command=="mix.plan") return await service.BuildPlanAsync(root,scope,chapter,ct).ConfigureAwait(false);
+        if(command=="mix.plan")
+        {
+            var plan=await service.BuildPlanAsync(root,scope,chapter,ct).ConfigureAwait(false);
+            int offset=Math.Max(0,Int(args,"offset")),count=Math.Clamp(Int(args,"count",200),1,1000);
+            return new {plan.PlanId,plan.ProjectId,plan.Scope,plan.ChapterId,plan.Revision,plan.CreatedAt,plan.OutputStandard,plan.DurationFrames,
+                clips=plan.Clips.Skip(offset).Take(count).Select(c=>new {c.ClipId,c.Asset,c.Track,c.StartFrame,c.SourceStartFrame,c.DurationFrames,c.GainDb,c.Pan,c.FadeInSeconds,c.FadeOutSeconds,c.Muted,c.Loop,c.RetainedWordRanges}).ToArray(),
+                transcript=plan.Transcript.Skip(offset).Take(count).ToArray(),totalClips=plan.Clips.Count,totalTranscriptEntries=plan.Transcript.Count,offset,
+                nextOffset=offset+count<Math.Max(plan.Clips.Count,plan.Transcript.Count)?(int?)(offset+count):null};
+        }
         if(command=="mix.replacements") return (await service.GetAsync(root,scope,chapter,ct).ConfigureAwait(false)).ReplacementProposals;
         if(command=="mix.configure")
         {

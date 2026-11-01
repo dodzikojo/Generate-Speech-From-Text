@@ -28,7 +28,7 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
         ("jobs", "jobs.list", "Durable job status and progress"),
         ("proposals", "writing.proposals.list", "Local writing proposals"),
         ("exports", "exports.list", "Project exports and artifacts"),
-        ("mix", "mix.get", "Compilation arrangement and revision"),
+        ("mix", "mix.clips.list", "Bounded compilation arrangement page and revision"),
         ("assets", "assets.list", "Bounded immutable audio asset catalog"),
         ("mix-playback", "mix.playback.get", "Shared mix playback target, clock and monitor state"),
     ];
@@ -90,7 +90,7 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
                     MimeType = "application/json",
                 }, new ResourceTemplate
                 {
-                    UriTemplate = "voicebench:///mixes/chapters/{chapterId}", Name = "chapter-mix",
+                    UriTemplate = "voicebench:///mixes/chapters/{chapterId}{?offset,count}", Name = "chapter-mix",
                     Description = "Chapter audio arrangement and current optimistic revision.", MimeType = "application/json",
                 }, new ResourceTemplate
                 {
@@ -208,9 +208,18 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
         const string mixPrefix="voicebench:///mixes/chapters/";
         if(uri.StartsWith(mixPrefix,StringComparison.Ordinal))
         {
-            string chapter=Uri.UnescapeDataString(uri[mixPrefix.Length..]);
+            string[] parts=uri[mixPrefix.Length..].Split('?',2);
+            string chapter=Uri.UnescapeDataString(parts[0]);
             if(string.IsNullOrWhiteSpace(chapter)||chapter.IndexOfAny(['/', '\\', '?', '#'])>=0)throw new McpProtocolException("Invalid chapter mix identifier.",McpErrorCode.InvalidParams);
-            return new("mix.get",AutomationJson.Element(new {scope="Chapter",chapterId=chapter}));
+            int offset=0,count=200;
+            var seen=new HashSet<string>();
+            if(parts.Length==2)foreach(string entry in parts[1].Split('&'))
+            {
+                string[] pair=entry.Split('=',2);
+                if(pair.Length!=2||!seen.Add(pair[0])||pair[0] is not("offset" or "count")||!int.TryParse(pair[1],out int value)||value<0||pair[0]=="count"&&value is <1 or >1000)throw new McpProtocolException("Use nonnegative offset and count 1–1000.",McpErrorCode.InvalidParams);
+                if(pair[0]=="offset")offset=value;else count=value;
+            }
+            return new("mix.clips.list",AutomationJson.Element(new {scope="Chapter",chapterId=chapter,offset,count}));
         }
         const string assetPrefix="voicebench:///assets/";
         if(uri.StartsWith(assetPrefix,StringComparison.Ordinal))

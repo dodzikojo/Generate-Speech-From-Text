@@ -63,9 +63,10 @@ internal static class AudioTimelineCapabilities
         }
         const string target="scope,chapterId";
         Add("mix.get","Read the shared audio arrangement and current revision. Time edits use seconds on a 48 kHz frame grid.",true,target);
+        Add("mix.clips.list","Read a bounded arrangement page with revision and continuation; prefer this for large projects.",true,target+",offset,count");
         Add("mix.list","List available project timelines and revisions.",true);
         Add("mix.validate","Inspect source, approval, overlap and missing-narration export blockers.",true,target);
-        Add("mix.plan","Read the frozen mix graph and retained-source transcript without exporting audio.",true,target);
+        Add("mix.plan","Read bounded pages of frozen graph metadata and retained-source transcript without exporting audio. Per-word alignment stays in alignment resources.",true,target+",offset,count");
         Add("mix.replacements","Read pending take replacements for explicit review.",true,target);
         Add("mix.history.get","Read saved project history for the mix editor.",true);
         Add("mix.history.undo","Undo the latest saved action only if it is an audio timeline edit; preserve the live script draft.",false);
