@@ -98,10 +98,12 @@ without further authorization. Shared checkout edits must have disjoint ownershi
 
 ## Review and remaining acceptance
 
-Foundation PR #8 is merged into codex/audio-timeline. Remaining scoped PRs and final
-master PR are being assembled without changing the verified final source tree.
-Master stays unchanged until the final integration PR is reviewed. Runtime fixtures
-and installers remain local under artifacts/ and are excluded from implementation PRs.
+Six review slices target codex/audio-timeline: foundation #8, narration integrity #9,
+engine/export #10, automation #11, desktop #12, and release validation #13. The final
+integration PR targets master after those merges. The reordered source tree was
+verified byte-for-byte against the installed/tested source before the review-ledger
+update. Master stays unchanged until integration review. Runtime fixtures and installers
+remain local under artifacts/ and are excluded from implementation PRs.
 The guide and focused operator checklist live at docs/audio-timeline.md.
 The saved ORCA operator project was restored after validation, with no unsaved draft or
 active job. The isolated fixtures and all original/generated media remain on disk.
