@@ -1,10 +1,12 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using IssueLab.VoiceBench.App.Automation;
 
 namespace IssueLab.VoiceBench.App;
 
 public sealed partial class MainWindow : Window
 {
+    public DesktopAutomationHost? LocalControl { get; private set; }
     public MainWindow()
     {
         InitializeComponent();
@@ -14,15 +16,26 @@ public sealed partial class MainWindow : Window
         ShellNavigation.SelectedItem = ProjectsNavigationItem;
         ShowSurface("projects");
         ShellRoot.Loaded += ShellRoot_Loaded;
+        Closed += MainWindow_Closed;
     }
 
     private async void ShellRoot_Loaded(object sender, RoutedEventArgs e)
     {
         ShellRoot.Loaded -= ShellRoot_Loaded;
         await App.Services.Session.RestoreMostRecentAsync();
+        LocalControl = new DesktopAutomationHost(this);
+        await LocalControl.StartAsync();
     }
 
-    private void Session_ProjectActivated(object? sender, EventArgs e) => NavigateTo("workbench");
+    private void Session_ProjectActivated(object? sender, EventArgs e) =>
+        DispatcherQueue.TryEnqueue(() => NavigateTo("workbench"));
+
+    private async void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        App.Services.Session.ProjectActivated -= Session_ProjectActivated;
+        if (LocalControl is not null) await LocalControl.DisposeAsync();
+        App.Services.Dispose();
+    }
 
     private void ShellNavigation_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {

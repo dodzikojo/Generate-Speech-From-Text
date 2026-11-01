@@ -119,13 +119,13 @@ public sealed partial class AssemblyView : UserControl
 
         StackPanel title = new() { Spacing = 3 };
         TextBlock heading = new() { Text = $"{number:00}  {chapter.Title}" };
-        heading.Style = (Style)Application.Current.Resources["StudioHeadingTextStyle"];
+        heading.Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["StudioHeadingTextStyle"];
         title.Children.Add(heading);
         TextBlock metadata = new()
         {
             Text = $"{approved} / {segments.Count} APPROVED  ·  {FormatDuration(timing.Duration)} EXPECTED  ·  {timing.MeasuredCount} MEASURED / {timing.EstimatedCount} ESTIMATED",
         };
-        metadata.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
+        metadata.Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["UtilityLabelTextStyle"];
         title.Children.Add(metadata);
         content.Children.Add(title);
 
@@ -147,10 +147,10 @@ public sealed partial class AssemblyView : UserControl
                 ? "READY  ·  every segment has an approved take aligned to its clean source"
                 : string.Join(Environment.NewLine, eligibility.Issues.Select(issue => $"• {issue.Message}")),
             TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources[eligibility.CanBuild ? "ApprovalBrush" : "PickupBrush"],
+            Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[eligibility.CanBuild ? "ApprovalBrush" : "PickupBrush"],
         };
-        status.Style = (Style)Application.Current.Resources["UtilityLabelTextStyle"];
-        status.Foreground = (Brush)Application.Current.Resources[eligibility.CanBuild ? "ApprovalBrush" : "PickupBrush"];
+        status.Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["UtilityLabelTextStyle"];
+        status.Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[eligibility.CanBuild ? "ApprovalBrush" : "PickupBrush"];
         Grid.SetRow(status, 1);
         Grid.SetColumnSpan(status, 2);
         content.Children.Add(status);
@@ -173,7 +173,7 @@ public sealed partial class AssemblyView : UserControl
         {
             Content = new Border
             {
-                Style = (Style)Application.Current.Resources["StudioPanelStyle"],
+                Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["StudioPanelStyle"],
                 Child = content,
             },
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -230,7 +230,9 @@ public sealed partial class AssemblyView : UserControl
         {
             BuildCompilationButton.IsEnabled = false;
             ShowStatus(InfoBarSeverity.Informational, "Building aligned master", "Normalizing approved takes, inserting pauses, verifying audio, and writing versioned exports.");
-            MasteringResult result = await App.Services.BuildMasterAsync(name, scope, chapterId);
+            Dictionary<string, object> arguments = new() { ["name"] = name, ["scope"] = scope.ToString() };
+            if (chapterId is not null) arguments["chapterId"] = chapterId;
+            MasteringResult result = await App.Services.RunTrackedJobAsync<MasteringResult>("master.start", arguments);
             ShowStatus(InfoBarSeverity.Success, "Assembly verified", $"Created {result.MasterRelativePath}. Final scripts, submitted-text audit, cue sheets, and mastering reports share the same version.");
         }
         catch (Exception exception)

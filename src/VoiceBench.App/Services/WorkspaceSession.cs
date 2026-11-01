@@ -19,6 +19,20 @@ public sealed class WorkspaceSession(
 
     public event EventHandler? ProjectActivated;
 
+    // Desktop composition supplies ownership checks without coupling this session to WinUI.
+    public Action<string, VoiceBenchProjectDocument>? BeforeActivate { get; set; }
+
+    public Action<string>? BeforeProjectChange { get; set; }
+
+    public void ApplyAutomationProject(string? projectRoot, VoiceBenchProjectDocument? project)
+    {
+        bool changedRoot = !string.Equals(ProjectRoot, projectRoot, StringComparison.OrdinalIgnoreCase);
+        ProjectRoot = projectRoot;
+        Project = project;
+        ProjectChanged?.Invoke(this, EventArgs.Empty);
+        if (changedRoot && project is not null) ProjectActivated?.Invoke(this, EventArgs.Empty);
+    }
+
     public async Task CreateAsync(
         string parentFolder,
         string name,
@@ -28,10 +42,12 @@ public sealed class WorkspaceSession(
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         string folderName = CreateSafeFolderName(name);
         string projectRoot = Path.Combine(Path.GetFullPath(parentFolder), folderName);
+        BeforeProjectChange?.Invoke(projectRoot);
         VoiceBenchProjectDocument project = await projects.CreateAsync(
             projectRoot,
             name,
             cancellationToken);
+        project = await projects.LoadAsync(projectRoot, cancellationToken);
         await TryRecordRecentAsync(projectRoot, project.Name, cancellationToken);
         Activate(projectRoot, project);
     }
@@ -40,6 +56,7 @@ public sealed class WorkspaceSession(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         string root = Path.GetFullPath(projectRoot);
+        BeforeProjectChange?.Invoke(root);
         if (authoringTransactions is not null)
         {
             await authoringTransactions.RecoverInterruptedAsync(root, cancellationToken);
@@ -106,8 +123,20 @@ public sealed class WorkspaceSession(
         CancellationToken cancellationToken = default)
     {
         string root = RequireProjectRoot();
-        await projects.SaveAsync(root, project, cancellationToken);
-        Project = await projects.LoadAsync(root, cancellationToken);
+        if (projects is FileProjectRepository fileRepository)
+        {
+            Project = await fileRepository.UpdateAsync(root, current =>
+            {
+                if (current.UpdatedAt != project.UpdatedAt)
+                    throw new InvalidOperationException("The project changed while this action was being prepared. Refresh the project and try again; the newer manifest was preserved.");
+                return project;
+            }, cancellationToken);
+        }
+        else
+        {
+            await projects.SaveAsync(root, project, cancellationToken);
+            Project = await projects.LoadAsync(root, cancellationToken);
+        }
         ProjectChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -125,6 +154,7 @@ public sealed class WorkspaceSession(
         VoiceBenchProjectDocument project,
         bool notifyActivated = true)
     {
+        BeforeActivate?.Invoke(projectRoot, project);
         ProjectRoot = projectRoot;
         Project = project;
         ProjectChanged?.Invoke(this, EventArgs.Empty);

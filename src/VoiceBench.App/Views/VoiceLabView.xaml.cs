@@ -220,8 +220,8 @@ public sealed partial class VoiceLabView : UserControl
         string voice = GetSelectedContent(isA ? VoiceAComboBox : VoiceBComboBox);
         string directions = (isA ? DirectionATextBox : DirectionBTextBox).Text.Trim();
         ShowStatus(InfoBarSeverity.Informational, $"Rendering audition {slot}", $"Submitting {providerId} / {model} / {voice} exactly as selected.");
-        AuditionResult result = await App.Services.RenderAuditionAsync(
-            new AuditionRequest(slot, providerId, model, voice, directions, AuditionTextBox.Text));
+        AuditionResult result = await App.Services.RunTrackedJobAsync<AuditionResult>("render.audition",
+            new { slot, providerId, modelId = model, voice, directions, text = AuditionTextBox.Text });
         LoadTransport(slot, result);
         (isA ? AuditionAStatusText : AuditionBStatusText).Text = $"Rendered · {FormatDuration(result.Duration)}";
         return result;

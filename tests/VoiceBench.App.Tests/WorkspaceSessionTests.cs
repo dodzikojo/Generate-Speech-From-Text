@@ -47,6 +47,84 @@ public sealed class WorkspaceSessionTests
         Assert.Equal(project.ProjectId, session.RequireProject().ProjectId);
     }
 
+    [Fact]
+    public async Task CreateAsync_uses_the_committed_timestamp_and_allows_the_first_save()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository projects = new(new AdvancingClock());
+        WorkspaceSession session = new(projects, new FileRecentProjectCatalog(catalogPath: Path.Combine(directory.Root, "recent.json")));
+
+        await session.CreateAsync(directory.Root, "New project");
+        VoiceBenchProjectDocument saved = await projects.LoadAsync(session.RequireProjectRoot());
+        Assert.Equal(saved.UpdatedAt, session.RequireProject().UpdatedAt);
+
+        await session.SaveAsync(session.RequireProject() with { Name = "Renamed" });
+
+        Assert.Equal("Renamed", (await projects.LoadAsync(session.RequireProjectRoot())).Name);
+    }
+
+    [Fact]
+    public async Task SaveAsync_rejects_a_stale_snapshot_and_preserves_the_newer_manifest()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository projects = new(new AdvancingClock());
+        WorkspaceSession session = new(projects, new FileRecentProjectCatalog(catalogPath: Path.Combine(directory.Root, "recent.json")));
+        await session.CreateAsync(directory.Root, "Concurrent project");
+        VoiceBenchProjectDocument stale = session.RequireProject();
+        await projects.UpdateAsync(session.RequireProjectRoot(), current => current with { Name = "Newer render-side update" });
+
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            session.SaveAsync(stale with { Name = "Old editor overwrite" }));
+
+        Assert.Contains("newer manifest was preserved", failure.Message, StringComparison.Ordinal);
+        Assert.Equal("Newer render-side update", (await projects.LoadAsync(session.RequireProjectRoot())).Name);
+    }
+
+    [Fact]
+    public async Task ApplyAutomationProject_updates_the_shared_selection_without_writing_or_reactivating_same_root()
+    {
+        using TemporaryDirectory directory = new();
+        FileProjectRepository projects = new();
+        string root = Path.Combine(directory.Root, "project");
+        VoiceBenchProjectDocument document = await projects.CreateAsync(root, "Saved name");
+        WorkspaceSession session = new(projects, new FileRecentProjectCatalog(catalogPath: Path.Combine(directory.Root, "recent.json")));
+        int changed = 0, activated = 0;
+        session.ProjectChanged += (_, _) => changed++;
+        session.ProjectActivated += (_, _) => activated++;
+
+        session.ApplyAutomationProject(root, document);
+        session.ApplyAutomationProject(root, document with { Name = "Bridge snapshot" });
+
+        Assert.Equal("Bridge snapshot", session.RequireProject().Name);
+        Assert.Equal("Saved name", (await projects.LoadAsync(root)).Name);
+        Assert.Equal(2, changed);
+        Assert.Equal(1, activated);
+        session.ApplyAutomationProject(null, null);
+        Assert.False(session.HasProject);
+        Assert.Equal(1, activated);
+    }
+
+    [Fact]
+    public async Task BeforeProjectChange_can_refuse_switching_before_any_project_is_created()
+    {
+        using TemporaryDirectory directory = new();
+        WorkspaceSession session = new(new FileProjectRepository(), new FileRecentProjectCatalog(catalogPath: Path.Combine(directory.Root, "recent.json")))
+        {
+            BeforeProjectChange = _ => throw new InvalidOperationException("Save the draft first."),
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.CreateAsync(directory.Root, "Blocked project"));
+
+        Assert.False(Directory.Exists(Path.Combine(directory.Root, "Blocked project")));
+        Assert.False(session.HasProject);
+    }
+
+    private sealed class AdvancingClock : TimeProvider
+    {
+        private long _ticks;
+        public override DateTimeOffset GetUtcNow() => new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero).AddTicks(Interlocked.Increment(ref _ticks));
+    }
+
     private sealed class RecordingTransactions : IAuthoringTransactionManager
     {
         public int RecoveryCalls { get; private set; }

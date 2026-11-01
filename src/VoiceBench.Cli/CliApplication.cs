@@ -1,4 +1,7 @@
 using IssueLab.VoiceBench.Core;
+using IssueLab.VoiceBench.Application;
+using IssueLab.VoiceBench.Application.Bridge;
+using System.Text.Json;
 using IssueLab.VoiceBench.Infrastructure.Credentials;
 using IssueLab.VoiceBench.Infrastructure.Mastering;
 using IssueLab.VoiceBench.Infrastructure.Processes;
@@ -23,6 +26,8 @@ public sealed class CliApplication(
     {
         try
         {
+            using ProjectLease? lease = await AcquireOrRouteAsync(args, cancellationToken).ConfigureAwait(false);
+            if (_routedExitCode is int routed) return routed;
             return args switch
             {
                 ["doctor"] => await DoctorAsync(cancellationToken).ConfigureAwait(false),
@@ -59,6 +64,84 @@ public sealed class CliApplication(
         {
             await error.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return (int)CliExitCode.UnexpectedFailure;
+        }
+    }
+
+    private int? _routedExitCode;
+
+    private async Task<ProjectLease?> AcquireOrRouteAsync(string[] args, CancellationToken cancellationToken)
+    {
+        _routedExitCode = null;
+        string? root = args switch
+        {
+            ["project", "create" or "validate", var folder, ..] => folder,
+            ["render" or "master", var folder, ..] => folder,
+            _ => null,
+        };
+        if (root is null) return null;
+        try { return ProjectLease.Acquire(root); }
+        catch (AutomationException exception) when (exception.Code == "project.in-use")
+        {
+            await using var client = new LocalControlClient();
+            AutomationResult active = await client.ExecuteAsync(new("project.get", AutomationJson.Element(new { })), cancellationToken).ConfigureAwait(false);
+            if (active.IsError || !active.Data.TryGetProperty("projectRoot", out var path)
+                || !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)), path.GetString(), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The project is owned by another VoiceBench process. Connect to that desktop instance or close the project before using the CLI.");
+            if (args[0] == "project")
+            {
+                if (args[1] != "validate") throw new IOException("A VoiceBench project already exists and is open at this location.");
+                var validation = await client.ExecuteAsync(new("project.validate", AutomationJson.Element(new { })), cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync(validation.Data.GetRawText()).ConfigureAwait(false);
+                _routedExitCode = validation.IsError || !validation.Data.TryGetProperty("isValid", out var valid) || !valid.GetBoolean()
+                    ? (int)CliExitCode.ValidationFailure : (int)CliExitCode.Success;
+                return null;
+            }
+            if (args[0] == "render")
+            {
+                string? segment = GetOption(args[2..], "--segment");
+                bool ready = args.Contains("--ready", StringComparer.Ordinal);
+                if ((segment is null) == !ready) { _routedExitCode = Usage(); return null; }
+                var project = active.Data.GetProperty("project").Deserialize<VoiceBenchProjectDocument>(AutomationJson.Options)!;
+                var ids = segment is not null ? new[] { segment } : ProjectOrdering.GetPlaybackOrderedSegmentIds(project)
+                    .Where(id => project.Segments.Single(item => item.SegmentId == id).Status == SegmentStatus.Ready).ToArray();
+                foreach (string id in ids)
+                {
+                    JsonElement result = await RunDesktopJobAsync(client, "render.start", new { segmentId = id }, cancellationToken).ConfigureAwait(false);
+                    await output.WriteLineAsync(result.GetRawText()).ConfigureAwait(false);
+                    if (result.TryGetProperty("render", out var take) && take.TryGetProperty("renderId", out var renderId))
+                        _ = await RunDesktopJobAsync(client, "render.process", new { segmentId = id, renderId = renderId.GetString() }, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                string? name = GetOption(args[2..], "--name");
+                string? chapter = GetOption(args[2..], "--chapter");
+                if (string.IsNullOrWhiteSpace(name) || (chapter is not null && args.Contains("--compilation", StringComparer.Ordinal)))
+                { _routedExitCode = Usage(); return null; }
+                JsonElement result = await RunDesktopJobAsync(client, "master.start", new
+                {
+                    name, scope = chapter is null ? "Compilation" : "Chapter", chapterId = chapter,
+                }, cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync(result.GetRawText()).ConfigureAwait(false);
+            }
+            _routedExitCode = (int)CliExitCode.Success;
+            return null;
+        }
+    }
+
+    private static async Task<JsonElement> RunDesktopJobAsync(LocalControlClient client, string command, object arguments, CancellationToken cancellationToken)
+    {
+        AutomationResult started = await client.ExecuteAsync(new(command, AutomationJson.Element(arguments), Guid.NewGuid().ToString("N")), cancellationToken).ConfigureAwait(false);
+        if (started.IsError) throw new IOException(started.Message);
+        string jobId = started.Data.GetProperty("jobId").GetString()!;
+        while (true)
+        {
+            AutomationResult state = await client.ExecuteAsync(new("jobs.get", AutomationJson.Element(new { jobId })), cancellationToken).ConfigureAwait(false);
+            if (state.IsError) throw new IOException(state.Message);
+            string? status = state.Data.GetProperty("status").GetString();
+            if (status == "Completed") return state.Data.GetProperty("result").Clone();
+            if (status is "Failed" or "Cancelled" or "Interrupted") throw new IOException($"VoiceBench operation {jobId}: {status}. {state.Data.GetProperty("failureCode")}");
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
     }
 

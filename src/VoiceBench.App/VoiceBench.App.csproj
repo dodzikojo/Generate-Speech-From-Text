@@ -11,6 +11,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishProfile>win-x64.pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
@@ -31,6 +32,7 @@
     <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\VoiceBench.Application\VoiceBench.Application.csproj" />
     <ProjectReference Include="..\VoiceBench.Core\VoiceBench.Core.csproj" />
     <ProjectReference Include="..\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
   </ItemGroup>
@@ -44,5 +46,20 @@
           Inputs="$(MSBuildProjectDirectory)\Build\GeneratePlaceholderAssets.ps1"
           Outputs="$(GeneratedBrandingDirectory)\Square44x44Logo.png;$(GeneratedBrandingDirectory)\Square150x150Logo.png;$(GeneratedBrandingDirectory)\Wide310x150Logo.png;$(GeneratedBrandingDirectory)\SplashScreen.png">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build\GeneratePlaceholderAssets.ps1&quot; -OutputDirectory &quot;$(GeneratedBrandingDirectory)&quot;" />
+  </Target>
+  <Target Name="PackageLocalMcpCompanion" BeforeTargets="_ComputeAppxPackagePayload">
+    <PropertyGroup>
+      <LocalMcpPublishDirectory>$(MSBuildProjectDirectory)\obj\LocalMcp\$(Configuration)\</LocalMcpPublishDirectory>
+    </PropertyGroup>
+    <MSBuild Projects="..\VoiceBench.Mcp\VoiceBench.Mcp.csproj" Targets="Restore;Publish"
+             BuildInParallel="false"
+             Properties="Configuration=$(Configuration);Platform=AnyCPU;RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(LocalMcpPublishDirectory)"
+             RemoveProperties="TargetFramework;UseWinUI;GenerateAppxPackageOnBuild;AppxPackageDir;PackageCertificateThumbprint;AppxPackageSigningEnabled" />
+    <ItemGroup>
+      <_LocalMcpPublishedFile Include="$(LocalMcpPublishDirectory)**\*" />
+      <AppxPackagePayload Include="@(_LocalMcpPublishedFile)">
+        <TargetPath>Mcp\%(_LocalMcpPublishedFile.RecursiveDir)%(_LocalMcpPublishedFile.Filename)%(_LocalMcpPublishedFile.Extension)</TargetPath>
+      </AppxPackagePayload>
+    </ItemGroup>
   </Target>
 </Project>

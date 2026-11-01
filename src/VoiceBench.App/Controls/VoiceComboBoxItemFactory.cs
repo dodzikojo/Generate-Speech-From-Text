@@ -58,5 +58,5 @@ internal static class VoiceComboBoxItemFactory
     }
 
     private static Brush ResourceBrush(string key) =>
-        (Brush)Application.Current.Resources[key];
+        (Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
 }
