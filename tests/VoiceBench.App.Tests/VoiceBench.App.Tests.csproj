@@ -22,5 +22,7 @@
     <Compile Include="..\..\src\VoiceBench.App\Services\ChapterPlaylist.cs" Link="Services\ChapterPlaylist.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\BatchGeneration.cs" Link="Services\BatchGeneration.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\SegmentTextExport.cs" Link="Services\SegmentTextExport.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\RailRowActions.cs" Link="Services\RailRowActions.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\RailReorder.cs" Link="Services\RailReorder.cs" />
   </ItemGroup>
 </Project>
