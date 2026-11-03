@@ -54,6 +54,11 @@ change is not complete until the packaged app has also been launched and inspect
 - `VoiceBench.Cli` and `VoiceBench.App` are composition roots over the same application services.
 - Provider-specific directions and pronunciation substitutions belong in `03-render-copies`.
 - Raw provider audio is immutable. New attempts always create new versioned files.
+  The one exception is operator-confirmed take clean-up (`TakeCleanupRules`): only the
+  non-approved takes of approved segments, never a take a mix uses, moved to the Recycle
+  Bin first and then marked `AudioDeletedAt` (records are kept). Packaging approved takes
+  (`ApprovedTakePackageRules`) only copies; its folder is synced through
+  `voicebench-package.json` and never touches files VoiceBench didn't write.
 - No provider/model fallback is allowed without an explicit operator choice.
 - Approved text changes mark matching renders stale and block mastering.
 - Render jobs are journaled; recovered `InProgress` jobs become `Interrupted`.

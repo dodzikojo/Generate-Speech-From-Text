@@ -158,6 +158,70 @@ script changed since approval. Use it to skip back or forward, or to **Stop chap
 Pausing keeps the session, so pressing Play take resumes it. Choosing another segment
 or take yourself ends it.
 
+## Package approved takes
+
+**Package approved takes…** copies each approved take, unchanged, into a folder you choose.
+It is in Assembly's header, in the rail's **•••** menu, and on a chapter's right-click menu
+(which ticks that chapter). The package looks like this:
+
+```
+ORCA Meta AI Hackathon - approved takes├─ 01 Introduction│  ├─ 01-001 Opening.wav
+│  └─ 01-002 Introducing ORCA.wav
+├─ 02 Demo│  └─ 02-001 Live walkthrough.wav
+└─ voicebench-package.json
+```
+
+- Numbers follow the chapter rail, so files sort in narration order anywhere. Characters
+  Windows doesn't allow in names become `-`.
+- The dialog lists every chapter and segment. Approved segments can be ticked; the others
+  say why not (not approved yet, script changed since approval, rendering). Chapters
+  excluded from the compilation start unticked. Each chapter shows how much take audio it
+  holds and how much clean-up would free, with a colour-coded bar: green is approved audio,
+  amber is what clean-up can free, grey is takes that stay (segments awaiting review, takes
+  a mix uses). Bars are drawn to the same scale, so the heaviest chapter stands out; hover
+  a bar for exact sizes. A bar above the list shows the whole project.
+- **Choose folder…** steps the dialog aside while the Windows folder picker is open, then
+  brings it back with your ticks. Choosing a folder creates `<project> - approved takes`
+  inside it, unless the folder already holds a package. VoiceBench remembers the folder for each project, so the next
+  package goes there by default.
+- **Packaging again syncs the folder.** `voicebench-package.json` records every file
+  VoiceBench wrote and its hash. Unchanged files stay, newly approved segments are added, a
+  segment with a new approved take is replaced, a moved or renamed segment's file is
+  renamed (empty chapter folders are tidied away), and files for segments you untick, or
+  that are no longer approved, are removed. These are copies; the takes stay in the
+  project.
+- Files you add to the package, or packaged files you edit afterwards, are never
+  overwritten or removed; the result lists them as left untouched. A folder holding
+  another project's package is refused.
+- Every copy is verified against the approved take before it replaces anything. When it
+  finishes, the result offers **Open folder** and, when there is something to free,
+  **Clean up takes…**.
+
+## Clean up takes
+
+**Clean up takes…** (Assembly, the rail's **•••** menu, or after packaging) shows, per
+chapter, the take audio on disk, the approved audio, and how much it can free, with the same
+colour-coded bars. **Cancel** is the default button. Confirming moves
+the audio of the **other takes of approved segments** to the Windows Recycle Bin:
+
+- Approved takes are kept. Segments still awaiting review keep every take.
+- A take used in a mix (a clip, or a pending replacement) is kept.
+- Each take's raw file and every processed version of it go together.
+- Cleaned-up takes stay in the segment's history marked **Audio cleaned up**, so take
+  numbers never repeat. They can't be played or approved. Their files stay in the Recycle
+  Bin until you empty it; restoring one puts the file back on disk, but the take stays
+  cleaned up in VoiceBench.
+- Files are only ever recycled, never deleted outright. When Windows can't recycle a file
+  (a drive with no Recycle Bin, such as a network share, or a file bigger than the bin
+  allows), the take is kept and listed, as is a take whose files are open in another app.
+- Space is freed when the Recycle Bin is emptied. A segment whose approved take's audio is
+  missing on disk keeps all its takes.
+- Clean-up re-checks every take against the latest project while it runs, so a take that an
+  agent approves or adds to a mix in the meantime is kept.
+- A package run that stops part-way (for example, a file open in another app) still records
+  what it wrote, so packaging again picks up where it left off.
+- Clean-up waits while a render or approval runs.
+
 ## Projects, Assembly, Audio, Voice Lab and Settings
 
 - **Projects**: cards show each project's status. Each card has **Show in folder**,

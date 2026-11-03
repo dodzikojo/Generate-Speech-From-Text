@@ -1,5 +1,24 @@
 # Active program index
 
+- Package approved takes and take clean-up, 2026-11-03: implemented on `codex/package-takes`
+  (based on master after PR #16). **Package approved takes…** (Assembly header, rail •••
+  menu, chapter menu) copies approved processed WAVs into `<project> - approved takes\NN
+  Chapter\NN-SSS Segment.wav`; `voicebench-package.json` lets a later package sync the folder
+  (keep, rename, replace, remove) without touching files VoiceBench didn't write or that
+  changed since. The folder is remembered per project in LocalSettings. **Clean up takes…**
+  moves the non-approved takes of approved segments to the Recycle Bin (never a take a mix
+  uses) and marks them `RenderRecord.AudioDeletedAt`; no schema bump (optional field). Both
+  dialogs show colour-coded storage bars per chapter. Rules: `ApprovedTakePackageRules`,
+  `TakeCleanupRules` (Core); services in `Infrastructure/Packaging`. Gotcha: a WinUI folder
+  picker does not open over a ContentDialog, so the dialog hides while picking. Recycling
+  uses IFileOperation and refuses any delete the shell would not recycle (verified: a `subst`
+  drive with no bin keeps the file). Clean-up plans, recycles and marks inside one gated
+  project update; a package run that stops part-way still writes its manifest and finishes or
+  restores parked renames. Installed 1.2.0.12; Release build clean, 572 tests pass. Smoke on
+  a throwaway project: first package (byte-identical copies), re-package after chapter/segment
+  rename and reorder (2 renamed, 1 unchanged, foreign file kept), two clean-ups (raw and
+  processed files recycled, takes marked) verified on disk and in the project file.
+
 - Rail row actions, uninterrupted playback and drag reorder, 2026-11-03: implemented on
   `codex/rail-actions` (based on master after PR #15). Playback is no longer stopped when a
   render or any other save refreshes the project: a playing take stays selected and loaded
