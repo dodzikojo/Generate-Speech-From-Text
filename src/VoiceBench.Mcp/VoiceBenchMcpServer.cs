@@ -35,7 +35,7 @@ public sealed class VoiceBenchMcpServer(IAutomationDispatcher dispatcher) : IAsy
 
     public McpServerOptions CreateOptions() => new()
     {
-        ServerInfo = new() { Name = "VoiceBench", Version = "1.2.0.5" },
+        ServerInfo = new() { Name = "VoiceBench", Version = "1.2.0.7" },
         // Pin the mature session protocol so resource subscriptions work with generic clients.
         ProtocolVersion = "2025-11-25",
         ServerInstructions = "VoiceBench controls the visible local Windows desktop. Discovery never launches it. The first tool call or resource read attaches or launches it. Read current editor revisions before edits; text ranges are UTF-16. Supply requestId for durable writes. Select providers/models/voices explicitly; credentials are only entered in the desktop secure UI.",

@@ -120,9 +120,9 @@
                     VerticalAlignment="Stretch"
                     AutomationProperties.Name="Chapter and segment take rail">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <Grid Margin="14,12,8,8" ColumnSpacing="4" RowSpacing="4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <TextBlock Text="CHAPTER RAIL" Style="{StaticResource StudioHeadingTextStyle}" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Click="NewChapter_Click"
@@ -133,7 +133,13 @@
                                 ToolTipService.ToolTip="New segment in the selected chapter" AutomationProperties.Name="Add segment to chapter">
                             <FontIcon Glyph="&#xE710;" FontSize="14" />
                         </Button>
-                        <Button Grid.Column="3" Style="{StaticResource IconButtonStyle}" AutomationProperties.Name="Chapter and segment actions"
+                        <ToggleButton x:Name="RailSelectToggle" Grid.Column="3" Width="32" Height="32" MinWidth="32" Padding="0"
+                                      Background="Transparent" BorderThickness="0" Click="RailSelectToggle_Click"
+                                      ToolTipService.ToolTip="Select segments to generate together"
+                                      AutomationProperties.Name="Select segments to generate">
+                            <FontIcon Glyph="&#xE762;" FontSize="14" />
+                        </ToggleButton>
+                        <Button Grid.Column="4" Style="{StaticResource IconButtonStyle}" AutomationProperties.Name="Chapter and segment actions"
                                 ToolTipService.ToolTip="More actions for the selected chapter or segment">
                             <FontIcon Glyph="&#xE712;" FontSize="14" />
                             <Button.Flyout>
@@ -141,6 +147,11 @@
                                     <MenuFlyoutItem Text="Play chapter (approved takes)" Click="PlayChapter_Click">
                                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
                                     </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Generate from here to chapter end…" Click="GenerateFromHere_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE945;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Generate whole chapter…" Click="GenerateChapter_Click" />
+                                    <MenuFlyoutItem Text="Select segments to generate" Click="ChooseSegmentsToGenerate_Click" />
                                     <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="Rename selected" Click="RenameSelected_Click" />
                                     <MenuFlyoutItem Text="Duplicate selected" Click="DuplicateSelected_Click" />
@@ -159,7 +170,7 @@
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
-                        <StackPanel Grid.Row="1" Grid.ColumnSpan="4" Orientation="Horizontal" Spacing="4"
+                        <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Orientation="Horizontal" Spacing="4"
                                     AutomationProperties.Name="Project counts">
                             <TextBlock x:Name="ChapterCountText" Text="0" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource ReadingTextBrush}" />
                             <TextBlock Text="CHAPTERS  ·" Style="{StaticResource UtilityLabelTextStyle}" />
@@ -170,23 +181,37 @@
                         </StackPanel>
                     </Grid>
                     <TreeView x:Name="ChapterTree" Grid.Row="1" SelectionMode="Single" Padding="0,0,0,8"
-                              ItemInvoked="ChapterTree_ItemInvoked" Background="Transparent" BorderThickness="0"
+                              ItemInvoked="ChapterTree_ItemInvoked" SelectionChanged="ChapterTree_SelectionChanged"
+                              Background="Transparent" BorderThickness="0"
                               AutomationProperties.Name="Ordered chapters and narration segments">
                         <TreeView.ItemTemplate>
                             <DataTemplate>
                                 <Grid MinHeight="40" Padding="2,5" ColumnSpacing="9" RightTapped="RailItem_RightTapped">
                                     <Grid.ContextFlyout>
-                                        <MenuFlyout Opening="RailContextMenu_Opening">
+                                        <MenuFlyout Opening="RailContextMenu_Opening" Closed="RailContextMenu_Closed">
                                             <MenuFlyoutItem Text="Play approved takes" Tag="chapter" Click="PlayChapter_Click">
                                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="Play chapter from here" Tag="segment" Click="PlayChapterFromHere_Click">
                                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Generate from here to chapter end…" Tag="segment" Click="GenerateFromHere_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE945;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Generate chapter…" Tag="chapter" Click="GenerateChapter_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE945;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Select segments to generate" Tag="all" Click="ChooseSegmentsToGenerate_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE762;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Open" Tag="all" Click="OpenSelected_Click" />
                                             <MenuFlyoutItem Text="Show in folder" Tag="all" Click="ShowSelectedInFolder_Click" />
                                             <MenuFlyoutItem Text="Show takes folder" Tag="segment" Click="ShowSelectedTakesFolder_Click" />
+                                            <MenuFlyoutItem Text="Copy script text" Tag="segment" Click="CopySegmentScript_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Save script text as…" Tag="segment" Click="SaveSegmentScript_Click" />
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Add segment" Tag="chapter" Click="NewSegment_Click" />
                                             <MenuFlyoutItem Text="Rename" Tag="all" Click="RenameSelected_Click" />
@@ -211,6 +236,27 @@
                             </DataTemplate>
                         </TreeView.ItemTemplate>
                     </TreeView>
+                    <!-- Shown while the rail is in selection mode: tick segments (or a whole chapter), then generate. -->
+                    <Grid x:Name="RailSelectionBar" Grid.Row="2" Visibility="Collapsed" Padding="12,8,8,10" ColumnSpacing="6"
+                          BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0"
+                          AutomationProperties.Name="Segment selection" AutomationProperties.LiveSetting="Polite">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="RailSelectionCountText" Text="Tick segments to generate" Style="{StaticResource UtilityLabelTextStyle}"
+                                   VerticalAlignment="Center" TextWrapping="WrapWholeWords" MaxLines="2" />
+                        <Button x:Name="GenerateSelectedButton" Grid.Column="1" Style="{StaticResource SignalButtonStyle}" Padding="12,6"
+                                IsEnabled="False" Click="GenerateSelected_Click"
+                                ToolTipService.ToolTip="Review the ticked segments, then generate a take for each with the project voice"
+                                AutomationProperties.Name="Generate selected segments">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE945;" FontSize="12" />
+                                <TextBlock Text="Generate…" />
+                            </StackPanel>
+                        </Button>
+                        <Button Grid.Column="2" Style="{StaticResource IconButtonStyle}" Click="CloseRailSelection_Click"
+                                ToolTipService.ToolTip="Stop selecting" AutomationProperties.Name="Stop selecting segments">
+                            <FontIcon Glyph="&#xE711;" FontSize="12" />
+                        </Button>
+                    </Grid>
                 </Grid>
             </Border>
 
@@ -360,13 +406,39 @@
                     </Border>
                     </Grid>
                     <Grid Grid.Row="3" ColumnSpacing="6">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Button Style="{StaticResource IconButtonStyle}" Click="RevealScript_Click" Width="28" Height="28" MinWidth="28"
                                 ToolTipService.ToolTip="Show this script in File Explorer"
                                 AutomationProperties.Name="Show script file in folder">
                             <FontIcon Glyph="&#xE838;" FontSize="13" Foreground="{ThemeResource MutedTextBrush}" />
                         </Button>
-                        <TextBlock x:Name="ScriptPathText" Grid.Column="1"
+                        <DropDownButton x:Name="ExportTextButton" Grid.Column="1" Height="28" Padding="8,0"
+                                        Background="Transparent" BorderThickness="0"
+                                        ToolTipService.ToolTip="Copy or save this segment's text"
+                                        AutomationProperties.Name="Export segment text">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE8C8;" FontSize="12" Foreground="{ThemeResource MutedTextBrush}" />
+                                <TextBlock Text="Export text" FontSize="12" Foreground="{ThemeResource MutedTextBrush}" />
+                            </StackPanel>
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedLeft">
+                                    <MenuFlyoutItem Text="Copy full script" Tag="editor" Click="CopySegmentScript_Click"
+                                                    AutomationProperties.Name="Copy full script, including production cues">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Copy narration only" Tag="editor" Click="CopySegmentNarration_Click"
+                                                    AutomationProperties.Name="Copy narration only, without production cues" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Save full script as…" Tag="editor" Click="SaveSegmentScript_Click"
+                                                    AutomationProperties.Name="Save full script as a file">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE792;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Save narration as…" Tag="editor" Click="SaveSegmentNarration_Click"
+                                                    AutomationProperties.Name="Save narration only as a text file" />
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                        <TextBlock x:Name="ScriptPathText" Grid.Column="2"
                                    Text="02-scripts"
                                    Style="{StaticResource UtilityLabelTextStyle}"
                                    MinWidth="0"
@@ -375,7 +447,7 @@
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center"
                                    ToolTipService.ToolTip="{Binding Text, ElementName=ScriptPathText}" />
-                        <Button Grid.Column="2" Content="Mark ready" Style="{StaticResource SignalButtonStyle}" Click="MarkReady_Click"
+                        <Button Grid.Column="3" Content="Mark ready" Style="{StaticResource SignalButtonStyle}" Click="MarkReady_Click"
                                 AutomationProperties.AcceleratorKey="Control+Enter"
                                 ToolTipService.ToolTip="Save and mark this segment ready to render (Ctrl+Enter)">
                             <Button.KeyboardAccelerators><KeyboardAccelerator Key="Enter" Modifiers="Control" /></Button.KeyboardAccelerators>
@@ -436,6 +508,39 @@
                                 </StackPanel>
                                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="R" Modifiers="Control" /></Button.KeyboardAccelerators>
                             </Button>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Button x:Name="RenderAndPlayButton" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                        Click="RenderAndPlay_Click"
+                                        ToolTipService.ToolTip="Render a new take, then play it as soon as it is ready"
+                                        AutomationProperties.Name="Render and play">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE768;" FontSize="12" />
+                                        <TextBlock Text="Render &amp; play" />
+                                    </StackPanel>
+                                </Button>
+                                <DropDownButton x:Name="BatchGenerateButton" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="13"
+                                                Background="{ThemeResource PanelRaisedBrush}" BorderBrush="{ThemeResource DividerBrush}"
+                                                CornerRadius="{StaticResource StudioCornerRadius}" Padding="10,7"
+                                                ToolTipService.ToolTip="Generate several segments with the project voice"
+                                                AutomationProperties.Name="Batch generate">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE945;" FontSize="12" />
+                                        <TextBlock Text="Batch" />
+                                    </StackPanel>
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout Placement="Bottom">
+                                            <MenuFlyoutItem Text="From this segment to chapter end…" Click="GenerateFromHere_Click" Tag="director"
+                                                            AutomationProperties.Name="Generate from this segment to chapter end" />
+                                            <MenuFlyoutItem Text="Whole chapter…" Click="GenerateChapter_Click" Tag="director"
+                                                            AutomationProperties.Name="Generate whole chapter" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Select segments in the chapter rail" Click="ChooseSegmentsToGenerate_Click" Tag="director"
+                                                            AutomationProperties.Name="Select segments in the chapter rail" />
+                                        </MenuFlyout>
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                            </Grid>
                             <Border Style="{StaticResource StudioCardStyle}" Padding="10">
                                 <StackPanel Spacing="8">
                                     <Grid>
@@ -666,6 +771,22 @@
                     </StackPanel>
                 </Border>
             </Grid>
+
+            <!-- Status toast: floats over the bottom of the script (above Mark ready) on an opaque card so it
+                 never shifts the workspace, covers the inspector tabs or lets panel text show through. -->
+            <Border x:Name="WorkbenchToast" Grid.Column="1" Grid.Row="0"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom" MaxWidth="600" Margin="16,0,16,52"
+                    Canvas.ZIndex="20" Visibility="Collapsed"
+                    Background="{ThemeResource PanelRaisedBrush}" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource StudioCornerRadius}">
+                <InfoBar x:Name="WorkbenchInfoBar" IsOpen="False" IsClosable="True" Margin="0" BorderThickness="0"
+                         Severity="Informational" AutomationProperties.LiveSetting="Polite">
+                    <InfoBar.Content>
+                        <TextBlock x:Name="WorkbenchInfoBarMessage" Margin="0,0,0,10"
+                                   TextWrapping="Wrap" MaxLines="4" TextTrimming="CharacterEllipsis" />
+                    </InfoBar.Content>
+                </InfoBar>
+            </Border>
         </Grid>
 
         <!-- Take bar: the selected take's transport and decisions on a single row. -->
@@ -673,6 +794,29 @@
                 Style="{StaticResource StudioPanelStyle}"
                 AutomationProperties.Name="Take transport and approval controls">
             <StackPanel Spacing="8">
+            <Grid x:Name="BatchGenerationPanel" Visibility="Collapsed" ColumnSpacing="10" Padding="2,0,0,8"
+                  BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1"
+                  AutomationProperties.Name="Batch generation" AutomationProperties.LiveSetting="Polite">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ProgressRing IsActive="True" Width="16" Height="16" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                    <TextBlock x:Name="BatchGenerationTitleText" Text="GENERATING" Style="{StaticResource UtilityLabelTextStyle}"
+                               Foreground="{ThemeResource ActiveSignalBrush}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="BatchGenerationDetailText" Text="" FontSize="13" TextTrimming="CharacterEllipsis" />
+                    <ProgressBar x:Name="BatchGenerationProgress" Minimum="0" Maximum="1" Value="0"
+                                 Foreground="{ThemeResource ActiveSignalBrush}" AutomationProperties.Name="Batch generation progress" />
+                </StackPanel>
+                <Button x:Name="BatchStopButton" Grid.Column="2" Style="{StaticResource ToolbarButtonStyle}" VerticalAlignment="Center"
+                        Click="BatchStop_Click" AutomationProperties.Name="Stop batch generation"
+                        ToolTipService.ToolTip="Finish the take in progress, then stop. Click again to cancel it too.">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE71A;" FontSize="12" />
+                        <TextBlock x:Name="BatchStopText" Text="Stop after this take" />
+                    </StackPanel>
+                </Button>
+            </Grid>
             <Grid x:Name="ChapterPlaybackPanel" Visibility="Collapsed" ColumnSpacing="10" Padding="2,0,0,8"
                   BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1"
                   AutomationProperties.Name="Chapter playback" AutomationProperties.LiveSetting="Polite">
@@ -835,17 +979,6 @@
             </Border>
         </Grid>
         </Grid>
-
-        <InfoBar x:Name="WorkbenchInfoBar"
-                 HorizontalAlignment="Right" VerticalAlignment="Top"
-                 Width="560" MaxWidth="560" Margin="20,60,20,0"
-                 Canvas.ZIndex="20" IsOpen="False" IsClosable="True"
-                 Severity="Informational" AutomationProperties.LiveSetting="Polite">
-            <InfoBar.Content>
-                <TextBlock x:Name="WorkbenchInfoBarMessage" MaxWidth="460"
-                           TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
-            </InfoBar.Content>
-        </InfoBar>
 
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WorkbenchWidthStates">

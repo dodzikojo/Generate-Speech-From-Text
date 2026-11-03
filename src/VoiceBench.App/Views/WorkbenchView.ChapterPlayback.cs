@@ -185,11 +185,13 @@ public sealed partial class WorkbenchView
         if (_chapterPlaylist is not { } playlist || _chapterPlaylistIndex < 0 || _chapterPlaylistIndex >= playlist.Entries.Count)
         {
             ChapterPlaybackPanel.Visibility = Visibility.Collapsed;
+            UpdateFooterVisibility();
             return;
         }
 
         ChapterPlaylistEntry entry = playlist.Entries[_chapterPlaylistIndex];
         ChapterPlaybackPanel.Visibility = Visibility.Visible;
+        UpdateFooterVisibility();
         ChapterPlaybackTitleText.Text = $"PLAYING CHAPTER  ·  {playlist.ChapterTitle.ToUpperInvariant()}";
         ChapterPlaybackDetailText.Text =
             $"{_chapterPlaylistIndex + 1} / {playlist.Entries.Count}  ·  {entry.Title}  ·  take {entry.TakeNumber:00}" +

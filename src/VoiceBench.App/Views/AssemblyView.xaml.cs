@@ -93,7 +93,8 @@ public sealed partial class AssemblyView : UserControl
                 }
 
                 MasterEligibility eligibility = MasterEligibilityEvaluator.Evaluate(project, MasterScope.Chapter, chapter.ChapterId);
-                AssemblyChaptersList.Items.Add(CreateChapterCard(number, chapter, ordered, chapterApproved, chapterTiming, eligibility));
+                TimeSpan approvedAudio = ChapterPlaylistBuilder.Build(project, chapter.ChapterId).TotalDuration;
+                AssemblyChaptersList.Items.Add(CreateChapterCard(number, chapter, ordered, chapterApproved, approvedAudio, chapterTiming, eligibility));
             }
 
             if (included > 1) duration += TimeSpan.FromMilliseconds(project.AudioStandard.ChapterPauseMilliseconds * (included - 1));
@@ -128,6 +129,7 @@ public sealed partial class AssemblyView : UserControl
         ChapterDocument chapter,
         IReadOnlyList<SegmentDocument> segments,
         int approved,
+        TimeSpan approvedAudio,
         DurationProjectionSummary timing,
         MasterEligibility eligibility)
     {
@@ -144,8 +146,10 @@ public sealed partial class AssemblyView : UserControl
         title.Children.Add(heading);
         TextBlock metadata = new()
         {
-            Text = $"{approved} / {segments.Count} APPROVED  ·  {FormatDuration(timing.Duration)} EXPECTED  ·  {timing.MeasuredCount} MEASURED / {timing.EstimatedCount} ESTIMATED",
+            Text = $"{approved} / {segments.Count} APPROVED  ·  {FormatDuration(approvedAudio)} APPROVED AUDIO  ·  {FormatDuration(timing.Duration)} EXPECTED  ·  {timing.MeasuredCount} MEASURED / {timing.EstimatedCount} ESTIMATED",
+            TextWrapping = TextWrapping.WrapWholeWords,
         };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(metadata, $"{approved} of {segments.Count} segments approved, {FormatDuration(approvedAudio)} of approved audio");
         metadata.Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["UtilityLabelTextStyle"];
         title.Children.Add(metadata);
         content.Children.Add(title);

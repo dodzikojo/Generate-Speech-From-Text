@@ -53,12 +53,15 @@ internal static class ShellLauncher
     }
 
     /// <summary>Puts a path on the clipboard; throws a readable error when another app holds the clipboard.</summary>
-    public static void CopyPath(string path)
+    public static void CopyPath(string path) => CopyText(path);
+
+    /// <summary>Puts text on the clipboard; throws a readable error when another app holds the clipboard.</summary>
+    public static void CopyText(string text)
     {
         try
         {
             DataPackage package = new() { RequestedOperation = DataPackageOperation.Copy };
-            package.SetText(path);
+            package.SetText(text);
             Clipboard.SetContent(package);
             Clipboard.Flush();
         }

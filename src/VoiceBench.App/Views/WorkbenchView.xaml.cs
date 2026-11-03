@@ -62,6 +62,7 @@ public sealed partial class WorkbenchView : UserControl
     private string _lastEditorDirections = string.Empty;
     private DispatcherQueueTimer? _cueFormatTimer;
     private DispatcherQueueTimer? _editorHistoryTimer;
+    private DispatcherQueueTimer? _toastTimer;
     private bool _ignoreCueToggle;
     private int _cueFormattingRetryCount;
     private bool _writingActionInProgress;
@@ -98,7 +99,12 @@ public sealed partial class WorkbenchView : UserControl
         string Metadata,
         string ChapterId,
         string? SegmentId,
-        Brush StatusBrush);
+        Brush StatusBrush)
+    {
+        // TreeView items take their accessible name from the content's text; without this, screen
+        // readers announce the record's field dump.
+        public override string ToString() => $"{Title}. {Metadata}";
+    }
 
     private sealed record RevisionChoice(Guid RevisionId, bool RestorePreviousText);
 
@@ -126,6 +132,12 @@ public sealed partial class WorkbenchView : UserControl
         _editorHistoryTimer.Interval = TimeSpan.FromMilliseconds(650);
         _editorHistoryTimer.IsRepeating = false;
         _editorHistoryTimer.Tick += (_, _) => CommitPendingEditorUndo();
+        _toastTimer = DispatcherQueue.CreateTimer();
+        _toastTimer.IsRepeating = false;
+        _toastTimer.Tick += (_, _) => WorkbenchInfoBar.IsOpen = false;
+        WorkbenchInfoBar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) => SyncWorkbenchToast());
+        WorkbenchToast.PointerEntered += (_, _) => _toastTimer?.Stop();
+        WorkbenchToast.PointerExited += (_, _) => ScheduleToastDismissal();
         ScriptTextBox.Document.UndoLimit = 0;
         LoadWorkspacePanelPreferences();
         LoadInspectorTabPreference();
@@ -152,10 +164,6 @@ public sealed partial class WorkbenchView : UserControl
             this,
             width >= 1180 ? "WideWorkbench" : width >= 860 ? "CompactWorkbench" : "NarrowWorkbench",
             false);
-        WorkbenchInfoBar.Width = Math.Max(280, Math.Min(560, width - (width >= 860 ? 40 : 24)));
-        WorkbenchInfoBar.Margin = width >= 860
-            ? new Thickness(20, 76, 20, 0)
-            : new Thickness(12, 118, 12, 0);
         ApplyWorkspacePanelLayout(width, height);
     }
 
@@ -250,7 +258,7 @@ public sealed partial class WorkbenchView : UserControl
         DirectorPanel.SetValue(Grid.ColumnProperty, stackInspector ? 1 : 2);
 
         // The take bar is a single slim row; the mix timeline dock is opt-in.
-        WorkbenchFooter.Visibility = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        UpdateFooterVisibility();
         ApplyTakeBarLayout(width);
         ApplyTimelineDockVisibility();
     }
@@ -521,6 +529,15 @@ public sealed partial class WorkbenchView : UserControl
 
     private void PopulateChapterTree(VoiceBenchProjectDocument project)
     {
+        _populatingRail = true;
+        _railContextNode = null;
+        try { PopulateChapterTreeCore(project); }
+        finally { _populatingRail = false; }
+        if (RailSelecting) ApplyRailChecks();
+    }
+
+    private void PopulateChapterTreeCore(VoiceBenchProjectDocument project)
+    {
         ChapterTree.RootNodes.Clear();
         CompactSegmentPicker.Items.Clear();
         Dictionary<string, SegmentDocument> segments = project.Segments.ToDictionary(
@@ -536,12 +553,15 @@ public sealed partial class WorkbenchView : UserControl
             chapterNumber++;
             int approved = chapter.SegmentOrder.Count(id =>
                 segments.TryGetValue(id, out SegmentDocument? segment) && segment.Status == SegmentStatus.Approved);
+            // Total running time of the takes chapter playback would play, so the operator can see
+            // how long the approved part of the chapter already is.
+            TimeSpan approvedAudio = Services.ChapterPlaylistBuilder.Build(project, chapter.ChapterId).TotalDuration;
             TreeViewNode chapterNode = new()
             {
                 IsExpanded = true,
                 Content = new RailItem(
                     $"{chapterNumber:00}  {chapter.Title}",
-                    $"{chapter.SegmentOrder.Count} segments  ·  {approved} approved  ·  {(chapter.IncludedInCompilation ? "included" : "excluded")}",
+                    $"{approved}/{chapter.SegmentOrder.Count} approved  ·  {FormatDuration(approvedAudio)} approved audio  ·  {(chapter.IncludedInCompilation ? "included" : "excluded")}",
                     chapter.ChapterId,
                     null,
                     (Brush)Microsoft.UI.Xaml.Application.Current.Resources[chapter.IncludedInCompilation ? "ActiveSignalBrush" : "MutedTextBrush"]),
@@ -617,7 +637,9 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (sender is FrameworkElement { DataContext: TreeViewNode node })
         {
-            ChapterTree.SelectedNode = node;
+            // In selection mode a right-click must not tick the row, so the menu targets it directly.
+            _railContextNode = node;
+            if (!RailSelecting) ChapterTree.SelectedNode = node;
         }
     }
 
@@ -1918,7 +1940,9 @@ public sealed partial class WorkbenchView : UserControl
         return await dialog.ShowAsync() == ContentDialogResult.Primary ? box.Text.Trim() : null;
     }
 
-    private RailItem? GetSelectedRailItem() => ChapterTree.SelectedNode?.Content as RailItem;
+    private RailItem? GetSelectedRailItem() => RailSelecting
+        ? (_railContextNode?.Content as RailItem) ?? FindRailNode(_segment?.SegmentId)?.Content as RailItem
+        : ChapterTree.SelectedNode?.Content as RailItem;
 
     private bool EnsureProjectForAuthoring()
     {
@@ -2736,7 +2760,11 @@ public sealed partial class WorkbenchView : UserControl
         ShowStatus(InfoBarSeverity.Success, "Segment marked Ready", "It can now be rendered with the exact selected preset.");
     }
 
-    private async void Render_Click(object sender, RoutedEventArgs e)
+    private async void Render_Click(object sender, RoutedEventArgs e) => await RenderCurrentSegmentAsync(playWhenReady: false);
+
+    private async void RenderAndPlay_Click(object sender, RoutedEventArgs e) => await RenderCurrentSegmentAsync(playWhenReady: true);
+
+    private async Task RenderCurrentSegmentAsync(bool playWhenReady)
     {
         if (_project is null || _segment is null)
         {
@@ -2744,7 +2772,7 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
 
-        if (_renderCancellation is not null || _renderRequestCancellation is not null)
+        if (_renderCancellation is not null || _renderRequestCancellation is not null || BatchGenerationActive)
         {
             ShowStatus(InfoBarSeverity.Warning, "A render is already active", "Cancel the current job or wait for it to finish.");
             return;
@@ -2762,8 +2790,10 @@ public sealed partial class WorkbenchView : UserControl
             SegmentRenderResult result = await App.Services.RunTrackedJobAsync<SegmentRenderResult>(
                 "render.start", new { segmentId = _segment.SegmentId }, _renderRequestCancellation.Token);
             await WaitForProjectRefreshAsync(CancellationToken.None);
+            bool newTakeSelected = false;
             if (_segment?.RenderHistory.Any(take => take.RenderId == result.Render.RenderId) == true)
             {
+                newTakeSelected = true;
                 TakeSelector.SelectedItem = TakeSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag is Guid id && id == result.Render.RenderId);
                 await UpdateTransportAsync();
                 if (TakeReviewToggle.IsChecked != true)
@@ -2783,10 +2813,21 @@ public sealed partial class WorkbenchView : UserControl
                 { Status: WordAlignmentStatus.Unsupported } => " Audio is ready; this provider does not support word alignment.",
                 _ => string.Empty,
             };
-            ShowStatus(
-                InfoBarSeverity.Success,
-                $"Take {result.Render.TakeNumber:00} rendered",
-                $"Press Play take (Ctrl+Space) to hear it, or open the Takes tab to compare it with earlier takes.{alignment}{guidance}");
+            if (playWhenReady && newTakeSelected && TakeTransport.HasAudio)
+            {
+                ShowStatus(
+                    InfoBarSeverity.Success,
+                    $"Take {result.Render.TakeNumber:00} rendered · playing",
+                    $"Press Ctrl+Space to pause, or open the Takes tab to compare it with earlier takes.{alignment}{guidance}");
+                await PlaySelectedTakeAsync();
+            }
+            else
+            {
+                ShowStatus(
+                    InfoBarSeverity.Success,
+                    $"Take {result.Render.TakeNumber:00} rendered",
+                    $"Press Play take (Ctrl+Space) to hear it, or open the Takes tab to compare it with earlier takes.{alignment}{guidance}");
+            }
         }
         catch (OperationCanceledException)
         {
@@ -2806,6 +2847,7 @@ public sealed partial class WorkbenchView : UserControl
 
     private void CancelRender_Click(object sender, RoutedEventArgs e)
     {
+        _batchRun?.CancelNow();
         _renderCancellation?.Cancel();
         _renderRequestCancellation?.Cancel();
     }
@@ -2830,10 +2872,24 @@ public sealed partial class WorkbenchView : UserControl
 
     private void SetRenderQueueBusy(bool busy)
     {
+        if (_batchRun is { } batch)
+        {
+            RenderQueueStatusText.Text = $"BATCH {Math.Min(batch.Index + 1, batch.Entries.Count)} OF {batch.Entries.Count}";
+            RenderProgressBar.IsIndeterminate = false;
+            RenderProgressBar.Maximum = 1;
+            RenderProgressBar.Value = batch.Fraction;
+            CancelRenderButton.IsEnabled = true;
+            RenderAndPlayButton.IsEnabled = false;
+            BatchGenerateButton.IsEnabled = false;
+            return;
+        }
+
         RenderQueueStatusText.Text = busy ? "1 ACTIVE" : "IDLE";
         RenderProgressBar.IsIndeterminate = busy;
         RenderProgressBar.Value = 0;
         CancelRenderButton.IsEnabled = busy;
+        RenderAndPlayButton.IsEnabled = !busy;
+        BatchGenerateButton.IsEnabled = !busy;
     }
 
     private async void Pickup_Click(object sender, RoutedEventArgs e)
@@ -3676,11 +3732,9 @@ public sealed partial class WorkbenchView : UserControl
     private void SelectTakeRailItem(string? segmentId)
     {
         if (segmentId is null) return;
-        TreeViewNode? node = ChapterTree.RootNodes
-            .SelectMany(chapter => chapter.Children)
-            .FirstOrDefault(candidate => candidate.Content is RailItem item &&
-                string.Equals(item.SegmentId, segmentId, StringComparison.Ordinal));
-        if (node is not null) ChapterTree.SelectedNode = node;
+        TreeViewNode? node = FindRailNode(segmentId);
+        // Ticks in selection mode belong to the operator; navigation must not add one.
+        if (node is not null && !RailSelecting) ChapterTree.SelectedNode = node;
         _ignoreCompactPicker = true;
         CompactSegmentPicker.SelectedItem = CompactSegmentPicker.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(item => string.Equals(item.Tag as string, segmentId, StringComparison.Ordinal));
@@ -3740,5 +3794,27 @@ public sealed partial class WorkbenchView : UserControl
         WorkbenchInfoBar.Message = string.Empty;
         WorkbenchInfoBarMessage.Text = message;
         WorkbenchInfoBar.IsOpen = true;
+        SyncWorkbenchToast();
+        ScheduleToastDismissal();
+    }
+
+    private void SyncWorkbenchToast()
+    {
+        WorkbenchToast.Visibility = WorkbenchInfoBar.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (!WorkbenchInfoBar.IsOpen) _toastTimer?.Stop();
+    }
+
+    /// <summary>
+    /// Progress and success notes dismiss themselves after a reading pause; warnings and errors stay until
+    /// closed because they ask the operator to act. Hovering the toast holds it open.
+    /// </summary>
+    private void ScheduleToastDismissal()
+    {
+        if (_toastTimer is null) return;
+        _toastTimer.Stop();
+        if (!WorkbenchInfoBar.IsOpen || WorkbenchInfoBar.Severity is InfoBarSeverity.Warning or InfoBarSeverity.Error) return;
+        int characters = (WorkbenchInfoBar.Title?.Length ?? 0) + (WorkbenchInfoBarMessage.Text?.Length ?? 0);
+        _toastTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(4 + characters / 18, 6, 14));
+        _toastTimer.Start();
     }
 }

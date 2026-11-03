@@ -101,22 +101,28 @@ public sealed partial class WorkbenchView
         using CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _renderCancellation = cancellation;
         SetRenderQueueBusy(true);
-        RenderQueueStatusText.Text = $"1 ACTIVE · {label.ToUpperInvariant()}";
-        ShowStatus(InfoBarSeverity.Informational, label, "This agent operation shares the studio queue. Use Cancel to stop it.");
+        // Desktop buttons and agents share this queue. A batch reports its own progress and summary,
+        // so its individual jobs stay quiet here.
+        bool quiet = BatchGenerationActive;
+        if (!quiet)
+        {
+            RenderQueueStatusText.Text = $"1 ACTIVE · {label.ToUpperInvariant()}";
+            ShowStatus(InfoBarSeverity.Informational, $"{label}…", "Running in the studio queue. Cancel it from the render queue in the Voice tab.");
+        }
         try
         {
             T result = await operation(cancellation.Token);
-            ShowStatus(InfoBarSeverity.Success, $"{label} complete", "The result is available in the project's history and agent job record.");
+            if (!quiet) ShowStatus(InfoBarSeverity.Success, $"{label} complete", "Saved to the project.");
             return result;
         }
         catch (OperationCanceledException)
         {
-            ShowStatus(InfoBarSeverity.Warning, $"{label} cancelled", "Earlier audio and project artifacts were preserved.");
+            if (!quiet) ShowStatus(InfoBarSeverity.Warning, $"{label} cancelled", "Earlier audio and project files were kept.");
             throw;
         }
         catch (Exception exception)
         {
-            ShowStatus(InfoBarSeverity.Error, $"{label} stopped", Actionable(exception));
+            if (!quiet) ShowStatus(InfoBarSeverity.Error, $"{label} stopped", Actionable(exception));
             throw;
         }
         finally

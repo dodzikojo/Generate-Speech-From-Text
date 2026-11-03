@@ -233,12 +233,19 @@ public sealed class XamlContractTests
         string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
         XDocument document = XDocument.Load(path);
 
+        // The status toast floats over the bottom of the script on an opaque card: it never shifts the
+        // workspace, never covers the inspector tabs, and panel text cannot show through it.
         XElement status = document.Descendants()
             .Single(element => (string?)element.Attribute(XamlNamespace + "Name") == "WorkbenchInfoBar");
-        Assert.Equal("WorkbenchRoot", (string?)status.Parent?.Attribute(XamlNamespace + "Name"));
-        Assert.Equal("Top", (string?)status.Attribute("VerticalAlignment"));
-        Assert.Equal("20", (string?)status.Attribute("Canvas.ZIndex"));
-        Assert.Contains("WorkbenchInfoBar.Width = Math.Max", codeBehind, StringComparison.Ordinal);
+        XElement toast = status.Parent!;
+        Assert.Equal("WorkbenchToast", (string?)toast.Attribute(XamlNamespace + "Name"));
+        Assert.Equal("WorkbenchColumns", (string?)toast.Parent?.Attribute(XamlNamespace + "Name"));
+        Assert.Equal("1", (string?)toast.Attribute("Grid.Column"));
+        Assert.Equal("Bottom", (string?)toast.Attribute("VerticalAlignment"));
+        Assert.Equal("20", (string?)toast.Attribute("Canvas.ZIndex"));
+        Assert.Equal("{ThemeResource PanelRaisedBrush}", (string?)toast.Attribute("Background"));
+        Assert.Contains("WorkbenchInfoBar.Severity is InfoBarSeverity.Warning or InfoBarSeverity.Error) return;", codeBehind, StringComparison.Ordinal);
+        Assert.DoesNotContain("This agent operation shares the studio queue", File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.Automation.cs")), StringComparison.Ordinal);
         Assert.Contains("Target=\"WorkbenchHeaderActions.(Grid.Row)\" Value=\"0\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Target=\"WorkbenchHeaderActions.(Grid.Column)\" Value=\"1\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Target=\"PanelVisibilityControls.(Grid.Column)\" Value=\"2\"", xaml, StringComparison.Ordinal);
@@ -897,5 +904,77 @@ public sealed class XamlContractTests
         Assert.Equal("SettingsShell", (string?)groups.Parent?.Attribute(XamlNamespace + "Name"));
         Assert.Same(document.Root!.Elements().Single(), groups.Parent);
         Assert.Contains("$\"Replace {providerName} key\"", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Batch_generation_is_reachable_from_the_rail_and_the_voice_director_and_reports_progress()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string batch = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.BatchGeneration.cs"));
+
+        Assert.Contains("x:Name=\"RailSelectToggle\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SelectionChanged=\"ChapterTree_SelectionChanged\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RailSelectionBar\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Generate from here to chapter end…\" Tag=\"segment\" Click=\"GenerateFromHere_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Generate chapter…\" Tag=\"chapter\" Click=\"GenerateChapter_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"BatchGenerateButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"GenerateFromHere_Click\" Tag=\"director\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"BatchGenerationPanel\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"BatchStopButton\"", xaml, StringComparison.Ordinal);
+
+        // Same tracked job as a single render, one at a time, with stop rules from the tested model.
+        Assert.Contains("RunTrackedJobAsync<SegmentRenderResult>(", batch, StringComparison.Ordinal);
+        Assert.Contains("\"render.start\",", batch, StringComparison.Ordinal);
+        Assert.Contains("BatchGenerationRules.ShouldStop(exception.Code, consecutiveFailures)", batch, StringComparison.Ordinal);
+        Assert.Contains("ConfirmBatchGenerationAsync", batch, StringComparison.Ordinal);
+        Assert.Contains("TreeViewSelectionMode.Multiple", batch, StringComparison.Ordinal);
+
+        // Cancelling must reach the running provider request, not just stop waiting for it.
+        string tracked = File.ReadAllText(RepositoryPaths.App("Services/AppServices.Automation.cs"));
+        Assert.Contains("if (waited.IsError) { cancellationToken.ThrowIfCancellationRequested();", tracked, StringComparison.Ordinal);
+        Assert.Contains("jobs.cancel", tracked, StringComparison.Ordinal);
+        Assert.Contains("_renderCancellation?.Cancel();", batch, StringComparison.Ordinal);
+        Assert.Contains("catch (AutomationException exception) when (exception.Code == \"operation.cancelled\")", batch, StringComparison.Ordinal);
+        // A segment switches to the project voice only when its own render starts.
+        Assert.Contains("await UseProjectVoiceForSegmentAsync(entry.SegmentId);", batch, StringComparison.Ordinal);
+        Assert.Contains("word-timing request", batch, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Voice_director_offers_render_and_play()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"RenderAndPlayButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"RenderAndPlay_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("RenderCurrentSegmentAsync(playWhenReady: true)", code, StringComparison.Ordinal);
+        Assert.Contains("if (playWhenReady && newTakeSelected && TakeTransport.HasAudio)", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Segment_text_can_be_copied_or_saved_from_the_editor_and_the_rail()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.TextExport.cs"));
+
+        Assert.Contains("x:Name=\"ExportTextButton\"", xaml, StringComparison.Ordinal);
+        foreach (string handler in new[] { "CopySegmentScript_Click", "CopySegmentNarration_Click", "SaveSegmentScript_Click", "SaveSegmentNarration_Click" })
+            Assert.Contains($"Click=\"{handler}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Copy script text\" Tag=\"segment\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ShellLauncher.CopyText(windowsText)", code, StringComparison.Ordinal);
+        Assert.Contains("FileSavePicker", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chapters_show_the_total_time_of_their_approved_takes()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+
+        Assert.Contains("ChapterPlaylistBuilder.Build(project, chapter.ChapterId).TotalDuration", workbench, StringComparison.Ordinal);
+        Assert.Contains("approved audio", workbench, StringComparison.Ordinal);
+        Assert.Contains("ChapterPlaylistBuilder.Build(project, chapter.ChapterId).TotalDuration", assembly, StringComparison.Ordinal);
+        Assert.Contains("APPROVED AUDIO", assembly, StringComparison.Ordinal);
     }
 }
