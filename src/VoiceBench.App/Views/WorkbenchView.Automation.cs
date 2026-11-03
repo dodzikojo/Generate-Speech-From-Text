@@ -71,7 +71,7 @@ public sealed partial class WorkbenchView
         projectId = _project?.ProjectId,
         selection = ReadAutomationSelection(), editor = ReadAutomationEditor(),
         playback = TakeTransport.GetPlaybackStatus(),
-        panels = new { chapterRail = ChapterRailToggle.IsChecked == true, director = DirectorToggle.IsChecked == true, takeReview = TakeReviewToggle.IsChecked == true },
+        panels = new { chapterRail = ChapterRailToggle.IsChecked == true, director = DirectorToggle.IsChecked == true, takeReview = TakeReviewToggle.IsChecked == true, timelineDock = TimelineDockToggle.IsChecked == true },
         fontSize = ScriptTextBox.FontSize, followScript = FollowScriptToggle.IsChecked == true,
     };
 
@@ -290,7 +290,8 @@ public sealed partial class WorkbenchView
                     case "chapterRail": case "chapter-rail": ChapterRailToggle.IsChecked = visible; break;
                     case "director": DirectorToggle.IsChecked = visible; break;
                     case "takeReview": case "take-review": TakeReviewToggle.IsChecked = visible; break;
-                    default: throw new AutomationException("invalid_arguments", "Panel must be chapterRail, director or takeReview.");
+                    case "timelineDock": case "timeline-dock": TimelineDockToggle.IsChecked = visible; break;
+                    default: throw new AutomationException("invalid_arguments", "Panel must be chapterRail, director, takeReview or timelineDock.");
                 }
                 SaveWorkspacePanelPreferences();
                 ApplyWorkspacePanelLayout(ActualWidth, ActualHeight);

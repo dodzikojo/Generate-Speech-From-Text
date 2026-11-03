@@ -733,11 +733,14 @@ public sealed partial class AudioTimelineControl : UserControl
         TextBox name = new() { Header = "Versioned export name", Text = "Mix" };
         CheckBox mp3 = new() { Content = "Also export MP3" };
         CheckBox stems = new() { Content = "Also export aligned pre-master stems" };
-        StackPanel panel = new() { Spacing = 10 }; panel.Children.Add(name); panel.Children.Add(mp3); panel.Children.Add(stems);
+        CheckBox reveal = new() { Content = "Show the exported file in File Explorer when finished", IsChecked = true };
+        StackPanel panel = new() { Spacing = 10 }; panel.Children.Add(name); panel.Children.Add(mp3); panel.Children.Add(stems); panel.Children.Add(reveal);
         ContentDialog dialog = new() { XamlRoot = XamlRoot, Title = "Export mix · stereo 48 kHz / 24-bit / −16 LUFS / −1 dBTP", Content = panel, PrimaryButtonText = "Export", CloseButtonText = "Cancel" };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        await App.Services.RunTrackedJobAsync<object>("mix.export", new { scope = Workspace.Scope, chapterId = Workspace.ChapterId, name = name.Text, mp3 = mp3.IsChecked == true, stems = stems.IsChecked == true });
-        Workspace.SetNotice("Mix exported. Previous masters remain available.");
+        var result = await App.Services.RunTrackedJobAsync<IssueLab.VoiceBench.Infrastructure.Audio.MixExportResult>("mix.export", new { scope = Workspace.Scope, chapterId = Workspace.ChapterId, name = name.Text, mp3 = mp3.IsChecked == true, stems = stems.IsChecked == true });
+        Workspace.SetNotice($"Mix exported to {result.MasterRelativePath}. Previous masters remain available; Assembly lists every export.");
+        if (reveal.IsChecked == true && !string.IsNullOrWhiteSpace(result.MasterRelativePath))
+            await ShellLauncher.RevealFileAsync(ProjectLocations.ResolveInsideProject(App.Services.Session.RequireProjectRoot(), result.MasterRelativePath));
     });
 
     private async void Timeline_KeyDown(object sender, KeyRoutedEventArgs e)

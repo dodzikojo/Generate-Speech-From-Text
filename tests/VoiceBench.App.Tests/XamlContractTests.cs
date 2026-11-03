@@ -92,7 +92,7 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void Main_window_exposes_all_five_studio_sections()
+    public void Main_window_exposes_all_six_studio_sections_with_shortcuts()
     {
         var document = XDocument.Load(RepositoryPaths.App("MainWindow.xaml"));
         var navigationItems = document.Descendants()
@@ -100,17 +100,33 @@ public sealed class XamlContractTests
             .ToArray();
 
         var labels = navigationItems
-            .Select(element => (string?)element.Attribute("Content"))
-            .Where(value => value is not null)
+            .Select(element => (string?)element.Attribute("Content") ?? string.Empty)
             .ToArray();
 
-        Assert.Contains("Projects", labels);
-        Assert.Contains("Workbench", labels);
-        Assert.Contains("Voice Lab", labels);
-        Assert.Contains("Assembly", labels);
-        Assert.Contains("Settings", labels);
+        Assert.Equal(["Projects", "Workbench", "Voice Lab", "Audio", "Assembly", "Settings"], labels);
         Assert.All(navigationItems, item => Assert.NotNull(item.Attribute("AutomationProperties.Name")));
-        Assert.Equal(5, document.Descendants().Count(element => element.Name.LocalName == "KeyboardAccelerator"));
+        Assert.All(navigationItems, item => Assert.Single(item.Descendants(), element => element.Name.LocalName == "KeyboardAccelerator"));
+        Assert.Equal(
+            ["Number1", "Number2", "Number3", "Number4", "Number5", "Number6"],
+            navigationItems.SelectMany(item => item.Descendants())
+                .Where(element => element.Name.LocalName == "KeyboardAccelerator")
+                .Select(element => (string?)element.Attribute("Key") ?? string.Empty)
+                .ToArray());
+    }
+
+    [Fact]
+    public void Title_bar_project_menu_opens_every_project_output_folder()
+    {
+        string shell = File.ReadAllText(RepositoryPaths.App("MainWindow.xaml"));
+        string shellCode = File.ReadAllText(RepositoryPaths.App("MainWindow.xaml.cs"));
+
+        Assert.Contains("<TitleBar x:Name=\"AppTitleBar\"", shell, StringComparison.Ordinal);
+        Assert.Contains("IsPaneToggleButtonVisible=\"True\"", shell, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ProjectMenuButton\"", shell, StringComparison.Ordinal);
+        foreach (string folder in new[] { "Root", "GeneratedAudio", "Masters", "Scripts", "Exports", "Reports" })
+            Assert.Contains($"Tag=\"{folder}\" Click=\"OpenProjectFolder_Click\"", shell, StringComparison.Ordinal);
+        Assert.Contains("ShellLauncher.OpenProjectFolderAsync(folder)", shellCode, StringComparison.Ordinal);
+        Assert.Contains("SetTitleBar(AppTitleBar)", shellCode, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -141,15 +157,14 @@ public sealed class XamlContractTests
         Assert.Contains("GetSegmentStatusBrush", codeBehind, StringComparison.Ordinal);
         Assert.Contains("FormatStatus", codeBehind, StringComparison.Ordinal);
         Assert.Contains("SegmentStatus.PickupRequired", codeBehind, StringComparison.Ordinal);
-        Assert.Contains("DirectorPanel.(Grid.Row)", source, StringComparison.Ordinal);
         Assert.Contains("CompactSegmentPicker", source, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"WorkbenchHeaderActions\"", source, StringComparison.Ordinal);
         Assert.Contains("IsDynamicOverflowEnabled=\"True\"", source, StringComparison.Ordinal);
-        Assert.Contains("Value=\"0.8*\"", source, StringComparison.Ordinal);
-        Assert.Contains("Value=\"0.7*\"", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Target=\"DirectorRow.Height\" Value=\"380\"", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("Target=\"DirectorRow.Height\" Value=\"360\"", source, StringComparison.Ordinal);
+        // Layout geometry is computed from the view width in one place, not split between VSM and code.
+        Assert.DoesNotContain("Target=\"DirectorRow.Height\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Target=\"TakeRailColumn.Width\"", source, StringComparison.Ordinal);
         Assert.Contains("ApplyWorkspacePanelLayout(width, height)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("bool stackInspector = width < 700", codeBehind, StringComparison.Ordinal);
         Assert.Contains("GridUnitType.Star", codeBehind, StringComparison.Ordinal);
         Assert.Contains("TextChanged=\"DirectionTextBox_TextChanged\"", source, StringComparison.Ordinal);
         Assert.Contains("_directionsDirty", codeBehind, StringComparison.Ordinal);
@@ -259,13 +274,18 @@ public sealed class XamlContractTests
     }
 
     [Fact]
-    public void Workbench_director_tabs_and_script_footer_keep_their_labels_readable()
+    public void Workbench_inspector_tabs_and_script_footer_keep_their_labels_readable()
     {
         string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string takes = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.Takes.cs"));
 
-        Assert.Contains("<TabViewItem.Header>", xaml, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Writing assistant\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Text=\"Voice director\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<SelectorBar x:Name=\"InspectorTabs\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Voice\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Takes\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Write\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=\"Voice director\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=\"Writing assistant\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Workbench.InspectorTab", takes, StringComparison.Ordinal);
         Assert.Contains("Foreground=\"{ThemeResource ReadingTextBrush}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("x:Name=\"ScriptPathText\"", xaml, StringComparison.Ordinal);
         Assert.Contains("TextTrimming=\"CharacterEllipsis\"", xaml, StringComparison.Ordinal);
@@ -778,4 +798,104 @@ public sealed class XamlContractTests
         Assert.DoesNotContain("ScriptTextBox.Document.Selection.SetRange", codeBehind[followStart..positionStart], StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Workbench_gives_the_editor_the_height_and_keeps_the_mix_timeline_opt_in()
+    {
+        var document = XDocument.Load(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        XElement layout = Assert.Single(document.Descendants(), element =>
+            (string?)element.Attribute(XamlNamespace + "Name") == "WorkbenchLayout");
+        string[] rows = layout.Elements().Single(element => element.Name.LocalName == "Grid.RowDefinitions")
+            .Elements().Select(row => (string?)row.Attribute("Height") ?? "*").ToArray();
+        XElement columns = Assert.Single(document.Descendants(), element =>
+            (string?)element.Attribute(XamlNamespace + "Name") == "WorkbenchColumns");
+        XElement dockToggle = Assert.Single(document.Descendants(), element =>
+            (string?)element.Attribute(XamlNamespace + "Name") == "TimelineDockToggle");
+        XElement dockHost = Assert.Single(document.Descendants(), element =>
+            (string?)element.Attribute(XamlNamespace + "Name") == "TimelineDockHost");
+
+        Assert.Equal("*", rows[(int?)columns.Attribute("Grid.Row") ?? 0]);
+        Assert.Equal(1, rows.Count(height => height == "*"));
+        Assert.Equal("False", (string?)dockToggle.Attribute("IsChecked"));
+        Assert.Equal("Collapsed", (string?)dockHost.Attribute("Visibility"));
+        Assert.Contains("TakeTransport.IsCompact = true", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("values[TimelineDockVisibilitySetting] is true", codeBehind, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generated_audio_is_one_click_from_the_take_bar_takes_tab_and_rail()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string takes = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.Takes.cs"));
+
+        Assert.Contains("x:Name=\"RevealTakeButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"TakeList\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:DataType=\"local:TakeListItem\"", xaml, StringComparison.Ordinal);
+        foreach (string handler in new[] { "TakeRowReveal_Click", "TakeRowOpen_Click", "TakeRowCopyPath_Click", "TakeRowApprove_Click",
+                     "TakeRowPlay_Click", "OpenTakesFolder_Click", "OpenGeneratedAudioFolder_Click", "ShowSelectedTakesFolder_Click", "RevealScript_Click" })
+        {
+            Assert.Contains($"Click=\"{handler}\"", xaml, StringComparison.Ordinal);
+            Assert.Contains($"void {handler}(", takes, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("ShellLauncher.RevealFileAsync(path)", takes, StringComparison.Ordinal);
+        Assert.Contains("TakeListPresentation.Build(segment)", takes, StringComparison.Ordinal);
+        Assert.Contains("ProjectLocations.ResolveInsideProject", takes, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chapter_playback_plays_approved_takes_in_order_and_ends_on_manual_changes()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string playback = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.ChapterPlayback.cs"));
+        string codeBehind = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string transport = File.ReadAllText(RepositoryPaths.App("Controls/AudioTransport.xaml.cs"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+
+        Assert.Contains("x:Name=\"PlayChapterButton\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ChapterPlaybackPanel\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"PlayChapterFromHere_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Key=\"Space\" Modifiers=\"Control,Shift\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("ChapterPlaylistBuilder.Build", playback, StringComparison.Ordinal);
+        Assert.Contains("AdvanceChapterPlaybackIfEnded(e.State)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("EndChapterPlaybackForManualChange(GetSelectedRender()?.RenderId)", codeBehind, StringComparison.Ordinal);
+        Assert.Contains("TransportPhaseRules.Next", transport, StringComparison.Ordinal);
+        Assert.Contains("window.PlayChapterAsync(chapterId)", assembly, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Projects_assembly_audio_and_voice_lab_reveal_their_files()
+    {
+        string projects = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml"));
+        string projectsCode = File.ReadAllText(RepositoryPaths.App("Views/ProjectsView.xaml.cs"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
+        string assemblyCode = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml.cs"));
+        string audio = File.ReadAllText(RepositoryPaths.App("Views/AudioView.xaml"));
+        string timeline = File.ReadAllText(RepositoryPaths.App("Controls/AudioTimelineControl.xaml.cs"));
+        string voiceLab = File.ReadAllText(RepositoryPaths.App("Views/VoiceLabView.xaml"));
+
+        Assert.Contains("Click=\"ShowProjectInFolder_Click\"", projects, StringComparison.Ordinal);
+        Assert.Contains("Click=\"RemoveRecentProject_Click\"", projects, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"ProjectFilterBox\"", projects, StringComparison.Ordinal);
+        Assert.Contains("App.Services.RecentProjects.RemoveAsync(projectRoot)", projectsCode, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"MastersList\"", assembly, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OpenMastersFolder_Click\"", assembly, StringComparison.Ordinal);
+        Assert.Contains("ProjectLocations.ListMasters(root)", assemblyCode, StringComparison.Ordinal);
+        Assert.Contains("loadVersion != _loadVersion", assemblyCode, StringComparison.Ordinal);
+        Assert.Contains("Tag=\"Masters\"", audio, StringComparison.Ordinal);
+        Assert.Contains("RunTrackedJobAsync<IssueLab.VoiceBench.Infrastructure.Audio.MixExportResult>(\"mix.export\"", timeline, StringComparison.Ordinal);
+        Assert.Contains("Click=\"RevealAudition_Click\"", voiceLab, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Settings_visual_states_live_on_the_root_so_wide_windows_use_the_wide_layout()
+    {
+        var document = XDocument.Load(RepositoryPaths.App("Views/SettingsView.xaml"));
+        XElement groups = Assert.Single(document.Descendants(), element => element.Name.LocalName == "VisualStateManager.VisualStateGroups");
+        string code = File.ReadAllText(RepositoryPaths.App("Views/SettingsView.xaml.cs"));
+
+        Assert.Equal("SettingsShell", (string?)groups.Parent?.Attribute(XamlNamespace + "Name"));
+        Assert.Same(document.Root!.Elements().Single(), groups.Parent);
+        Assert.Contains("$\"Replace {providerName} key\"", code, StringComparison.Ordinal);
+    }
 }

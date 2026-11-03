@@ -227,6 +227,28 @@ public sealed partial class VoiceLabView : UserControl
         return result;
     }
 
+    private async void RevealAudition_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string slot }) return;
+        AudioTransport transport = slot == "A" ? AuditionATransport : AuditionBTransport;
+        try
+        {
+            if (transport.SourcePath is not string path)
+            {
+                if (!App.Services.Session.HasProject) throw new InvalidOperationException("Open a project first.");
+                await IssueLab.VoiceBench.App.Services.ShellLauncher.OpenFolderAsync(
+                    App.Services.Session.ResolveProjectPath("04-generated-audio/auditions"), create: true);
+                return;
+            }
+
+            await IssueLab.VoiceBench.App.Services.ShellLauncher.RevealFileAsync(path);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Audition could not be shown", exception.Message);
+        }
+    }
+
     private void LoadTransport(string slot, AuditionResult result)
     {
         bool isA = slot.Equals("A", StringComparison.OrdinalIgnoreCase);

@@ -14,56 +14,105 @@
 
     <Grid x:Name="ShellRoot" Background="{ThemeResource BaseBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="40" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="AppTitleBar"
-              Background="{ThemeResource BaseBrush}"
-              AutomationProperties.Name="VoiceBench title bar">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Border Width="18" Height="18" Margin="14,0,10,0"
-                    BorderBrush="{ThemeResource ActiveSignalBrush}" BorderThickness="2"
-                    CornerRadius="2" VerticalAlignment="Center">
-                <Rectangle Width="8" Height="2" Fill="{ThemeResource ActiveSignalBrush}" />
-            </Border>
-            <TextBlock x:Name="TitleBarLabel" Grid.Column="1" Text="VOICEBENCH"
-                       Style="{StaticResource UtilityLabelTextStyle}"
-                       VerticalAlignment="Center" />
-            <StackPanel x:Name="LocalStatus" Grid.Column="2" Orientation="Horizontal" Spacing="8"
-                        Margin="0,0,144,0" VerticalAlignment="Center">
-                <Ellipse Width="7" Height="7" Fill="{ThemeResource ApprovalBrush}" />
-                <TextBlock Text="LOCAL" Style="{StaticResource UtilityLabelTextStyle}"
-                           AutomationProperties.Name="Local workspace status" />
-            </StackPanel>
-        </Grid>
+        <TitleBar x:Name="AppTitleBar"
+                  Title="VoiceBench"
+                  Subtitle="Narration studio"
+                  IsBackButtonVisible="False"
+                  IsPaneToggleButtonVisible="True"
+                  PaneToggleRequested="AppTitleBar_PaneToggleRequested"
+                  Background="{ThemeResource BaseBrush}"
+                  AutomationProperties.Name="VoiceBench title bar">
+            <TitleBar.IconSource>
+                <FontIconSource Glyph="&#xE720;" Foreground="{ThemeResource ActiveSignalBrush}" />
+            </TitleBar.IconSource>
+            <TitleBar.Content>
+                <DropDownButton x:Name="ProjectMenuButton"
+                                MinWidth="220" MaxWidth="460" Height="32" Padding="10,0,8,0"
+                                Background="{ThemeResource PanelBrush}"
+                                BorderBrush="{ThemeResource DividerBrush}"
+                                CornerRadius="{StaticResource StudioCornerRadius}"
+                                ToolTipService.ToolTip="Project folders and switching"
+                                AutomationProperties.Name="Project menu">
+                    <DropDownButton.Content>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="14" Foreground="{ThemeResource ActiveSignalBrush}" />
+                            <TextBlock x:Name="ProjectMenuText" Text="No project open"
+                                       FontFamily="{StaticResource ReadingFont}" FontSize="13"
+                                       MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DropDownButton.Content>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout x:Name="ProjectMenu" Placement="Bottom" Opening="ProjectMenu_Opening">
+                            <MenuFlyoutItem x:Name="ProjectPathItem" Text="No project open" IsEnabled="False" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Name="OpenProjectFolderItem" Text="Open project folder" Tag="Root" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE838;" /></MenuFlyoutItem.Icon>
+                                <MenuFlyoutItem.KeyboardAccelerators>
+                                    <KeyboardAccelerator Key="E" Modifiers="Control,Shift" />
+                                </MenuFlyoutItem.KeyboardAccelerators>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="OpenGeneratedAudioItem" Text="Generated audio (takes)" Tag="GeneratedAudio" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8D6;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="OpenMastersItem" Text="Masters and mix exports" Tag="Masters" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE93C;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="OpenScriptsItem" Text="Scripts" Tag="Scripts" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A5;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="OpenExportsItem" Text="Exports (transcripts, cue sheets)" Tag="Exports" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEDE1;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="OpenReportsItem" Text="Reports" Tag="Reports" Click="OpenProjectFolder_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE9F9;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Name="CopyProjectPathItem" Text="Copy project path" Click="CopyProjectPath_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Switch or create project…" Click="SwitchProject_Click">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8AB;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </TitleBar.Content>
+            <TitleBar.RightHeader>
+                <StackPanel x:Name="LocalStatus" Orientation="Horizontal" Spacing="8" Margin="0,0,12,0" VerticalAlignment="Center"
+                            ToolTipService.ToolTip="Everything stays on this PC. Provider calls happen only when you render, audition, align, or ask the writing assistant.">
+                    <Ellipse Width="7" Height="7" Fill="{ThemeResource ApprovalBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="LOCAL" Style="{StaticResource UtilityLabelTextStyle}" VerticalAlignment="Center"
+                               AutomationProperties.Name="Local workspace status" />
+                </StackPanel>
+            </TitleBar.RightHeader>
+        </TitleBar>
+
+        <InfoBar x:Name="ShellInfoBar" Grid.Row="1" Canvas.ZIndex="30"
+                 HorizontalAlignment="Center" VerticalAlignment="Top" MaxWidth="640" Margin="16,8,16,0"
+                 IsOpen="False" IsClosable="True" Severity="Error" />
 
         <NavigationView x:Name="ShellNavigation"
                         Grid.Row="1"
                         PaneDisplayMode="Auto"
                         IsPaneOpen="False"
+                        IsPaneToggleButtonVisible="False"
                         CompactPaneLength="52"
                         OpenPaneLength="220"
                         CompactModeThresholdWidth="720"
-                        ExpandedModeThresholdWidth="1100"
+                        ExpandedModeThresholdWidth="100000"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="False"
                         SelectionFollowsFocus="Disabled"
                         ItemInvoked="ShellNavigation_ItemInvoked"
                         AutomationProperties.Name="VoiceBench sections">
-            <NavigationView.PaneHeader>
-                <StackPanel Margin="4,10,0,14" Spacing="2">
-                    <TextBlock Text="VOICEBENCH" Style="{StaticResource StudioHeadingTextStyle}" />
-                    <TextBlock Text="STUDIO 01" Style="{StaticResource UtilityLabelTextStyle}" />
-                </StackPanel>
-            </NavigationView.PaneHeader>
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="ProjectsNavigationItem"
                                     Content="Projects" Icon="Folder" Tag="projects"
+                                    ToolTipService.ToolTip="Projects (Alt+1)"
                                     AutomationProperties.Name="Projects"
                                     AutomationProperties.AcceleratorKey="Alt+1">
                     <NavigationViewItem.KeyboardAccelerators>
@@ -72,6 +121,7 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="WorkbenchNavigationItem"
                                     Content="Workbench" Icon="Edit" Tag="workbench"
+                                    ToolTipService.ToolTip="Workbench: write, render and review (Alt+2)"
                                     AutomationProperties.Name="Workbench"
                                     AutomationProperties.AcceleratorKey="Alt+2">
                     <NavigationViewItem.KeyboardAccelerators>
@@ -80,29 +130,40 @@
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="VoiceLabNavigationItem"
                                     Content="Voice Lab" Icon="Audio" Tag="voice-lab"
+                                    ToolTipService.ToolTip="Voice Lab: compare voices (Alt+3)"
                                     AutomationProperties.Name="Voice Lab"
                                     AutomationProperties.AcceleratorKey="Alt+3">
                     <NavigationViewItem.KeyboardAccelerators>
                         <KeyboardAccelerator Key="Number3" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="AudioNavigationItem" Content="Audio" Icon="Volume" Tag="audio" AutomationProperties.Name="Audio" />
-                <NavigationViewItem x:Name="AssemblyNavigationItem"
-                                    Content="Assembly" Icon="AllApps" Tag="assembly"
-                                    AutomationProperties.Name="Assembly"
+                <NavigationViewItem x:Name="AudioNavigationItem"
+                                    Content="Audio" Icon="Volume" Tag="audio"
+                                    ToolTipService.ToolTip="Audio: arrange and mix (Alt+4)"
+                                    AutomationProperties.Name="Audio"
                                     AutomationProperties.AcceleratorKey="Alt+4">
                     <NavigationViewItem.KeyboardAccelerators>
                         <KeyboardAccelerator Key="Number4" Modifiers="Menu" />
+                    </NavigationViewItem.KeyboardAccelerators>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="AssemblyNavigationItem"
+                                    Content="Assembly" Icon="AllApps" Tag="assembly"
+                                    ToolTipService.ToolTip="Assembly: build masters (Alt+5)"
+                                    AutomationProperties.Name="Assembly"
+                                    AutomationProperties.AcceleratorKey="Alt+5">
+                    <NavigationViewItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="Number5" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem x:Name="SettingsNavigationItem"
                                     Content="Settings" Icon="Setting" Tag="settings"
+                                    ToolTipService.ToolTip="Settings (Alt+6)"
                                     AutomationProperties.Name="Settings"
-                                    AutomationProperties.AcceleratorKey="Alt+5">
+                                    AutomationProperties.AcceleratorKey="Alt+6">
                     <NavigationViewItem.KeyboardAccelerators>
-                        <KeyboardAccelerator Key="Number5" Modifiers="Menu" />
+                        <KeyboardAccelerator Key="Number6" Modifiers="Menu" />
                     </NavigationViewItem.KeyboardAccelerators>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
@@ -116,24 +177,5 @@
                 <views:SettingsView x:Name="SettingsSurface" Visibility="Collapsed" />
             </Grid>
         </NavigationView>
-
-        <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup x:Name="ShellWidthStates">
-                <VisualState x:Name="NarrowShell">
-                    <VisualState.Setters>
-                        <Setter Target="LocalStatus.Visibility" Value="Collapsed" />
-                    </VisualState.Setters>
-                </VisualState>
-                <VisualState x:Name="WideShell">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="640" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="TitleBarLabel.Text" Value="VOICEBENCH  /  NARRATION WORKSTATION" />
-                        <Setter Target="LocalStatus.Visibility" Value="Visible" />
-                    </VisualState.Setters>
-                </VisualState>
-            </VisualStateGroup>
-        </VisualStateManager.VisualStateGroups>
     </Grid>
 </Window>

@@ -7,7 +7,8 @@
     mc:Ignorable="d"
     d:DesignWidth="1280" d:DesignHeight="800">
 
-    <ScrollViewer Background="{ThemeResource BaseBrush}" VerticalScrollBarVisibility="Auto">
+    <Grid x:Name="SettingsShell" Background="{ThemeResource BaseBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
         <Grid x:Name="SettingsRoot" Margin="16,20,16,36" MaxWidth="980" HorizontalAlignment="Center">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -40,7 +41,7 @@
                             <TextBlock x:Name="OpenAiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
                         </StackPanel>
                         <Button x:Name="OpenAiCredentialButton" Grid.Row="1" Grid.Column="0"
-                                HorizontalAlignment="Stretch" Content="Add OpenAI key" Style="{StaticResource QuietButtonStyle}" Tag="openai"
+                                HorizontalAlignment="Stretch" MinWidth="170" Content="Add OpenAI key" Style="{StaticResource QuietButtonStyle}" Tag="openai"
                                 Click="Credential_Click" AutomationProperties.Name="Add OpenAI API key to Windows Credential Manager" />
                     </Grid>
                     <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,1,0,0" />
@@ -52,7 +53,7 @@
                             <TextBlock x:Name="GeminiCredentialStatusText" Text="○  NOT CONFIGURED" Style="{StaticResource UtilityLabelTextStyle}" Foreground="{ThemeResource PickupBrush}" />
                         </StackPanel>
                         <Button x:Name="GeminiCredentialButton" Grid.Row="1" Grid.Column="0"
-                                HorizontalAlignment="Stretch" Content="Add Gemini key" Style="{StaticResource QuietButtonStyle}" Tag="gemini"
+                                HorizontalAlignment="Stretch" MinWidth="170" Content="Add Gemini key" Style="{StaticResource QuietButtonStyle}" Tag="gemini"
                                 Click="Credential_Click" AutomationProperties.Name="Add Gemini API key to Windows Credential Manager" />
                     </Grid>
                 </StackPanel>
@@ -80,8 +81,18 @@
                         <Button Content="Select existing executable" Style="{StaticResource QuietButtonStyle}"
                                 Click="SelectFfmpeg_Click"
                                 AutomationProperties.Name="Select an existing FFmpeg executable" />
+                        <Button x:Name="RevealFfmpegButton" Style="{StaticResource QuietButtonStyle}" IsEnabled="False"
+                                Click="RevealFfmpeg_Click"
+                                ToolTipService.ToolTip="Show the FFmpeg executable VoiceBench uses"
+                                AutomationProperties.Name="Show FFmpeg in folder">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE838;" FontSize="13" />
+                                <TextBlock Text="Show in folder" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
-                    <TextBlock Text="%LOCALAPPDATA%\IssueLab\VoiceBench\Tools" Style="{StaticResource UtilityLabelTextStyle}" />
+                    <TextBlock x:Name="FfmpegPathText" Text="%LOCALAPPDATA%\IssueLab\VoiceBench\Tools" Style="{StaticResource UtilityLabelTextStyle}"
+                               TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                 </StackPanel>
             </Border>
 
@@ -135,31 +146,32 @@
             </Border>
             <InfoBar x:Name="SettingsInfoBar" Grid.Row="6" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
 
-            <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup x:Name="SettingsWidthStates">
-                    <VisualState x:Name="NarrowSettings" />
-                    <VisualState x:Name="WideSettings">
-                        <VisualState.StateTriggers>
-                            <AdaptiveTrigger MinWindowWidth="700" />
-                        </VisualState.StateTriggers>
-                        <VisualState.Setters>
-                            <Setter Target="SettingsRoot.Margin" Value="32,28,32,48" />
-                            <Setter Target="OpenAiCredentialButton.(Grid.Row)" Value="0" />
-                            <Setter Target="OpenAiCredentialButton.(Grid.Column)" Value="1" />
-                            <Setter Target="OpenAiCredentialButton.HorizontalAlignment" Value="Right" />
-                            <Setter Target="GeminiCredentialButton.(Grid.Row)" Value="0" />
-                            <Setter Target="GeminiCredentialButton.(Grid.Column)" Value="1" />
-                            <Setter Target="GeminiCredentialButton.HorizontalAlignment" Value="Right" />
-                            <Setter Target="FfmpegStatusBadge.(Grid.Row)" Value="0" />
-                            <Setter Target="FfmpegStatusBadge.(Grid.Column)" Value="1" />
-                            <Setter Target="FfmpegStatusBadge.HorizontalAlignment" Value="Right" />
-                            <Setter Target="FfmpegActions.Orientation" Value="Horizontal" />
-                            <Setter Target="LoudnessTargetComboBox.(Grid.Row)" Value="0" />
-                            <Setter Target="LoudnessTargetComboBox.(Grid.Column)" Value="1" />
-                        </VisualState.Setters>
-                    </VisualState>
-                </VisualStateGroup>
-            </VisualStateManager.VisualStateGroups>
         </Grid>
     </ScrollViewer>
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="SettingsWidthStates">
+                <VisualState x:Name="NarrowSettings" />
+                <VisualState x:Name="WideSettings">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="700" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SettingsRoot.Margin" Value="32,28,32,48" />
+                        <Setter Target="OpenAiCredentialButton.(Grid.Row)" Value="0" />
+                        <Setter Target="OpenAiCredentialButton.(Grid.Column)" Value="1" />
+                        <Setter Target="OpenAiCredentialButton.HorizontalAlignment" Value="Right" />
+                        <Setter Target="GeminiCredentialButton.(Grid.Row)" Value="0" />
+                        <Setter Target="GeminiCredentialButton.(Grid.Column)" Value="1" />
+                        <Setter Target="GeminiCredentialButton.HorizontalAlignment" Value="Right" />
+                        <Setter Target="FfmpegStatusBadge.(Grid.Row)" Value="0" />
+                        <Setter Target="FfmpegStatusBadge.(Grid.Column)" Value="1" />
+                        <Setter Target="FfmpegStatusBadge.HorizontalAlignment" Value="Right" />
+                        <Setter Target="FfmpegActions.Orientation" Value="Horizontal" />
+                        <Setter Target="LoudnessTargetComboBox.(Grid.Row)" Value="0" />
+                        <Setter Target="LoudnessTargetComboBox.(Grid.Column)" Value="1" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+    </Grid>
 </UserControl>

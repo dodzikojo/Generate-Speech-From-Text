@@ -74,7 +74,7 @@ public static class AutomationCapabilities
         Add("selection.get", "Read selected chapter, segment, take and UTF-16 text range.", true);
         Add("selection.set", "Select a chapter, segment or explicit take and optional revision-guarded text range.", fields: [("chapterId", "string", false), ("segmentId", "string", false), ("renderId", "string", false), ("start", "integer", false), ("length", "integer", false), ("expectedRevision", "string", false)]);
         Add("navigation.show", "Navigate to Projects, Workbench, VoiceLab, Assembly or Settings.", fields: [("page", "string", true)]);
-        Add("panels.set", "Set an editor panel's visibility.", fields: [("panel", "string", true), ("visible", "boolean", true)]);
+        Add("panels.set", "Set an editor panel's visibility: chapterRail, director, takeReview or timelineDock.", fields: [("panel", "string", true), ("visible", "boolean", true)]);
         Add("font.set", "Set the script editor's font size.", fields: [("size", "number", true)]);
         Add("providers.list", "Read available speech and writing providers, models, voices and tags.", true);
         Add("director.get", "Read live exact provider, model, voice and directions controls.", true);

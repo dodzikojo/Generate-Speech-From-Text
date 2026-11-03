@@ -71,6 +71,9 @@ public sealed partial class WorkbenchView : UserControl
     private int _activeFollowWordOrdinal = -1;
     private string? _alignmentRecoveryRoot;
     private bool _listenTakePending;
+    private string? _takeSelectorSegmentId;
+    private int _takeSelectorCount;
+    private bool _populatingTakeSelector;
     private WordAlignmentDocument? _activeWordAlignment;
     private WordAlignmentRecord? _activeAlignmentRecord;
     private RenderRecord? _activeAlignmentRender;
@@ -111,6 +114,7 @@ public sealed partial class WorkbenchView : UserControl
     {
         InitializeComponent();
         AudioDock.Compact = true;
+        TakeTransport.IsCompact = true;
         App.Services.SelectedTakePlayback = TakeTransport.PlayAsync;
         App.Services.SelectedTakeSeek = TakeTransport.SeekToAsync;
         App.Services.SelectedTakeState = TakeTransport.ReadSelectedTakeState;
@@ -124,6 +128,7 @@ public sealed partial class WorkbenchView : UserControl
         _editorHistoryTimer.Tick += (_, _) => CommitPendingEditorUndo();
         ScriptTextBox.Document.UndoLimit = 0;
         LoadWorkspacePanelPreferences();
+        LoadInspectorTabPreference();
         LoadEditorFontSizePreference();
         LoadFollowScriptPreference();
         EditorFontSizeSlider.ValueChanged += EditorFontSizeSlider_ValueChanged;
@@ -166,6 +171,8 @@ public sealed partial class WorkbenchView : UserControl
         ChapterRailToggle.IsChecked = ReadWorkspacePanelPreference(values[ChapterRailVisibilitySetting]);
         DirectorToggle.IsChecked = ReadWorkspacePanelPreference(values[DirectorVisibilitySetting]);
         TakeReviewToggle.IsChecked = ReadWorkspacePanelPreference(values[TakeReviewVisibilitySetting]);
+        // The mix timeline is opt-in in the Workbench: the Audio page owns full arrangement work.
+        TimelineDockToggle.IsChecked = values[TimelineDockVisibilitySetting] is true;
     }
 
     private void SaveWorkspacePanelPreferences()
@@ -174,6 +181,7 @@ public sealed partial class WorkbenchView : UserControl
         values[ChapterRailVisibilitySetting] = ChapterRailToggle.IsChecked == true;
         values[DirectorVisibilitySetting] = DirectorToggle.IsChecked == true;
         values[TakeReviewVisibilitySetting] = TakeReviewToggle.IsChecked == true;
+        values[TimelineDockVisibilitySetting] = TimelineDockToggle.IsChecked == true;
     }
 
     private static bool ReadWorkspacePanelPreference(object? storedValue) =>
@@ -217,28 +225,34 @@ public sealed partial class WorkbenchView : UserControl
         if (TakeRailPanel is null) return;
         bool narrow = width < 860;
         bool wide = width >= 1180;
-        bool showRail = !narrow && ChapterRailToggle.IsChecked == true;
         bool showDirector = DirectorToggle.IsChecked == true;
 
+        // Vertical space is the scarce resource on laptops, so the inspector stays a side column
+        // and the script keeps its full height. The rail gives way to the compact segment picker
+        // first; only very narrow windows stack the inspector beneath the script.
+        bool stackInspector = width < 700;
+        double inspectorWidth = wide ? (width >= 1500 ? 400 : 370) : 320;
+        double railWidth = wide ? 280 : 250;
+        double occupiedByInspector = showDirector && !stackInspector ? inspectorWidth : 0;
+        bool roomForRail = !narrow && width - occupiedByInspector - railWidth >= 440;
+        bool showRail = roomForRail && ChapterRailToggle.IsChecked == true;
+
         TakeRailPanel.Visibility = showRail ? Visibility.Visible : Visibility.Collapsed;
-        TakeRailColumn.Width = showRail ? new GridLength(wide ? 300 : 270) : new GridLength(0);
-        CompactPickerPanel.Visibility = narrow || !showRail ? Visibility.Visible : Visibility.Collapsed;
+        TakeRailColumn.Width = showRail ? new GridLength(railWidth) : new GridLength(0);
+        CompactPickerPanel.Visibility = showRail ? Visibility.Collapsed : Visibility.Visible;
 
         DirectorPanel.Visibility = showDirector ? Visibility.Visible : Visibility.Collapsed;
-        DirectorColumn.Width = wide && showDirector ? new GridLength(350) : new GridLength(0);
-        double directorShare = narrow
-            ? height < 720 ? 0.55 : 0.8
-            : height < 720 ? 0.45 : 0.7;
-        DirectorRow.Height = !wide && showDirector
-            ? new GridLength(directorShare, GridUnitType.Star)
+        DirectorColumn.Width = showDirector && !stackInspector ? new GridLength(inspectorWidth) : new GridLength(0);
+        DirectorRow.Height = showDirector && stackInspector
+            ? new GridLength(height < 720 ? 0.55 : 0.8, GridUnitType.Star)
             : new GridLength(0);
-        DirectorPanel.SetValue(Grid.RowProperty, wide ? 0 : 1);
-        DirectorPanel.SetValue(Grid.ColumnProperty, wide ? 2 : 1);
+        DirectorPanel.SetValue(Grid.RowProperty, stackInspector ? 1 : 0);
+        DirectorPanel.SetValue(Grid.ColumnProperty, stackInspector ? 1 : 2);
 
-        WorkbenchFooter.Visibility = Visibility.Visible;
-        Visibility review = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        TakeReviewContext.Visibility = review; TakeSelectionControls.Visibility = review;
-        TakeDecisionGroup.Visibility = review; AssemblyHandoff.Visibility = review;
+        // The take bar is a single slim row; the mix timeline dock is opt-in.
+        WorkbenchFooter.Visibility = TakeReviewToggle.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        ApplyTakeBarLayout(width);
+        ApplyTimelineDockVisibility();
     }
 
     private void ProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -406,6 +420,7 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (!App.Services.Session.HasProject)
         {
+            StopChapterPlayback(announce: false);
             _alignmentRecoveryRoot = null;
             EndFollowSession();
             DisposeScriptFileMonitor();
@@ -434,6 +449,8 @@ public sealed partial class WorkbenchView : UserControl
             await App.Services.RecoverWordAlignmentsAsync();
         }
 
+        if (!string.Equals(_monitoredProjectRoot, Path.GetFullPath(projectRoot), StringComparison.OrdinalIgnoreCase))
+            StopChapterPlayback(announce: false);
         _project = App.Services.Session.RequireProject();
         _ignoreCueToggle = true;
         GenerateProductionCuesToggle.IsOn = _project.WritingProfile.GenerateProductionCues;
@@ -586,6 +603,7 @@ public sealed partial class WorkbenchView : UserControl
         };
         if (item?.SegmentId is not string segmentId ||
             _segment?.SegmentId == segmentId) return;
+        EndChapterPlaybackForManualChange();
         if ((_isDirty || _directionsDirty) && !await SaveCurrentScriptAsync())
         {
             SelectTakeRailItem(_segment?.SegmentId);
@@ -612,6 +630,10 @@ public sealed partial class WorkbenchView : UserControl
             if (string.Equals(item.Tag as string, "chapter", StringComparison.Ordinal))
             {
                 item.Visibility = chapterSelected ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else if (string.Equals(item.Tag as string, "segment", StringComparison.Ordinal))
+            {
+                item.Visibility = chapterSelected ? Visibility.Collapsed : Visibility.Visible;
             }
         }
     }
@@ -749,6 +771,7 @@ public sealed partial class WorkbenchView : UserControl
     {
         if (_ignoreCompactPicker || CompactSegmentPicker.SelectedItem is not ComboBoxItem { Tag: string segmentId } ||
             _segment?.SegmentId == segmentId) return;
+        EndChapterPlaybackForManualChange();
         if ((_isDirty || _directionsDirty) && !await SaveCurrentScriptAsync())
         {
             SelectTakeRailItem(_segment?.SegmentId);
@@ -2743,7 +2766,12 @@ public sealed partial class WorkbenchView : UserControl
             {
                 TakeSelector.SelectedItem = TakeSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag is Guid id && id == result.Render.RenderId);
                 await UpdateTransportAsync();
-                TakeReviewToggle.IsChecked = true;
+                if (TakeReviewToggle.IsChecked != true)
+                {
+                    TakeReviewToggle.IsChecked = true;
+                    SaveWorkspacePanelPreferences();
+                    ApplyWorkspacePanelLayout(ActualWidth, ActualHeight);
+                }
                 AudioDock.SelectTakeTarget();
             }
             string guidance = result.ExceedsFourMinuteGuidance ? " The estimated duration exceeds four minutes; split it before the next take." : string.Empty;
@@ -2758,7 +2786,7 @@ public sealed partial class WorkbenchView : UserControl
             ShowStatus(
                 InfoBarSeverity.Success,
                 $"Take {result.Render.TakeNumber:00} rendered",
-                $"Use Listen to take in Take Review to hear it.{alignment}{guidance}");
+                $"Press Play take (Ctrl+Space) to hear it, or open the Takes tab to compare it with earlier takes.{alignment}{guidance}");
         }
         catch (OperationCanceledException)
         {
@@ -2991,11 +3019,35 @@ public sealed partial class WorkbenchView : UserControl
 
     private void PopulateTakeSelector(SegmentDocument segment)
     {
-        TakeSelector.Items.Clear();
-        foreach (RenderRecord render in segment.RenderHistory.OrderByDescending(item => item.TakeNumber))
-            TakeSelector.Items.Add(new ComboBoxItem { Content = $"Take {render.TakeNumber:00}", Tag = render.RenderId });
-        TakeSelector.SelectedIndex = TakeSelector.Items.Count > 0 ? 0 : -1;
+        // Keep the operator's take when the same segment refreshes without new takes (for example
+        // after approval). A different segment, or a segment that just gained a take, starts on the newest.
+        Guid? previous = TakeSelector.SelectedItem is ComboBoxItem { Tag: Guid selectedId } ? selectedId : null;
+        bool sameSegment = string.Equals(_takeSelectorSegmentId, segment.SegmentId, StringComparison.Ordinal);
+        bool gainedTake = segment.RenderHistory.Count > _takeSelectorCount;
+        _takeSelectorSegmentId = segment.SegmentId;
+        _takeSelectorCount = segment.RenderHistory.Count;
+        // Clearing and refilling raises transient selection changes (including "no take"); handle the
+        // final selection once below so a refresh neither clears the playing take nor ends chapter playback.
+        _populatingTakeSelector = true;
+        try
+        {
+            TakeSelector.Items.Clear();
+            foreach (RenderRecord render in segment.RenderHistory.OrderByDescending(item => item.TakeNumber))
+                TakeSelector.Items.Add(new ComboBoxItem { Content = $"Take {render.TakeNumber:00}", Tag = render.RenderId });
+            int preserved = sameSegment && !gainedTake && previous is Guid id
+                ? TakeSelector.Items.OfType<ComboBoxItem>().ToList().FindIndex(item => item.Tag is Guid tag && tag == id)
+                : -1;
+            TakeSelector.SelectedIndex = preserved >= 0 ? preserved : TakeSelector.Items.Count > 0 ? 0 : -1;
+        }
+        finally
+        {
+            _populatingTakeSelector = false;
+        }
+
+        EndChapterPlaybackForManualChange(GetSelectedRender()?.RenderId);
+        PopulateTakeList(segment);
         _ = UpdateTransportAsync();
+        if (GetSelectedRender() is not null) AudioDock.SelectTakeTarget();
     }
 
     private void ResetTakeReviewContext()
@@ -3004,7 +3056,12 @@ public sealed partial class WorkbenchView : UserControl
         TakeReviewStatusText.Text = "NO TAKES";
         TakeSelector.Items.Clear();
         TakeSelector.SelectedIndex = -1;
+        _takeSelectorSegmentId = null;
+        _takeSelectorCount = 0;
+        PopulateTakeList(null);
         PreviousTakeButton.IsEnabled = false;
+        NextTakeButton.IsEnabled = false;
+        RevealTakeButton.IsEnabled = false;
         ListenToTakeButton.IsEnabled = false;
         PickupButton.IsEnabled = false;
         ApproveButton.IsEnabled = false;
@@ -3021,26 +3078,39 @@ public sealed partial class WorkbenchView : UserControl
 
     private async void TakeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_populatingTakeSelector) return;
+        EndChapterPlaybackForManualChange(GetSelectedRender()?.RenderId);
         EndFollowSession();
+        SyncTakeListSelection();
         await UpdateTransportAsync();
         if (GetSelectedRender() is not null) AudioDock.SelectTakeTarget();
     }
 
-    private async void ListenToTake_Click(object sender,RoutedEventArgs e)
+    private async void ListenToTake_Click(object sender,RoutedEventArgs e) => await PlaySelectedTakeAsync(toggle: true);
+
+    /// <summary>Plays the selected take through the shared transport (pausing it when <paramref name="toggle"/> and already playing).</summary>
+    private async Task PlaySelectedTakeAsync(bool toggle = false)
     {
         if (_listenTakePending) return;
+        if (toggle && TakeTransport.IsPlaying)
+        {
+            TakeTransport.Pause();
+            return;
+        }
+
         _listenTakePending = true;
         UpdateListenToTakeButton();
         AudioDock.SelectTakeTarget();
-        try { await TakeTransport.TogglePlaybackAsync(); }
+        try { await TakeTransport.PlayAsync(); }
         finally { _listenTakePending = false; UpdateListenToTakeButton(); }
     }
 
     private void UpdateListenToTakeButton()
     {
         ListenToTakeButton.IsEnabled = TakeTransport.HasAudio && !_listenTakePending;
-        ListenToTakeButton.Content = _listenTakePending ? "Loading take…" : TakeTransport.IsPlaying ? "Ⅱ Pause take" : "▶ Listen to take";
+        ListenToTakeButton.Content = _listenTakePending ? "Loading…" : TakeTransport.IsPlaying ? "Ⅱ  Pause" : "▶  Play take";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ListenToTakeButton,TakeTransport.IsPlaying ? "Pause selected narration take" : "Listen to selected narration take");
+        UpdateTakeRowPlayStates();
     }
 
     private async Task UpdateTransportAsync()
@@ -3053,6 +3123,8 @@ public sealed partial class WorkbenchView : UserControl
         RenderRecord? render = GetSelectedRender();
         bool hasTake = render is not null;
         PreviousTakeButton.IsEnabled = TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1;
+        NextTakeButton.IsEnabled = TakeSelector.SelectedIndex > 0;
+        RevealTakeButton.IsEnabled = hasTake;
         PickupButton.IsEnabled = hasTake;
         ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated;
         AlignmentProgressRing.IsActive = false;
@@ -3351,6 +3423,7 @@ public sealed partial class WorkbenchView : UserControl
     private void TakeTransport_PlaybackStateChanged(object? sender, AudioTransportStateChangedEventArgs e)
     {
         UpdateListenToTakeButton();
+        AdvanceChapterPlaybackIfEnded(e.State);
         if (e.State is AudioTransportState.Paused or AudioTransportState.Ended
             or AudioTransportState.Failed or AudioTransportState.Cleared)
         {

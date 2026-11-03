@@ -81,9 +81,19 @@
                                 <TextBlock Text="Render this sample to hear the exact configuration."
                                            Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
                                 <controls:AudioTransport x:Name="AuditionATransport" />
-                                <Button Content="Render A" Style="{StaticResource QuietButtonStyle}" Tag="A"
-                                        HorizontalAlignment="Left" Click="RenderSingle_Click"
-                                        AutomationProperties.Name="Render audition A" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Render A" Style="{StaticResource QuietButtonStyle}" Tag="A"
+                                            Click="RenderSingle_Click"
+                                            AutomationProperties.Name="Render audition A" />
+                                    <Button Style="{StaticResource QuietButtonStyle}" Tag="A" Click="RevealAudition_Click"
+                                            ToolTipService.ToolTip="Show this audition sample in File Explorer"
+                                            AutomationProperties.Name="Show audition A in folder">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE838;" FontSize="13" />
+                                            <TextBlock Text="Show in folder" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                         <Button x:Name="UseAButton" Content="Use A settings as project voice" Style="{StaticResource QuietButtonStyle}" Tag="A"
@@ -117,9 +127,19 @@
                                 <TextBlock Text="Render this sample to hear the exact configuration."
                                            Style="{StaticResource ReadingTextStyle}" Foreground="{ThemeResource MutedTextBrush}" />
                                 <controls:AudioTransport x:Name="AuditionBTransport" />
-                                <Button Content="Render B" Style="{StaticResource QuietButtonStyle}" Tag="B"
-                                        HorizontalAlignment="Left" Click="RenderSingle_Click"
-                                        AutomationProperties.Name="Render audition B" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Render B" Style="{StaticResource QuietButtonStyle}" Tag="B"
+                                            Click="RenderSingle_Click"
+                                            AutomationProperties.Name="Render audition B" />
+                                    <Button Style="{StaticResource QuietButtonStyle}" Tag="B" Click="RevealAudition_Click"
+                                            ToolTipService.ToolTip="Show this audition sample in File Explorer"
+                                            AutomationProperties.Name="Show audition B in folder">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE838;" FontSize="13" />
+                                            <TextBlock Text="Show in folder" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                         <Button x:Name="UseBButton" Content="Use B settings as project voice" Style="{StaticResource QuietButtonStyle}" Tag="B"

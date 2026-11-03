@@ -1,4 +1,5 @@
 using IssueLab.VoiceBench.App.Layout;
+using IssueLab.VoiceBench.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
@@ -167,8 +168,7 @@ public sealed partial class SettingsView : UserControl
                 .Select(item => item.TryGetProperty("command", out JsonElement command) ? command.GetString() ?? "Job" : "Job").ToArray();
             LocalMcpJobsText.Text = active.Length == 0 ? "No active jobs" : $"{active.Length} active job(s): {string.Join(", ", active)}";
             var tools = App.Services.FindInstalledFfmpeg();
-            FfmpegStatusText.Text = tools is null ? "!  MISSING" : "✓  VERIFIED";
-            ToolTipService.SetToolTip(FfmpegStatusText, tools?.FfmpegPath);
+            SetFfmpegStatus(tools is null ? "!  MISSING" : "✓  VERIFIED", tools?.FfmpegPath);
         }
         catch { LocalMcpStatusText.Text = "Local control status is temporarily unavailable."; }
         finally { _refreshingLocalControl = false; _localControlRefreshActive = false; }
@@ -195,12 +195,12 @@ public sealed partial class SettingsView : UserControl
             ToolchainPaths toolchain = App.Services.Session.HasProject
                 ? await App.Services.RunTrackedJobAsync<ToolchainPaths>("toolchain.ensure", new { })
                 : await App.Services.EnsureFfmpegAsync();
-            FfmpegStatusText.Text = "✓  VERIFIED";
+            SetFfmpegStatus("✓  VERIFIED", toolchain.FfmpegPath);
             ShowStatus(InfoBarSeverity.Success, "FFmpeg ready", toolchain.FfmpegPath);
         }
         catch (Exception exception)
         {
-            FfmpegStatusText.Text = "!  MISSING";
+            SetFfmpegStatus("!  MISSING", App.Services.FindInstalledFfmpeg()?.FfmpegPath);
             ShowStatus(InfoBarSeverity.Error, "FFmpeg setup failed", $"Nothing unverified was installed. {exception.Message}");
         }
     }
@@ -219,7 +219,7 @@ public sealed partial class SettingsView : UserControl
             Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
             if (file is null) return;
             var toolchain = App.Services.SelectExistingFfmpeg(file.Path);
-            FfmpegStatusText.Text = "✓  SELECTED";
+            SetFfmpegStatus("✓  SELECTED", toolchain.FfmpegPath);
             ShowStatus(InfoBarSeverity.Success, "Existing FFmpeg selected", $"Using {toolchain.FfmpegPath} with the adjacent ffprobe.exe.");
         }
         catch (Exception exception)
@@ -230,13 +230,44 @@ public sealed partial class SettingsView : UserControl
 
     private async Task RefreshStatusAsync()
     {
-        OpenAiCredentialStatusText.Text = string.IsNullOrWhiteSpace(await App.Services.GetCredentialAsync("openai"))
-            ? "○  NOT CONFIGURED" : "✓  CONFIGURED";
-        GeminiCredentialStatusText.Text = string.IsNullOrWhiteSpace(await App.Services.GetCredentialAsync("gemini"))
-            ? "○  NOT CONFIGURED" : "✓  CONFIGURED";
+        SetCredentialStatus(OpenAiCredentialStatusText, OpenAiCredentialButton, "OpenAI",
+            !string.IsNullOrWhiteSpace(await App.Services.GetCredentialAsync("openai")));
+        SetCredentialStatus(GeminiCredentialStatusText, GeminiCredentialButton, "Gemini",
+            !string.IsNullOrWhiteSpace(await App.Services.GetCredentialAsync("gemini")));
         var ffmpeg = App.Services.FindInstalledFfmpeg();
-        FfmpegStatusText.Text = ffmpeg is null ? "!  MISSING" : "✓  VERIFIED";
-        ToolTipService.SetToolTip(FfmpegStatusText, ffmpeg?.FfmpegPath);
+        SetFfmpegStatus(ffmpeg is null ? "!  MISSING" : "✓  VERIFIED", ffmpeg?.FfmpegPath);
+    }
+
+    private static Microsoft.UI.Xaml.Media.Brush ThemeBrush(string key) =>
+        (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources[key];
+
+    private static void SetCredentialStatus(TextBlock status, Button button, string providerName, bool configured)
+    {
+        status.Text = configured ? "✓  CONFIGURED" : "○  NOT CONFIGURED";
+        status.Foreground = ThemeBrush(configured ? "ApprovalBrush" : "PickupBrush");
+        button.Content = configured ? $"Replace {providerName} key" : $"Add {providerName} key";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+            button,
+            $"{(configured ? "Replace" : "Add")} {providerName} API key in Windows Credential Manager");
+    }
+
+    private void SetFfmpegStatus(string text, string? ffmpegPath)
+    {
+        bool ok = text.StartsWith('✓');
+        FfmpegStatusText.Text = text;
+        FfmpegStatusText.Foreground = ThemeBrush(ok ? "ApprovalBrush" : "PickupBrush");
+        FfmpegStatusBadge.BorderBrush = ThemeBrush(ok ? "ApprovalBrush" : "PickupBrush");
+        ToolTipService.SetToolTip(FfmpegStatusText, ffmpegPath);
+        FfmpegPathText.Text = ffmpegPath ?? "%LOCALAPPDATA%\\IssueLab\\VoiceBench\\Tools";
+        RevealFfmpegButton.IsEnabled = ffmpegPath is not null;
+        RevealFfmpegButton.Tag = ffmpegPath;
+    }
+
+    private async void RevealFfmpeg_Click(object sender, RoutedEventArgs e)
+    {
+        if (RevealFfmpegButton.Tag is not string path) return;
+        try { await ShellLauncher.RevealFileAsync(path); }
+        catch (Exception exception) { ShowStatus(InfoBarSeverity.Error, "FFmpeg location could not be shown", exception.Message); }
     }
 
     private void ShowStatus(InfoBarSeverity severity, string title, string message)

@@ -34,10 +34,42 @@ public sealed partial class AudioTransport : UserControl
         });
     }
 
+    /// <summary>
+    /// Single-row layout for docked bars: restart, seek and time on one line, without the raised
+    /// surface, label/state text or play button (the host supplies its own play control).
+    /// </summary>
+    public bool IsCompact
+    {
+        get => _isCompact;
+        set
+        {
+            _isCompact = value;
+            TransportSurface.Background = value ? null : (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["PanelRaisedBrush"];
+            TransportSurface.BorderThickness = value ? new Thickness(0) : new Thickness(1);
+            TransportSurface.Padding = value ? new Thickness(0) : new Thickness(10);
+            TransportMetadata.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            Grid.SetRow(PositionSlider, value ? 0 : 2);
+            Grid.SetColumn(PositionSlider, value ? 2 : 0);
+            Grid.SetColumnSpan(PositionSlider, value ? 1 : 4);
+            if (value)
+            {
+                Grid.SetColumn(TransportTime, 3);
+                TransportTimeColumn.Width = GridLength.Auto;
+            }
+            // Docked hosts provide their own primary play control next to the take selector.
+            PlayPauseButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
+    private bool _isCompact;
+
     public event EventHandler? PlaybackStarted;
     public event EventHandler<AudioPositionChangedEventArgs>? PlaybackPositionChanged;
     public event EventHandler<AudioTransportStateChangedEventArgs>? PlaybackStateChanged;
     public bool HasAudio => _sourcePath is not null;
+
+    /// <summary>Full path of the loaded audio file, for "show in folder" actions.</summary>
+    public string? SourcePath => _sourcePath;
     public bool IsPlaying => IsActive && App.Services.AudioPlayback?.IsPlaying == true;
     public SelectedTakePlaybackState ReadSelectedTakeState() => new(HasAudio,IsActive,IsPlaying,_audioLabel,
         IsActive ? App.Services.AudioPlayback?.Position ?? TimeSpan.Zero : TimeSpan.Zero,
@@ -137,9 +169,17 @@ public sealed partial class AudioTransport : UserControl
         if (!IsActive || App.Services.AudioPlayback is not { } playback) return;
         _knownDuration = playback.Duration;
         bool playing = playback.IsPlaying;
-        SetPlaybackState(playing ? "PLAYING" : "READY",playing);
-        RaiseState(playing ? AudioTransportState.Playing : AudioTransportState.Paused);
-        UpdatePositionUi(playback.Position);
+        TimeSpan position = playback.Position;
+        TransportPhase phase = TransportPhaseRules.Next(playing,
+            _lastState is AudioTransportState.Playing or AudioTransportState.Ended, position, _knownDuration);
+        SetPlaybackState(phase switch { TransportPhase.Playing => "PLAYING", TransportPhase.Ended => "ENDED", _ => "READY" },playing);
+        RaiseState(phase switch
+        {
+            TransportPhase.Playing => AudioTransportState.Playing,
+            TransportPhase.Ended => AudioTransportState.Ended,
+            _ => AudioTransportState.Paused,
+        });
+        UpdatePositionUi(position);
     }
 
     private void SetPlaybackState(string state,bool playing)
