@@ -24,13 +24,21 @@ of the title bar expands the section rail. Sections have shortcuts Alt+1 to Alt+
 
 ## Workbench layout
 
-- **Chapter rail** (left): chapters and segments with status colours. The **•••** menu
-  and the right-click menu include **Show in folder** (the script) and **Show takes
-  folder** (that segment's audio).
+- **Chapter rail** (left): chapters and segments with status colours. Each chapter shows
+  how many segments are approved and the total running time of its approved takes
+  (for example `7/8 approved · 01:37 approved audio`). The **•••** menu and the
+  right-click menu include **Show in folder** (the script) and **Show takes folder**
+  (that segment's audio). A segment's right-click menu also has **Copy script text** and
+  **Save script text as…**.
 - **Script editor** (centre): the folder icon beside the script path shows the file in
-  Explorer. **Mark ready** is Ctrl+Enter.
+  Explorer. **Export text** copies or saves the segment's text: the **full script**
+  (with production cues) or the **narration only** (the words that are spoken). It
+  exports what the editor shows, including unsaved edits, and saves with Windows line
+  endings. **Mark ready** is Ctrl+Enter.
 - **Inspector** (right) has three tabs. The last tab you used is remembered.
-  - **Voice**: provider, model, voice, direction, and **Render segment** (Ctrl+R).
+  - **Voice**: provider, model, voice, direction, **Render segment** (Ctrl+R) and
+    **Render & play**, which plays the new take as soon as it is ready. **Batch** starts
+    a batch generation (see below).
   - **Takes**: every take of the segment, newest first. Each take shows its status
     (Approved, Awaiting review, Script changed, Previously approved, Failed), voice,
     duration, and time. Use **Play**, **Show in folder**, **Copy path** and **Approve** on
@@ -52,6 +60,42 @@ inspector beneath it.
 
 A new render selects its take automatically. A refresh of the same segment (for example
 after approval) keeps the take you were reviewing selected.
+
+Status messages appear on a card at the bottom of the script. Progress and success
+messages close on their own after a few seconds (hovering keeps them open). Warnings
+and errors stay until you close them.
+
+## Generate several segments
+
+Batch generation renders a new take for several segments, one provider request at a
+time, with the **project voice**. Start it from:
+
+- **Batch › From this segment to chapter end…** or **Batch › Whole chapter…** in the
+  Voice tab.
+- **Generate from here to chapter end…** on a segment's right-click menu, or **Generate
+  chapter…** on a chapter's.
+- The rail's select button (or **Select segments to generate**): tick segments, or tick
+  a chapter for all of its segments, then press **Generate…**. Ticks survive saves and
+  renders while selection mode is on.
+
+A confirmation lists every candidate in chapter order with its status and estimated
+length, and names the voice. Approved segments start unticked, because a new take
+replaces their approved status until you approve again. Segments that are already
+rendering, or whose script has a cue error or no narration, cannot be ticked. If the
+Voice tab shows a different voice from the project voice, the confirmation says so;
+click **Use as project voice** first to generate with it. When the project has no voice
+yet, the voice shown in the Voice tab becomes the project voice.
+
+While it runs, a strip above the take bar shows `Generating 2 of 5` and the segment, and
+the render queue shows `BATCH 2 OF 5`. The editor follows each segment. **Stop after
+this take** finishes the current take and stops; pressing it again (**Cancel this take
+too**) cancels the current request. **Cancel render** in the Voice tab cancels at once.
+
+A problem with one segment's script or the provider refusing one script skips to the
+next segment. Missing or rejected keys, rate limits, network failures, file errors or an
+unresolved external edit stop the batch, so no more requests are sent. So do three
+failures in a row. The final message lists what was generated, what failed and why, and
+how many segments were not generated. Generated takes are never discarded.
 
 ## Play a chapter
 
@@ -82,7 +126,8 @@ or take yourself ends it.
 - **Assembly**: **Masters folder** opens `05-masters`. **Built masters** lists narration
   masters and mix exports, newest first, with inline playback, Show in folder, Open in
   default player and Copy file path. After a build, the message offers **Show in
-  folder**. Each chapter card has **Play approved takes**.
+  folder**. Each chapter card shows its approved-audio total and has **Play approved
+  takes**.
 - **Audio**: header buttons open `04-generated-audio` and `05-masters`. Mix export can
   show the exported file in Explorer when it finishes (on by default).
 - **Voice Lab**: each audition card has **Show in folder** for its sample.

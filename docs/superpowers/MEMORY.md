@@ -1,5 +1,20 @@
 # Active program index
 
+- Batch generation and Workbench extras, 2026-11-03: implemented on
+  `codex/batch-generate` (based on `codex/ui-overhaul`). Generate several segments with
+  the project voice from rail ticks (TreeView multi-select mode), "from here to chapter
+  end" or a whole chapter, behind a confirmation checklist (approved segments start
+  unticked). Sequential tracked `render.start` jobs with stop-after-take/cancel and
+  tested stop rules. Also: Voice tab **Render & play**; segment **Export text** (copy or
+  save full script or narration only); chapter approved-audio totals in the rail and
+  Assembly; the status toast moved to an opaque, auto-dismissing card over the script.
+  Operator guide: [workbench](../workbench.md). Installed signed 1.2.0.7; Release build
+  clean, 486 tests pass. Runtime smoke covered selection mode, the confirmation dialogs,
+  clipboard and file export, toast dismissal and the totals, plus one live operator-
+  approved batch (ORCA segment 008: one Gemini take with the project voice, word follow
+  97%). An independent review's cancellation and request-count findings are fixed.
+  Render & play has not been run live (it costs a provider request).
+
 - Desktop UI overhaul 1.2, 2026-11-03: implemented on `codex/ui-overhaul` (based on
   `codex/take-review-playback`). TitleBar project-folder menu; Workbench with the
   script at full height, inspector tabs (Voice/Takes/Write), a one-row take bar, and
