@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:IssueLab.VoiceBench.App.Controls"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
@@ -269,7 +270,8 @@
                             </StackPanel>
                         </InfoBar.Content>
                     </InfoBar>
-                    <RichEditBox x:Name="ScriptTextBox" Grid.Row="2" Margin="0,8" TextWrapping="Wrap"
+                    <Grid Grid.Row="2">
+                    <RichEditBox x:Name="ScriptTextBox" Margin="0,8" TextWrapping="Wrap"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="15"
                                  FontFamily="{StaticResource ReadingFont}" TextChanged="ScriptTextBox_TextChanged"
                                  SelectionChanged="ScriptTextBox_SelectionChanged"
@@ -307,6 +309,13 @@
                             </MenuFlyout>
                         </RichEditBox.ContextFlyout>
                     </RichEditBox>
+                    <Border x:Name="PlaybackScriptSurface" Visibility="Collapsed" Margin="0,8" Background="{ThemeResource BaseBrush}" BorderBrush="{ThemeResource ActiveSignalBrush}" BorderThickness="1" Padding="16">
+                        <Grid RowSpacing="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <TextBlock Text="PLAYBACK SCRIPT  ·  READ ONLY" Style="{StaticResource UtilityLabelTextStyle}"/>
+                            <ScrollViewer x:Name="PlaybackScriptScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"><RichTextBlock x:Name="PlaybackScriptText" IsTextSelectionEnabled="True" FontFamily="{StaticResource ReadingFont}" FontSize="15" AutomationProperties.Name="Read-only synchronized playback script"/></ScrollViewer>
+                        </Grid>
+                    </Border>
+                    </Grid>
                     <Grid Grid.Row="3" ColumnSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <TextBlock x:Name="ScriptPathText"
@@ -539,7 +548,11 @@
                     </Grid>
                 </Border>
 
-                <controls:AudioTransport x:Name="TakeTransport" Grid.Row="3" Grid.ColumnSpan="4" />
+                <controls:AudioTransport x:Name="TakeTransport" Visibility="Collapsed" Grid.Row="3" Grid.ColumnSpan="4" />
+                <StackPanel Grid.Row="3" Grid.ColumnSpan="4">
+                    <primitives:Thumb Height="6" HorizontalAlignment="Stretch" DragDelta="AudioDock_DragDelta" AutomationProperties.Name="Resize audio timeline dock"/>
+                    <controls:AudioTimelineControl x:Name="AudioDock" MinHeight="100"/>
+                </StackPanel>
             </Grid>
         </Border>
         </Grid>

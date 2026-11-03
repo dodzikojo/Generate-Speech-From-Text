@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using IssueLab.VoiceBench.Core;
@@ -12,7 +13,8 @@ public sealed class FileAuthoringTransactionManager(
     private const string HistoryFileName = "history.json";
     private const string PendingFileName = "pending.json";
     private const string SnapshotMetadataFileName = "snapshot.json";
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProjectGates = new(StringComparer.OrdinalIgnoreCase);
+    private static SemaphoreSlim Gate(string root) => ProjectGates.GetOrAdd(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)), _ => new(1, 1));
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly int _historyLimit = historyLimit > 0 ? historyLimit : throw new ArgumentOutOfRangeException(nameof(historyLimit));
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -36,7 +38,7 @@ public sealed class FileAuthoringTransactionManager(
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Gate(projectRoot).WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             JournalDocument journal = await LoadJournalAsync(projectRoot, cancellationToken).ConfigureAwait(false);
@@ -44,7 +46,7 @@ public sealed class FileAuthoringTransactionManager(
         }
         finally
         {
-            _gate.Release();
+            Gate(projectRoot).Release();
         }
     }
 
@@ -56,7 +58,7 @@ public sealed class FileAuthoringTransactionManager(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(label);
         ArgumentNullException.ThrowIfNull(action);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Gate(projectRoot).WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await RecoverInterruptedCoreAsync(projectRoot, cancellationToken).ConfigureAwait(false);
@@ -133,7 +135,7 @@ public sealed class FileAuthoringTransactionManager(
         }
         finally
         {
-            _gate.Release();
+            Gate(projectRoot).Release();
         }
     }
 
@@ -151,14 +153,14 @@ public sealed class FileAuthoringTransactionManager(
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Gate(projectRoot).WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             return await RecoverInterruptedCoreAsync(projectRoot, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            _gate.Release();
+            Gate(projectRoot).Release();
         }
     }
 
@@ -167,7 +169,7 @@ public sealed class FileAuthoringTransactionManager(
         bool undo,
         CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await Gate(projectRoot).WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await RecoverInterruptedCoreAsync(projectRoot, cancellationToken).ConfigureAwait(false);
@@ -183,7 +185,10 @@ public sealed class FileAuthoringTransactionManager(
                 projectRoot,
                 ResolveInternalPath(projectRoot, recoveryRelativePath),
                 cancellationToken).ConfigureAwait(false);
-            string expectedHash = undo ? transaction.AfterStateSha256 : transaction.BeforeStateSha256;
+            // Recalculate normalized authoring state from the opposite snapshot. This migrates
+            // older-schema history in memory, including added defaults, before comparing it.
+            string expectedSnapshot = $"{TransactionRelativeDirectory(transaction.TransactionId)}/{(undo ? "after" : "before")}";
+            string expectedHash = await SnapshotAuthoringHashAsync(ResolveInternalPath(projectRoot, expectedSnapshot), cancellationToken).ConfigureAwait(false);
             if (!string.Equals(current.StateSha256, expectedHash, StringComparison.OrdinalIgnoreCase))
             {
                 Directory.Delete(ResolveInternalPath(projectRoot, recoveryRelativePath), recursive: true);
@@ -232,7 +237,7 @@ public sealed class FileAuthoringTransactionManager(
         }
         finally
         {
-            _gate.Release();
+            Gate(projectRoot).Release();
         }
     }
 
@@ -339,6 +344,9 @@ public sealed class FileAuthoringTransactionManager(
         else
         {
             CopySnapshotFile(projectRoot, snapshotDirectory, manifest);
+            // Interrupted legacy transactions may contain an old manifest. Restore through the
+            // same no-I/O migration path instead of leaving the project on an obsolete schema.
+            await new FileProjectRepository().LoadAsync(projectRoot, cancellationToken).ConfigureAwait(false);
         }
         RemoveEmptyManagedDirectories(projectRoot);
     }
@@ -432,6 +440,14 @@ public sealed class FileAuthoringTransactionManager(
             AudioStandard = AudioStandard.NarrationDefault,
             VoicePresets = [],
             DefaultVoicePresetId = null,
+            AudioAssets = [],
+            AudioTimelineRevisionCounters = [],
+            AudioTimelines = document.AudioTimelines.Select(t => t with
+            {
+                Revision = 0,
+                ReplacementProposals = [],
+                Tracks = t.Tracks.Select(track => track with { Solo = false }).ToList(),
+            }).ToList(),
             Segments = document.Segments.Select(segment => segment with
             {
                 Status = SegmentStatus.Draft,
@@ -485,6 +501,12 @@ public sealed class FileAuthoringTransactionManager(
             VoicePresets = current.VoicePresets,
             DefaultVoicePresetId = current.DefaultVoicePresetId,
             Segments = mergedSegments,
+            AudioAssets = current.AudioAssets.Concat(target.AudioAssets).DistinctBy(asset => asset.AssetId).ToList(),
+            AudioTimelineRevisionCounters = MergeTimelineRevisions(current, target),
+            AudioTimelines = target.AudioTimelines.Select(t => t with
+            {
+                Revision = Math.Max(t.Revision, current.AudioTimelines.FirstOrDefault(c => c.Scope == t.Scope && c.ChapterId == t.ChapterId)?.Revision ?? 0) + 1,
+            }).ToList(),
         };
         await repository.SaveAsync(projectRoot, merged, cancellationToken).ConfigureAwait(false);
     }
@@ -494,11 +516,35 @@ public sealed class FileAuthoringTransactionManager(
         CancellationToken cancellationToken)
     {
         await using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return await JsonSerializer.DeserializeAsync<VoiceBenchProjectDocument>(
-                   stream,
-                   ProjectJson.SerializerOptions,
-                   cancellationToken).ConfigureAwait(false)
-               ?? throw new InvalidDataException("The transaction manifest snapshot is empty.");
+        var node = await System.Text.Json.Nodes.JsonNode.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false)
+            as System.Text.Json.Nodes.JsonObject ?? throw new InvalidDataException("The transaction manifest snapshot is empty.");
+        return new ProjectDocumentMigrator([new OneToTwoProjectDocumentMigration(), new TwoToThreeProjectDocumentMigration(), new ThreeToFourProjectDocumentMigration(), new FourToFiveProjectDocumentMigration()]).Deserialize(node);
+    }
+
+    private static Dictionary<string, long> MergeTimelineRevisions(VoiceBenchProjectDocument current, VoiceBenchProjectDocument target)
+    {
+        Dictionary<string, long> revisions = new(current.AudioTimelineRevisionCounters, StringComparer.Ordinal);
+        foreach (var timeline in current.AudioTimelines.Concat(target.AudioTimelines))
+        {
+            string key = AudioTimelineRules.RevisionKey(timeline.Scope, timeline.ChapterId);
+            revisions[key] = Math.Max(revisions.GetValueOrDefault(key), timeline.Revision);
+        }
+        foreach (string key in revisions.Keys.ToArray()) revisions[key] = checked(revisions[key] + 1);
+        return revisions;
+    }
+
+    private static async Task<string> SnapshotAuthoringHashAsync(string snapshotDirectory, CancellationToken token)
+    {
+        SnapshotDocument snapshot = await ReadJsonAsync<SnapshotDocument>(Path.Combine(snapshotDirectory, SnapshotMetadataFileName), token).ConfigureAwait(false)
+            ?? throw new InvalidDataException("The authoring snapshot metadata is empty.");
+        List<SnapshotFile> files = [];
+        foreach (var file in snapshot.Files)
+        {
+            files.Add(file.RelativePath.Equals(VoiceBenchProjectLayout.ManifestFileName, StringComparison.OrdinalIgnoreCase)
+                ? file with { Sha256 = await ManifestAuthoringSha256Async(ResolveSnapshotPath(snapshotDirectory, file.RelativePath), token).ConfigureAwait(false) }
+                : file);
+        }
+        return ComputeStateHash(files);
     }
 
     private static async Task ApplySnapshotWithRollbackAsync(

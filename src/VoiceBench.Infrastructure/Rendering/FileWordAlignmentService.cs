@@ -9,6 +9,7 @@ namespace IssueLab.VoiceBench.Infrastructure.Rendering;
 
 public sealed class FileWordAlignmentService : IWordAlignmentService
 {
+    public const long MaximumBufferedAlignmentBytes = 64L * 1024 * 1024;
     private readonly IProjectRepository _projects;
     private readonly WordAlignmentProviderRegistry _providers;
     private readonly ProviderCredentialResolver _credentials;
@@ -29,16 +30,34 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         _createAlignmentId = createAlignmentId ?? Guid.NewGuid;
     }
 
-    public async Task<WordAlignmentRecord> AlignAsync(
+    public Task<WordAlignmentRecord> AlignAsync(
         string projectRoot,
         string segmentId,
         Guid renderId,
+        CancellationToken cancellationToken = default) =>
+        AlignCoreAsync(projectRoot, segmentId, renderId, null, null, cancellationToken);
+
+    public Task<WordAlignmentRecord> AlignImportedAsync(
+        string projectRoot, string segmentId, Guid renderId, string providerId, string modelId,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        return AlignCoreAsync(projectRoot, segmentId, renderId, providerId, modelId, cancellationToken);
+    }
+
+    private async Task<WordAlignmentRecord> AlignCoreAsync(
+        string projectRoot, string segmentId, Guid renderId, string? importedProviderId, string? importedModelId,
+        CancellationToken cancellationToken)
     {
         string root = Path.GetFullPath(projectRoot);
         VoiceBenchProjectDocument project = await _projects.LoadAsync(root, cancellationToken).ConfigureAwait(false);
         (int segmentIndex, int renderIndex, SegmentDocument segment, RenderRecord render) =
             FindRender(project, segmentId, renderId);
+        if (render.Origin == RenderOrigin.Imported && importedProviderId is null)
+            throw new InvalidOperationException("Choose an explicit alignment provider and model for this imported recording.");
+        if (render.Origin != RenderOrigin.Imported && importedProviderId is not null)
+            throw new InvalidOperationException("Generated takes must be aligned by their generating provider.");
         if (render.Status is RenderStatus.Failed or RenderStatus.Cancelled || string.IsNullOrWhiteSpace(render.RawAudioRelativePath))
         {
             throw new InvalidOperationException("Only a successfully generated take can be aligned.");
@@ -47,8 +66,13 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         string audioRelativePath = render.ProcessedAudioRelativePath ?? render.RawAudioRelativePath;
         string audioPath = VoiceBenchProjectLayout.ResolveRelativePath(root, audioRelativePath);
         if (!File.Exists(audioPath)) throw new FileNotFoundException("The take audio required for alignment is missing.", audioPath);
+        if (new FileInfo(audioPath).Length > MaximumBufferedAlignmentBytes)
+            throw new InvalidDataException("This recording exceeds VoiceBench's 64 MiB alignment buffer. Import a shorter recording for this segment before aligning. Playback and mixing remain available; no audio was uploaded.");
         byte[] audio = await File.ReadAllBytesAsync(audioPath, cancellationToken).ConfigureAwait(false);
         string audioHash = Convert.ToHexStringLower(SHA256.HashData(audio));
+        if (render.Origin == RenderOrigin.Imported
+            && !string.Equals(audioHash, render.AudioSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The imported recording changed. Restore its original bytes or explicitly import a replacement before alignment.");
         SubmittedTextMapDocument map = await LoadOrBackfillMapAsync(
             root,
             project,
@@ -59,12 +83,16 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         IWordAlignmentProvider provider;
         try
         {
-            provider = _providers.GetRequired(render.ProviderId);
+            provider = _providers.GetRequired(importedProviderId ?? render.ProviderId);
+            if (importedModelId is not null && !string.Equals(provider.ModelId, importedModelId, StringComparison.Ordinal))
+                throw new InvalidOperationException("The selected alignment model is unavailable. VoiceBench will not substitute another model.");
         }
         catch (WordAlignmentProviderException exception)
         {
             WordAlignmentRecord unsupported = CreatePending(render, audioRelativePath, audioHash) with
             {
+                ProviderId = importedProviderId ?? render.ProviderId,
+                ModelId = importedModelId ?? string.Empty,
                 Status = WordAlignmentStatus.Unsupported,
                 CompletedAt = _timeProvider.GetUtcNow(),
                 FailureCode = $"provider_{exception.Kind.ToString().ToLowerInvariant()}",
@@ -295,7 +323,8 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(authoring);
         if (!string.Equals(SourceTextHasher.Compute(parsed.NarrationText), render.SourceSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("This historical take's script snapshot does not match its narration hash. Rerender it to align words.");
-        PreparedSpeechText prepared = LexiconSubstitution.Prepare(parsed, project.Lexicon);
+        // Imported recordings are matched to the reference transcript verbatim, never to synthesis-only pronunciation substitutions.
+        PreparedSpeechText prepared = LexiconSubstitution.Prepare(parsed, render.Origin == RenderOrigin.Imported ? [] : project.Lexicon);
         if (!string.Equals(SourceTextHasher.Compute(prepared.Text), render.SubmittedTextSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("This historical take's exact submitted text cannot be reconstructed. Rerender it to align words.");
         return new SubmittedTextMapDocument
@@ -433,6 +462,9 @@ public sealed class FileWordAlignmentService : IWordAlignmentService
         ".mp3" => "audio/mp3",
         ".flac" => "audio/flac",
         ".ogg" => "audio/ogg",
+        ".m4a" or ".mp4" => "audio/mp4",
+        ".aac" => "audio/aac",
+        ".webm" => "audio/webm",
         _ => "audio/wav",
     };
 

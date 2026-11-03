@@ -113,9 +113,9 @@ public static class AutomationCapabilities
         Add("render.audition", "Queue an audition with an explicit provider, model and voice.", fields: [("slot", "string", true), ("providerId", "string", true), ("modelId", "string", true), ("voice", "string", true), ("directions", "string", false), ("text", "string", true)]);
         Add("render.list", "Read immutable take history.", true, fields: [("segmentId", "string", true)]);
         Add("render.process", "Queue processing of an explicitly selected take.", fields: [("segmentId", "string", true), ("renderId", "string", true)]);
-        Add("render.approve", "Approve an explicit render ID against current source.", fields: [("segmentId", "string", true), ("renderId", "string", true), ("explicitlyApproveStaleSource", "boolean", false)]);
+        Add("render.approve", "Approve an explicit render ID; imported narration requires confirmedTranscript=true.", fields: [("segmentId", "string", true), ("renderId", "string", true), ("explicitlyApproveStaleSource", "boolean", false), ("confirmedTranscript", "boolean", false)]);
         Add("render.pickup", "Mark a segment as requiring a pickup.", fields: [("segmentId", "string", true)]);
-        Add("alignment.start", "Queue word alignment of an explicit take; audio remains durable on failure.", fields: [("segmentId", "string", true), ("renderId", "string", true)]);
+        Add("alignment.start", "Queue take word alignment; imported narration requires explicit providerId/modelId.", fields: [("segmentId", "string", true), ("renderId", "string", true), ("providerId", "string", false), ("modelId", "string", false)]);
         Add("alignment.get", "Read a take's word-alignment records and latest artifact.", true, fields: [("segmentId", "string", true), ("renderId", "string", true)]);
         Add("playback.get", "Read desktop playback state.", true);
         Add("playback.play", "Play a selected take or specified project audio artifact.", fields: [("segmentId", "string", false), ("renderId", "string", false), ("relativePath", "string", false)]);
@@ -161,6 +161,7 @@ public static class AutomationCapabilities
             schema["properties"]![property] = nested;
             commands[index] = commands[index] with { InputSchema = JsonSerializer.SerializeToElement(schema, AutomationJson.Options) };
         }
+        commands.AddRange(AudioTimelineCapabilities.All);
         return commands.AsReadOnly();
     }
 }

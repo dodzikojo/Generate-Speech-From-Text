@@ -2,7 +2,7 @@ namespace IssueLab.VoiceBench.Core;
 
 public sealed record VoiceBenchProjectDocument
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
@@ -31,6 +31,15 @@ public sealed record VoiceBenchProjectDocument
     public WritingProfile WritingProfile { get; init; } = new();
 
     public List<SourceReferenceDocument> SourceReferences { get; init; } = [];
+
+    public List<AudioAssetRecord> AudioAssets { get; init; } = [];
+
+    public List<AudioTimelineDocument> AudioTimelines { get; init; } = [];
+
+    /// <summary>Monotonic concurrency tokens survive undo and the absence of an authored timeline.</summary>
+    public Dictionary<string, long> AudioTimelineRevisionCounters { get; init; } = new(StringComparer.Ordinal);
+
+    public MixOutputStandard MixOutputStandard { get; init; } = MixOutputStandard.Default;
 }
 
 public sealed record ChapterDocument
@@ -79,6 +88,10 @@ public sealed record SegmentDocument
 
 public sealed record RenderRecord
 {
+    public RenderOrigin Origin { get; init; } = RenderOrigin.Generated;
+
+    public bool ReferenceTranscriptConfirmed { get; init; }
+
     public Guid RenderId { get; init; } = Guid.NewGuid();
 
     public int TakeNumber { get; init; }
@@ -259,3 +272,5 @@ public enum RenderStatus
     Failed,
     Cancelled,
 }
+
+public enum RenderOrigin { Generated, Imported }

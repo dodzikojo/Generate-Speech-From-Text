@@ -6,7 +6,7 @@ namespace IssueLab.VoiceBench.Application.Bridge;
 internal static class LocalControlFraming
 {
     internal const string Protocol = "VoiceBench.LocalControl";
-    internal const int Version = 1;
+    internal const int Version = 2;
 
     internal static async Task WriteAsync<T>(Stream stream, T value, int maximumBytes, CancellationToken cancellationToken)
     {

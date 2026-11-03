@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\VoiceBench.Core\VoiceBench.Core.csproj" />
+    <ProjectReference Include="..\VoiceBench.Audio\VoiceBench.Audio.csproj" />
   </ItemGroup>
 </Project>

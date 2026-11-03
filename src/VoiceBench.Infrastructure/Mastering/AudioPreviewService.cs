@@ -17,7 +17,14 @@ public sealed class AudioPreviewService(IProcessRunner runner)
         if (!double.IsFinite(startSeconds) || startSeconds < 0 || !double.IsFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 30)
             throw new ArgumentOutOfRangeException(nameof(durationSeconds), "Audio previews require a nonnegative start and a duration up to 30 seconds.");
         string normalized = relativePath.Replace('\\', '/');
-        if (!normalized.StartsWith("04-generated-audio/", StringComparison.OrdinalIgnoreCase)
+        bool imported=normalized.StartsWith("01-source/audio/",StringComparison.OrdinalIgnoreCase);
+        if (imported)
+        {
+            var project=await new FileProjectRepository().LoadAsync(projectRoot,cancellationToken).ConfigureAwait(false);
+            if(!project.AudioAssets.Any(asset=>string.Equals(asset.RelativePath.Replace('\\','/'),normalized,StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("Select a registered imported audio asset for preview.");
+        }
+        if (!imported && !normalized.StartsWith("04-generated-audio/", StringComparison.OrdinalIgnoreCase)
             && !normalized.StartsWith("05-masters/", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Choose a known project audio artifact for preview.");
         string input = VoiceBenchProjectLayout.ResolveRelativePath(projectRoot, normalized);

@@ -8,7 +8,8 @@ namespace IssueLab.VoiceBench.Application;
 
 public sealed record AutomationJobSnapshot(Guid JobId, string Command, RenderJobStatus Status,
     DateTimeOffset CreatedAt, double Progress = 0, DateTimeOffset? StartedAt = null,
-    DateTimeOffset? FinishedAt = null, string? FailureCode = null, JsonElement? Result = null, Guid? RetryOf = null);
+    DateTimeOffset? FinishedAt = null, string? FailureCode = null, JsonElement? Result = null, Guid? RetryOf = null,
+    string? FailureMessage = null);
 
 public sealed partial class AutomationDispatcher
 {
@@ -75,7 +76,7 @@ public sealed partial class AutomationDispatcher
             if (!systemJob && !string.Equals(root, ProjectRoot, StringComparison.OrdinalIgnoreCase)) throw new AutomationException("project.changed", "The job's project is no longer active.");
             object? result = job.Command.StartsWith("writing.", StringComparison.Ordinal)
                 ? await ExecuteWritingAsync(job.Command, args, cancellation.Token).ConfigureAwait(false)
-                : await DesktopAsync(job.Command, args, cancellation.Token).ConfigureAwait(false);
+                : await DesktopAsync(job.Command is "assets.import" or "assets.prepare" or "assets.relink" or "mix.export" ? job.Command + ".execute" : job.Command, args, cancellation.Token).ConfigureAwait(false);
             // Synthesis may successfully retain audio while cancellation stops secondary word alignment.
             job = job with { Status = RenderJobStatus.Completed, FinishedAt = DateTimeOffset.UtcNow, Progress = 1, Result = AutomationJson.Element(result) };
         }
@@ -86,7 +87,7 @@ public sealed partial class AutomationDispatcher
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             AutomationResult failure = ToError(exception);
-            job = job with { Status = RenderJobStatus.Failed, FinishedAt = DateTimeOffset.UtcNow, FailureCode = failure.Code };
+            job = job with { Status = RenderJobStatus.Failed, FinishedAt = DateTimeOffset.UtcNow, FailureCode = failure.Code, FailureMessage = failure.Message };
         }
         finally
         {

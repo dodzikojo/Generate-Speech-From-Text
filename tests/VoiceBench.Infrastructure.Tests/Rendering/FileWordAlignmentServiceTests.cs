@@ -12,6 +12,24 @@ namespace IssueLab.VoiceBench.Infrastructure.Tests.Rendering;
 public sealed class FileWordAlignmentServiceTests
 {
     [Fact]
+    public async Task Oversized_recording_is_rejected_before_buffering_or_provider_submission()
+    {
+        using TemporaryDirectory directory=new();
+        FileProjectRepository repository=new();
+        var (segmentId,renderId)=await SeedTakeAsync(directory.Root,repository);
+        var project=await repository.LoadAsync(directory.Root);
+        var render=project.Segments.Single().RenderHistory.Single();
+        string path=VoiceBenchProjectLayout.ResolveRelativePath(directory.Root,render.RawAudioRelativePath);
+        await using(var file=new FileStream(path,FileMode.Open,FileAccess.Write))file.SetLength(FileWordAlignmentService.MaximumBufferedAlignmentBytes+1);
+        var provider=new RecordingAlignmentProvider([]);
+        var service=CreateService(repository,provider);
+        var error=await Assert.ThrowsAsync<InvalidDataException>(()=>service.AlignAsync(directory.Root,segmentId,renderId));
+        Assert.Contains("64 MiB",error.Message,StringComparison.Ordinal);
+        Assert.Null(provider.Request);
+        Assert.Equal(RenderStatus.Generated,(await repository.LoadAsync(directory.Root)).Segments.Single().RenderHistory.Single().Status);
+    }
+
+    [Fact]
     public async Task AlignAsync_persists_versioned_timestamps_and_updates_only_alignment_history()
     {
         using TemporaryDirectory directory = new();

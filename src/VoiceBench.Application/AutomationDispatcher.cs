@@ -161,7 +161,7 @@ public sealed partial class AutomationDispatcher : IAutomationDispatcher, IDispo
             BindProject(null, null);
             return new { closed = true };
         }
-        if (IsDesktopCommand(command)) return await DesktopAsync(command, args, ct).ConfigureAwait(false);
+        if (command.StartsWith("mix.playback.", StringComparison.Ordinal) || IsDesktopCommand(command)) return await DesktopAsync(command, args, ct).ConfigureAwait(false);
         if (command == "toolchain.ensure") return await StartJobAsync(command, args, requestId, null, ct).ConfigureAwait(false);
         string projectRoot = RequireRoot();
         if (command is "segment.delete" or "chapter.delete" or "revisions.restore" or "segment.split")
@@ -180,6 +180,10 @@ public sealed partial class AutomationDispatcher : IAutomationDispatcher, IDispo
             return new { jobs };
         }
         if (IsLongCommand(command)) return await StartJobAsync(command, args, requestId, null, ct).ConfigureAwait(false);
+        if (command is "assets.import" or "assets.prepare" or "assets.relink" or "mix.export")
+            return await StartJobAsync(command, args, requestId, null, ct).ConfigureAwait(false);
+        if (command.StartsWith("mix.", StringComparison.Ordinal) || command.StartsWith("assets.", StringComparison.Ordinal))
+            return await ExecuteTimelineAsync(command, args, ct).ConfigureAwait(false);
         if (command == "project.validate") return await _projects.ValidateAsync(projectRoot, ct).ConfigureAwait(false);
         if (command == "chapter.list") return (await ReloadAsync(ct).ConfigureAwait(false)).Chapters;
         if (command == "segment.list") return (await ReloadAsync(ct).ConfigureAwait(false)).Segments.Where(item => Optional(args, "chapterId") is not string chapter || item.ChapterId == chapter).ToArray();
@@ -278,6 +282,7 @@ public sealed partial class AutomationDispatcher : IAutomationDispatcher, IDispo
 
     private static AutomationResult ToError(Exception exception) => exception switch
     {
+        TimelineRevisionConflictException conflict => AutomationResult.Error("mix.revision-conflict", conflict.Message, new { conflict.ExpectedRevision, conflict.ActualRevision }),
         AutomationException failure => AutomationResult.Error(failure.Code, failure.Message, failure.Details),
         OperationCanceledException => AutomationResult.Error("operation.cancelled", "The operation was cancelled."),
         SpeechProviderException failure => AutomationResult.Error("provider." + failure.Kind.ToString().ToLowerInvariant(), "The speech provider rejected the operation. Check credentials, model limits and provider availability."),

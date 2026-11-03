@@ -106,14 +106,9 @@ public static class SegmentStateRules
                     ApprovedAt = approvedAt,
                     ApprovalSourceSha256 = segment.SourceSha256,
                 }
-                : render.Status == RenderStatus.Approved
-                    ? render with
-                    {
-                        Status = RenderStatus.Generated,
-                        ApprovedAt = null,
-                        ApprovalSourceSha256 = null,
-                    }
-                    : render)
+                // The default take can change independently of exact takes already reviewed
+                // and pinned by mixes. Source changes still invalidate every old approval.
+                : render)
             .ToList();
 
         return segment with
