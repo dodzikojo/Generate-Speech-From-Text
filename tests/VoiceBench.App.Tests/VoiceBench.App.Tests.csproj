@@ -16,5 +16,6 @@
     <ProjectReference Include="..\..\src\VoiceBench.Infrastructure\VoiceBench.Infrastructure.csproj" />
     <Compile Include="..\..\src\VoiceBench.App\Services\WorkspaceSession.cs" Link="Services\WorkspaceSession.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\TimelinePresentation.cs" Link="Services\TimelinePresentation.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\TimelinePlaybackRouting.cs" Link="Services\TimelinePlaybackRouting.cs" />
   </ItemGroup>
 </Project>

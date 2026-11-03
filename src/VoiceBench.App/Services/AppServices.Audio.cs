@@ -18,7 +18,9 @@ public sealed partial class AppServices
     public string? PlaybackSourcePath { get; internal set; }
     public event EventHandler? AudioTargetChanged;
     public event EventHandler? MixParametersUpdated;
-    public Action? SelectedTakePlayback { get; set; }
+    public Func<Task>? SelectedTakePlayback { get; set; }
+    public Func<TimeSpan,Task>? SelectedTakeSeek { get; set; }
+    public Func<SelectedTakePlaybackState>? SelectedTakeState { get; set; }
     public MixRenderPlan? ActiveMixPlan { get; private set; }
 
     private void InitializeAudioWorkspace()

@@ -1,5 +1,17 @@
 # Active program index
 
+- Take Review playback repair, 2026-11-03: implemented on
+  `codex/take-review-playback` (based on `codex/audio-timeline`). Installed signed
+  1.1.0.7; startup, native **Listen to take**, pause, word-follow and selected-take
+  seeking verified with the operator's existing Take 23. Script, directions,
+  caret and saved state remained unchanged. Full Release build and all 395 tests
+  pass; MSIX signature verified. No smoke skill or paid provider requests.
+  The dock defaults to Selected take; new renders select their resulting take and
+  reveal Take Review. Playback routing tests cover switching targets and playing
+  unapproved/unplaced takes. The 1.1.0.6 startup regression was fixed by wiring the
+  playback selector only after XAML initialization. Next: review/integrate this
+  repair into the audio timeline branch; master remains unchanged.
+
 - VoiceBench audio timeline, 2026-11-01: implemented on codex/audio-timeline; installed
   1.1.0.5, signed package verified, 389 automated tests pass. Integration PR review
   and focused operator checks remain; no master merge is authorized by this slice.

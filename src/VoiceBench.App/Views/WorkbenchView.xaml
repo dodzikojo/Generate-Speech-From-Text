@@ -534,6 +534,10 @@
                     <ComboBox x:Name="TakeSelector" SelectedIndex="-1" MinWidth="128"
                               PlaceholderText="No takes" SelectionChanged="TakeSelector_SelectionChanged"
                               AutomationProperties.Name="Selected narration take" />
+                    <Button x:Name="ListenToTakeButton" Content="▶ Listen to take" IsEnabled="False"
+                            Style="{StaticResource QuietButtonStyle}" Click="ListenToTake_Click"
+                            AutomationProperties.Name="Listen to selected narration take"
+                            ToolTipService.ToolTip="Listen to this take before approving or placing it in a mix" />
                 </StackPanel>
 
                 <Border x:Name="TakeDecisionGroup" Grid.Row="2" Grid.ColumnSpan="4" VerticalAlignment="Center">

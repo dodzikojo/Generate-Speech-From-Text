@@ -70,6 +70,7 @@ public sealed partial class WorkbenchView : UserControl
     private bool _restoringPlaybackSurface;
     private int _activeFollowWordOrdinal = -1;
     private string? _alignmentRecoveryRoot;
+    private bool _listenTakePending;
     private WordAlignmentDocument? _activeWordAlignment;
     private WordAlignmentRecord? _activeAlignmentRecord;
     private RenderRecord? _activeAlignmentRender;
@@ -110,7 +111,9 @@ public sealed partial class WorkbenchView : UserControl
     {
         InitializeComponent();
         AudioDock.Compact = true;
-        App.Services.SelectedTakePlayback = TakeTransport.Play;
+        App.Services.SelectedTakePlayback = TakeTransport.PlayAsync;
+        App.Services.SelectedTakeSeek = TakeTransport.SeekToAsync;
+        App.Services.SelectedTakeState = TakeTransport.ReadSelectedTakeState;
         _cueFormatTimer = DispatcherQueue.CreateTimer();
         _cueFormatTimer.Interval = TimeSpan.FromMilliseconds(150);
         _cueFormatTimer.IsRepeating = false;
@@ -2735,6 +2738,14 @@ public sealed partial class WorkbenchView : UserControl
             SetRenderQueueBusy(true);
             SegmentRenderResult result = await App.Services.RunTrackedJobAsync<SegmentRenderResult>(
                 "render.start", new { segmentId = _segment.SegmentId }, _renderRequestCancellation.Token);
+            await WaitForProjectRefreshAsync(CancellationToken.None);
+            if (_segment?.RenderHistory.Any(take => take.RenderId == result.Render.RenderId) == true)
+            {
+                TakeSelector.SelectedItem = TakeSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag is Guid id && id == result.Render.RenderId);
+                await UpdateTransportAsync();
+                TakeReviewToggle.IsChecked = true;
+                AudioDock.SelectTakeTarget();
+            }
             string guidance = result.ExceedsFourMinuteGuidance ? " The estimated duration exceeds four minutes; split it before the next take." : string.Empty;
             string alignment = result.Alignment switch
             {
@@ -2747,7 +2758,7 @@ public sealed partial class WorkbenchView : UserControl
             ShowStatus(
                 InfoBarSeverity.Success,
                 $"Take {result.Render.TakeNumber:00} rendered",
-                $"Immutable raw audio was saved at {result.Render.RawAudioRelativePath}.{alignment}{guidance}");
+                $"Use Listen to take in Take Review to hear it.{alignment}{guidance}");
         }
         catch (OperationCanceledException)
         {
@@ -2994,6 +3005,7 @@ public sealed partial class WorkbenchView : UserControl
         TakeSelector.Items.Clear();
         TakeSelector.SelectedIndex = -1;
         PreviousTakeButton.IsEnabled = false;
+        ListenToTakeButton.IsEnabled = false;
         PickupButton.IsEnabled = false;
         ApproveButton.IsEnabled = false;
         AlignmentProgressRing.IsActive = false;
@@ -3011,6 +3023,24 @@ public sealed partial class WorkbenchView : UserControl
     {
         EndFollowSession();
         await UpdateTransportAsync();
+        if (GetSelectedRender() is not null) AudioDock.SelectTakeTarget();
+    }
+
+    private async void ListenToTake_Click(object sender,RoutedEventArgs e)
+    {
+        if (_listenTakePending) return;
+        _listenTakePending = true;
+        UpdateListenToTakeButton();
+        AudioDock.SelectTakeTarget();
+        try { await TakeTransport.TogglePlaybackAsync(); }
+        finally { _listenTakePending = false; UpdateListenToTakeButton(); }
+    }
+
+    private void UpdateListenToTakeButton()
+    {
+        ListenToTakeButton.IsEnabled = TakeTransport.HasAudio && !_listenTakePending;
+        ListenToTakeButton.Content = _listenTakePending ? "Loading take…" : TakeTransport.IsPlaying ? "Ⅱ Pause take" : "▶ Listen to take";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ListenToTakeButton,TakeTransport.IsPlaying ? "Pause selected narration take" : "Listen to selected narration take");
     }
 
     private async Task UpdateTransportAsync()
@@ -3034,6 +3064,7 @@ public sealed partial class WorkbenchView : UserControl
             AlignmentStatusText.Text = "WORDS NOT ALIGNED";
             AlignWordsButton.Visibility = Visibility.Collapsed;
             TakeTransport.ClearAudio("NO TAKE SELECTED");
+            UpdateListenToTakeButton();
             return;
         }
 
@@ -3127,6 +3158,7 @@ public sealed partial class WorkbenchView : UserControl
         {
             TakeTransport.ClearAudio("TAKE AUDIO MISSING");
         }
+        UpdateListenToTakeButton();
     }
 
     private async void AlignWords_Click(object sender, RoutedEventArgs e)
@@ -3318,6 +3350,7 @@ public sealed partial class WorkbenchView : UserControl
     }
     private void TakeTransport_PlaybackStateChanged(object? sender, AudioTransportStateChangedEventArgs e)
     {
+        UpdateListenToTakeButton();
         if (e.State is AudioTransportState.Paused or AudioTransportState.Ended
             or AudioTransportState.Failed or AudioTransportState.Cleared)
         {

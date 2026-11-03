@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using IssueLab.VoiceBench.App.Services;
 
 namespace IssueLab.VoiceBench.App.Controls;
 
@@ -37,6 +38,10 @@ public sealed partial class AudioTransport : UserControl
     public event EventHandler<AudioPositionChangedEventArgs>? PlaybackPositionChanged;
     public event EventHandler<AudioTransportStateChangedEventArgs>? PlaybackStateChanged;
     public bool HasAudio => _sourcePath is not null;
+    public bool IsPlaying => IsActive && App.Services.AudioPlayback?.IsPlaying == true;
+    public SelectedTakePlaybackState ReadSelectedTakeState() => new(HasAudio,IsActive,IsPlaying,_audioLabel,
+        IsActive ? App.Services.AudioPlayback?.Position ?? TimeSpan.Zero : TimeSpan.Zero,
+        IsActive ? App.Services.AudioPlayback?.Duration ?? _knownDuration : _knownDuration);
 
     public object GetPlaybackStatus() => new
     {
@@ -47,6 +52,8 @@ public sealed partial class AudioTransport : UserControl
     };
 
     public void Play() => _ = PlayCoreAsync();
+    public Task PlayAsync() => PlayCoreAsync();
+    public async Task TogglePlaybackAsync() { if (IsPlaying) Pause(); else await PlayCoreAsync(); }
 
     private async Task PlayCoreAsync()
     {
@@ -72,10 +79,13 @@ public sealed partial class AudioTransport : UserControl
     }
 
     public void Seek(TimeSpan position)
+        => _ = SeekToAsync(position);
+
+    public Task SeekToAsync(TimeSpan position)
     {
         if (_sourcePath is null) throw new InvalidOperationException("Select an audio take before seeking.");
         if (position < TimeSpan.Zero || (_knownDuration > TimeSpan.Zero && position > _knownDuration)) throw new ArgumentOutOfRangeException(nameof(position));
-        _ = SeekCoreAsync(position);
+        return SeekCoreAsync(position);
     }
 
     private async Task SeekCoreAsync(TimeSpan position)
@@ -95,6 +105,7 @@ public sealed partial class AudioTransport : UserControl
         if (!File.Exists(path)) { ClearAudio("AUDIO FILE MISSING"); return; }
         string fullPath = Path.GetFullPath(path);
         bool changed = !string.Equals(fullPath,_sourcePath,StringComparison.OrdinalIgnoreCase);
+        if (changed && IsActive) App.Services.AudioPlayback?.Pause();
         _sourcePath = fullPath;
         _audioLabel = string.IsNullOrWhiteSpace(label) ? "Audio" : label.Trim();
         _knownDuration = duration > TimeSpan.Zero ? duration : TimeSpan.Zero;

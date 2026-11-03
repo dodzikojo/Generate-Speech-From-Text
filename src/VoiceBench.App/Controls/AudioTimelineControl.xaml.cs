@@ -50,6 +50,9 @@ public sealed partial class AudioTimelineControl : UserControl
     private double? _pendingTrackScrollOffset;
     private int _trackRowsVersion;
     private bool _subscriptionsActive;
+    private bool _playRequestPending;
+    private bool _seekingTake;
+    private double? _pendingTakeSeek;
     private sealed record WaveStrip(double TimelineStart, double TimelineDuration, float[] Minimum, float[] Maximum);
     private sealed record ScopeChoice(string Label, AudioTimelineScope Scope, string? ChapterId);
     private string LayoutSettingPrefix => _compact ? "Audio.Dock" : "Audio";
@@ -58,6 +61,9 @@ public sealed partial class AudioTimelineControl : UserControl
     public AudioTimelineControl()
     {
         InitializeComponent();
+        // SelectedIndex is assigned while XAML is still constructing the seek/meter
+        // controls. Subscribe only once the whole transport is ready to update.
+        PlaybackTargetPicker.SelectionChanged += PlaybackTarget_SelectionChanged;
         Loaded += Control_Loaded;
         Unloaded += Control_Unloaded;
         _timer.Tick += (_, _) => UpdateTransport();
@@ -70,6 +76,7 @@ public sealed partial class AudioTimelineControl : UserControl
         set
         {
             _compact = value;
+            PlaybackTargetPicker.SelectedIndex = value ? 1 : 0;
             CollapseToggle.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
             LibraryToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Library",!value);
             InspectorToggle.IsChecked = ReadSetting(LayoutSettingPrefix + ".Inspector",!value);
@@ -639,27 +646,84 @@ public sealed partial class AudioTimelineControl : UserControl
         if (App.Services.PlaybackTarget == "mix" && App.Services.AudioPlayback is { } playback) await RunAsync(() => playback.SeekAsync(TimeSpan.FromSeconds(Workspace.PlayheadSeconds)));
     }
 
-    private async void Play_Click(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    public void SelectTakeTarget()
     {
-        if (App.Services.AudioPlayback?.IsPlaying == true) { App.Services.AudioPlayback.Pause(); return; }
-        if (PlaybackTargetPicker.SelectedIndex == 1) { App.Services.SelectedTakePlayback?.Invoke(); return; }
-        if (App.Services.PlaybackTarget == "mix" && App.Services.AudioPlayback is { } loaded) loaded.Play();
-        else await App.Services.PlayMixAsync();
-    });
+        PlaybackTargetPicker.SelectedIndex = 1;
+        UpdateTransport();
+    }
+
+    private void PlaybackTarget_SelectionChanged(object sender,SelectionChangedEventArgs e) { if (PlaybackSourceText is not null) UpdateTransport(); }
+
+    private async void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (_playRequestPending) return;
+        _playRequestPending = true;
+        UpdateTransport();
+        try
+        {
+            await RunAsync(async () =>
+            {
+                switch (TimelinePlaybackRouting.Resolve(PlaybackTargetPicker.SelectedIndex == 1,App.Services.PlaybackTarget,
+                    App.Services.AudioPlayback?.IsPlaying == true,App.Services.SelectedTakeState?.Invoke()))
+                {
+                    case TimelinePlaybackAction.Pause: App.Services.AudioPlayback?.Pause(); break;
+                    case TimelinePlaybackAction.PlaySelectedTake:
+                        if (App.Services.SelectedTakePlayback is { } play) await play();
+                        break;
+                    case TimelinePlaybackAction.ResumeMix: App.Services.AudioPlayback?.Play(); break;
+                    case TimelinePlaybackAction.LoadMix: await App.Services.PlayMixAsync(); break;
+                    default: Workspace.SetNotice("Select a generated take in Workbench to listen."); break;
+                }
+            });
+        }
+        finally { _playRequestPending = false; UpdateTransport(); }
+    }
+
+    private async void TakePosition_ValueChanged(object sender,Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_refreshing || PlaybackTargetPicker.SelectedIndex != 1 || App.Services.SelectedTakeSeek is not { } seek) return;
+        _pendingTakeSeek = e.NewValue;
+        if (_seekingTake) return;
+        _seekingTake = true;
+        try
+        {
+            await RunAsync(async () =>
+            {
+                while (_pendingTakeSeek is double seconds)
+                {
+                    _pendingTakeSeek = null;
+                    await seek(TimeSpan.FromSeconds(seconds));
+                }
+            });
+        }
+        finally { _seekingTake = false; _pendingTakeSeek = null; }
+    }
     private async void Stop_Click(object sender, RoutedEventArgs e) => await RunAsync(async () => { if (App.Services.AudioPlayback is { } playback) { playback.Stop(); await playback.SeekAsync(TimeSpan.Zero); } });
     private void Loop_Click(object sender, RoutedEventArgs e) { if (App.Services.AudioPlayback is { } playback) playback.Loop = LoopToggle.IsChecked == true; }
 
     private void UpdateTransport()
     {
-        if (App.Services.AudioPlayback is not { } playback) return;
+        if (PlaybackSourceText is null) return;
+        var playback = App.Services.AudioPlayback;
+        bool takeMode = PlaybackTargetPicker.SelectedIndex == 1;
+        var take = App.Services.SelectedTakeState?.Invoke();
+        bool requestedPlaying = takeMode ? take?.IsPlaying == true : App.Services.PlaybackTarget == "mix" && playback?.IsPlaying == true;
         _refreshing = true;
-        MixPlayButton.Content = playback.IsPlaying ? "Ⅱ Pause" : "▶ Play";
-        PositionText.Text = TimelinePresentation.Time(playback.Position.TotalSeconds);
-        if (App.Services.PlaybackTarget == "mix") Workspace.PlayheadSeconds = playback.Position.TotalSeconds;
+        MixPlayButton.Content = _playRequestPending ? "Loading…" : requestedPlaying ? (takeMode ? "Ⅱ Pause take" : "Ⅱ Pause mix") : (takeMode ? "▶ Play take" : "▶ Play mix");
+        MixPlayButton.IsEnabled = !_playRequestPending && (!takeMode || take?.HasAudio == true);
+        AutomationProperties.SetName(MixPlayButton,takeMode ? (requestedPlaying ? "Pause selected take" : "Play selected take") : (requestedPlaying ? "Pause mix" : "Play mix"));
+        PlaybackSourceText.Text = takeMode ? take?.HasAudio == true ? $"Selected take · {take.Label}" : "Selected take · generate or select a take in Workbench" : $"{(Workspace.Scope == AudioTimelineScope.Compilation ? "Compilation" : "Chapter")} mix · arranged audio";
+        TakePositionSlider.Visibility = takeMode ? Visibility.Visible : Visibility.Collapsed;
+        TakePositionSlider.IsEnabled = take?.HasAudio == true && take.Duration > TimeSpan.Zero;
+        TakePositionSlider.Maximum = Math.Max(1,take?.Duration.TotalSeconds ?? 0);
+        if (!_seekingTake) TakePositionSlider.Value = Math.Clamp(take?.Position.TotalSeconds ?? 0,0,TakePositionSlider.Maximum);
+        PositionText.Text = takeMode ? $"{TimelinePresentation.Time(take?.Position.TotalSeconds ?? 0)} / {TimelinePresentation.Time(take?.Duration.TotalSeconds ?? 0)}" : TimelinePresentation.Time(playback?.Position.TotalSeconds ?? Workspace.PlayheadSeconds);
+        if (App.Services.PlaybackTarget == "mix" && playback is not null) Workspace.PlayheadSeconds = playback.Position.TotalSeconds;
         Ruler.Value = Math.Clamp(Workspace.PlayheadSeconds,Ruler.Minimum,Ruler.Maximum);
-        LoopToggle.IsChecked = playback.Loop;
-        LeftMeter.Value = Math.Clamp(playback.Meter.PeakLeft,0,1);
-        RightMeter.Value = Math.Clamp(playback.Meter.PeakRight,0,1);
+        LoopToggle.IsEnabled = takeMode ? take?.IsActive == true : App.Services.PlaybackTarget == "mix";
+        LoopToggle.IsChecked = playback?.Loop == true;
+        LeftMeter.Value = Math.Clamp(playback?.Meter.PeakLeft ?? 0,0,1);
+        RightMeter.Value = Math.Clamp(playback?.Meter.PeakRight ?? 0,0,1);
         InvalidateWaves();
         _refreshing = false;
     }

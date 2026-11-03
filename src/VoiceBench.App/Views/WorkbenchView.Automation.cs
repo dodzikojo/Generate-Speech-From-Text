@@ -311,14 +311,14 @@ public sealed partial class WorkbenchView
                     _activeWordAlignment = null;
                     TakeTransport.LoadAudio(path, Path.GetFileName(path), TimeSpan.Zero);
                 }
-                TakeTransport.Play();
+                await TakeTransport.PlayAsync();
                 return TakeTransport.GetPlaybackStatus();
             case "playback.pause": TakeTransport.Pause(); return TakeTransport.GetPlaybackStatus();
             case "playback.stop": TakeTransport.Stop(); EndFollowSession(); return TakeTransport.GetPlaybackStatus();
             case "playback.seek":
                 double seconds = arguments.GetProperty("seconds").GetDouble();
                 if (!double.IsFinite(seconds)) throw new AutomationException("invalid_arguments", "Seek seconds must be finite.");
-                TakeTransport.Seek(TimeSpan.FromSeconds(seconds));
+                await TakeTransport.SeekToAsync(TimeSpan.FromSeconds(seconds));
                 return TakeTransport.GetPlaybackStatus();
             case "playback.follow": case "follow.set":
                 FollowScriptToggle.IsChecked = arguments.GetProperty("enabled").GetBoolean();

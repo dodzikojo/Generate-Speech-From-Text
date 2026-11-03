@@ -4,6 +4,16 @@ VoiceBench 1.1 adds an Audio workspace and a compact Workbench timeline dock. Bo
 use the same chapter arrangement and playback engine. The library contains imported
 media and exact narration takes; source files and scripts remain unchanged by mix edits.
 
+## Listen to a generated take
+
+After rendering in Voice director, use **Listen to take** beside the Take Review
+selector. The new take is selected automatically and can be heard before approval
+or placement in an arrangement. The button changes to **Pause take** while playing.
+
+The Workbench dock defaults to **Selected take** and shows its own position slider
+and elapsed/total duration. Use that slider to seek within the take. Choose
+**Mix arrangement** explicitly to listen to the saved arrangement instead.
+
 ## Start a mix
 
 1. Open a project and choose Audio. Select a chapter or the compilation.
