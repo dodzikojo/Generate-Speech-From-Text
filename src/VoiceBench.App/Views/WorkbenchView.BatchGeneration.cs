@@ -156,6 +156,9 @@ public sealed partial class WorkbenchView
         {
             ChapterTree.SelectedNodes.Clear();
             ChapterTree.SelectionMode = on ? TreeViewSelectionMode.Multiple : TreeViewSelectionMode.Single;
+            // Dragging ticked rows would reorder the project by accident; reorder outside selection mode.
+            ChapterTree.CanDragItems = !on;
+            ChapterTree.CanReorderItems = !on;
             if (!on)
             {
                 _railCheckedSegmentIds.Clear();
@@ -264,7 +267,7 @@ public sealed partial class WorkbenchView
             return;
         }
 
-        if (BatchGenerationActive || _renderCancellation is not null || _renderRequestCancellation is not null)
+        if (StudioBusy)
         {
             ShowStatus(InfoBarSeverity.Warning, "A render is already active", "Cancel the current job or wait for it to finish.");
             return;
@@ -489,8 +492,8 @@ public sealed partial class WorkbenchView
 
     private async Task RunBatchGenerationAsync(IReadOnlyList<BatchCandidate> chosen)
     {
-        StopChapterPlayback(announce: false);
-        if (TakeTransport.IsPlaying) TakeTransport.Pause();
+        // Playback carries on: segments that aren't open render in the background, so the operator can
+        // keep listening to (and approving) finished takes while the batch works through the rest.
         BatchGenerationRun run = new(chosen);
         _batchRun = run;
         List<BatchGenerationFailure> failures = [];
@@ -526,6 +529,8 @@ public sealed partial class WorkbenchView
                     await WaitForProjectRefreshAsync(CancellationToken.None);
                     generated++;
                     consecutiveFailures = 0;
+                    // Approvals asked for during this take run now, before the next take starts.
+                    await DrainQueuedApprovalsAsync();
                 }
                 catch (OperationCanceledException)
                 {
@@ -617,7 +622,10 @@ public sealed partial class WorkbenchView
         BatchGenerationTitleText.Text = run.StopRequested
             ? $"STOPPING AFTER TAKE {run.Index + 1} OF {run.Entries.Count}"
             : $"GENERATING {run.Index + 1} OF {run.Entries.Count}  ·  PROJECT VOICE";
-        BatchGenerationDetailText.Text = $"{entry.ChapterTitle}  /  {entry.DisplayTitle}";
+        int queuedApprovals = _approvalQueue.Count;
+        BatchGenerationDetailText.Text = queuedApprovals == 0
+            ? $"{entry.ChapterTitle}  /  {entry.DisplayTitle}"
+            : $"{entry.ChapterTitle}  /  {entry.DisplayTitle}  ·  {queuedApprovals} approval{(queuedApprovals == 1 ? "" : "s")} waiting";
         BatchGenerationProgress.Value = run.Fraction;
         BatchStopText.Text = run.StopRequested ? "Cancel this take too" : "Stop after this take";
         AutomationProperties.SetName(BatchStopButton, run.StopRequested ? "Cancel the take in progress" : "Stop batch generation after this take");

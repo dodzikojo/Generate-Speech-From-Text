@@ -180,15 +180,25 @@
                             <TextBlock Text="APPROVED" Style="{StaticResource UtilityLabelTextStyle}" />
                         </StackPanel>
                     </Grid>
+                    <!-- Drag a row to reorder: the drop is saved as one move of the project's order. -->
                     <TreeView x:Name="ChapterTree" Grid.Row="1" SelectionMode="Single" Padding="0,0,0,8"
                               ItemInvoked="ChapterTree_ItemInvoked" SelectionChanged="ChapterTree_SelectionChanged"
+                              CanDragItems="True" CanReorderItems="True"
+                              DragItemsStarting="ChapterTree_DragItemsStarting" DragItemsCompleted="ChapterTree_DragItemsCompleted"
                               Background="Transparent" BorderThickness="0"
                               AutomationProperties.Name="Ordered chapters and narration segments">
                         <TreeView.ItemTemplate>
                             <DataTemplate>
-                                <Grid MinHeight="40" Padding="2,5" ColumnSpacing="9" RightTapped="RailItem_RightTapped">
+                                <Grid x:Name="RailRow" MinHeight="40" Padding="2,5" ColumnSpacing="9" Background="Transparent"
+                                      RightTapped="RailItem_RightTapped" PointerEntered="RailRow_PointerEntered" PointerExited="RailRow_PointerExited">
                                     <Grid.ContextFlyout>
                                         <MenuFlyout Opening="RailContextMenu_Opening" Closed="RailContextMenu_Closed">
+                                            <MenuFlyoutItem Text="Play take" Tag="segment-play" Click="RailRowPlay_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Approve take" Tag="segment-approve" Click="RailRowApprove_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8FB;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="Play approved takes" Tag="chapter" Click="PlayChapter_Click">
                                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE768;" /></MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
@@ -232,6 +242,30 @@
                                         <TextBlock Text="{Binding Content.Title}" TextWrapping="WrapWholeWords" MaxLines="2" FontSize="13" />
                                         <TextBlock Text="{Binding Content.Metadata}" Style="{StaticResource UtilityLabelTextStyle}" TextWrapping="WrapWholeWords" MaxLines="2" />
                                     </StackPanel>
+                                    <!-- Hover actions float over the row's right edge so the text never reflows.
+                                         The row menu (right-click or More) offers the same commands for keyboard use. -->
+                                    <Border x:Name="RailRowActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Visibility="Collapsed" Padding="2" CornerRadius="{StaticResource StudioCornerRadius}"
+                                            Background="{ThemeResource PanelRaisedBrush}" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal" Spacing="1">
+                                            <Button x:Name="RailRowPlayButton" Style="{StaticResource RailActionButtonStyle}" Click="RailRowPlay_Click"
+                                                    AutomationProperties.Name="Play take">
+                                                <FontIcon x:Name="RailRowPlayIcon" Glyph="&#xE768;" FontSize="12" />
+                                            </Button>
+                                            <Button x:Name="RailRowApproveButton" Style="{StaticResource RailActionButtonStyle}" Click="RailRowApprove_Click"
+                                                    AutomationProperties.Name="Approve take">
+                                                <FontIcon Glyph="&#xE8FB;" FontSize="12" Foreground="{ThemeResource ApprovalBrush}" />
+                                            </Button>
+                                            <Button x:Name="RailRowGenerateButton" Style="{StaticResource RailActionButtonStyle}" Click="RailRowGenerate_Click"
+                                                    AutomationProperties.Name="Generate a new take">
+                                                <FontIcon Glyph="&#xE945;" FontSize="12" />
+                                            </Button>
+                                            <Button x:Name="RailRowMoreButton" Style="{StaticResource RailActionButtonStyle}" Click="RailRowMore_Click"
+                                                    ToolTipService.ToolTip="More actions" AutomationProperties.Name="More actions">
+                                                <FontIcon Glyph="&#xE712;" FontSize="12" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </TreeView.ItemTemplate>

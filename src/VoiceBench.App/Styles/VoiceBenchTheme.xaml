@@ -198,6 +198,14 @@
         <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ReadingTextBrush}" />
     </Style>
 
+    <!-- Compact icon command for the chapter rail's hover actions. -->
+    <Style x:Key="RailActionButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinWidth" Value="28" />
+        <Setter Property="MinHeight" Value="28" />
+    </Style>
+
     <!-- Transparent text+icon command used in panel toolbars. -->
     <Style x:Key="ToolbarButtonStyle" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
