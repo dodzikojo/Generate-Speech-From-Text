@@ -80,6 +80,8 @@ public static class ProjectLocations
     public static string? TakeAudioRelativePath(RenderRecord render)
     {
         ArgumentNullException.ThrowIfNull(render);
+        // A cleaned-up take's audio is in the Recycle Bin; nothing in the project should point at it.
+        if (render.AudioDeletedAt is not null) return null;
         if (!string.IsNullOrWhiteSpace(render.ProcessedAudioRelativePath)) return render.ProcessedAudioRelativePath;
         return string.IsNullOrWhiteSpace(render.RawAudioRelativePath) ? null : render.RawAudioRelativePath;
     }

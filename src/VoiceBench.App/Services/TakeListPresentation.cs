@@ -53,6 +53,7 @@ public static class TakeListPresentation
             || string.Equals(render.SourceSha256, segment.SourceSha256, StringComparison.OrdinalIgnoreCase);
         (string status, TakeTone tone) = render.Status switch
         {
+            _ when render.AudioDeletedAt is not null => ("Audio cleaned up", TakeTone.Failed),
             RenderStatus.Failed => ("Failed", TakeTone.Failed),
             RenderStatus.Cancelled => ("Cancelled", TakeTone.Failed),
             RenderStatus.Stale => ("Script changed", TakeTone.Outdated),
@@ -81,7 +82,7 @@ public static class TakeListPresentation
             status,
             tone,
             isApprovedTake,
-            render.Status == RenderStatus.Generated,
+            render.Status == RenderStatus.Generated && render.AudioDeletedAt is null,
             ProjectLocations.TakeAudioRelativePath(render));
     }
 

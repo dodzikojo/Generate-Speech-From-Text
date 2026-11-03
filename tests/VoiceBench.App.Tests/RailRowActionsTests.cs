@@ -66,6 +66,16 @@ public sealed class RailRowActionsTests
     }
 
     [Fact]
+    public void Cleaned_up_takes_are_never_offered_to_play_or_approve()
+    {
+        SegmentDocument segment = Segment(SegmentStatus.Rendered, approved: null,
+            Take(Take1, 1, RenderStatus.Generated) with { AudioDeletedAt = DateTimeOffset.UnixEpoch });
+
+        Assert.Null(RailRowActions.TakeToPlay(segment));
+        Assert.Null(RailRowActions.TakeToApprove(segment));
+    }
+
+    [Fact]
     public void Failed_takes_have_nothing_to_play()
     {
         SegmentDocument segment = Segment(SegmentStatus.Ready, approved: null,

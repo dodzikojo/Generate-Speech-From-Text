@@ -3324,7 +3324,7 @@ public sealed partial class WorkbenchView : UserControl
         }
         else
         {
-            TakeTransport.ClearAudio("TAKE AUDIO MISSING");
+            TakeTransport.ClearAudio(render.AudioDeletedAt is null ? "TAKE AUDIO MISSING" : "TAKE AUDIO CLEANED UP");
         }
         UpdateListenToTakeButton();
     }
@@ -3347,7 +3347,7 @@ public sealed partial class WorkbenchView : UserControl
         NextTakeButton.IsEnabled = TakeSelector.SelectedIndex > 0;
         RevealTakeButton.IsEnabled = hasTake;
         PickupButton.IsEnabled = hasTake;
-        ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated && !_approvalQueue.Contains(render.RenderId);
+        ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated && render.AudioDeletedAt is null && !_approvalQueue.Contains(render.RenderId);
     }
 
     private async void AlignWords_Click(object sender, RoutedEventArgs e)

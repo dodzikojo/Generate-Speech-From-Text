@@ -48,6 +48,8 @@ public sealed partial class AssemblyView : UserControl
             AssemblyChaptersList.Items.Clear();
             RefreshMasters();
             OpenMastersFolderButton.IsEnabled = _project is not null;
+            PackageTakesButton.IsEnabled = _project?.Segments.Any(segment => segment.Status == SegmentStatus.Approved) == true;
+            CleanUpTakesButton.IsEnabled = _project is not null;
             if (_project is null)
             {
                 AssemblyTitleText.Text = "Open a project to assemble narration";
@@ -374,6 +376,16 @@ public sealed partial class AssemblyView : UserControl
             MasterTransport.LoadAudio(item.FullPath, item.Title, TimeSpan.Zero);
         else
             MasterTransport.ClearAudio("SELECT A MASTER TO LISTEN");
+    }
+
+    private async void PackageTakes_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.MainWindow is { } window) await window.PackageApprovedTakesAsync();
+    }
+
+    private async void CleanUpTakes_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.MainWindow is { } window) await window.CleanUpTakesAsync();
     }
 
     private async void OpenMastersFolder_Click(object sender, RoutedEventArgs e)

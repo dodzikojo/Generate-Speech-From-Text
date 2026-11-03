@@ -78,6 +78,11 @@ public sealed partial class MainWindow : Window
         await WorkbenchSurface.StartChapterPlaybackAsync(chapterId);
     }
 
+    /// <summary>Package approved takes from any page; the dialogs belong to the Workbench, which owns the studio state.</summary>
+    internal Task PackageApprovedTakesAsync(string? chapterId = null) => WorkbenchSurface.PackageApprovedTakesAsync(chapterId);
+
+    internal Task CleanUpTakesAsync() => WorkbenchSurface.CleanUpTakesAsync();
+
     private void ShowSurface(string destination)
     {
         ProjectsSurface.Visibility = destination == "projects" ? Visibility.Visible : Visibility.Collapsed;
