@@ -29,7 +29,8 @@ of the title bar expands the section rail. Sections have shortcuts Alt+1 to Alt+
   (for example `7/8 approved · 01:37 approved audio`). The **•••** menu and the
   right-click menu include **Show in folder** (the script) and **Show takes folder**
   (that segment's audio). A segment's right-click menu also has **Copy script text** and
-  **Save script text as…**.
+  **Save script text as…**. Hover a row for its quick actions (see **Rail row actions**),
+  and drag a row to reorder it.
 - **Script editor** (centre): the folder icon beside the script path shows the file in
   Explorer. **Export text** copies or saves the segment's text: the **full script**
   (with production cues) or the **narration only** (the words that are spoken). It
@@ -58,8 +59,45 @@ dock. These choices persist. Narrow windows replace the rail with a segment pick
 keep the inspector beside the script. Only windows narrower than 700 px stack the
 inspector beneath it.
 
-A new render selects its take automatically. A refresh of the same segment (for example
-after approval) keeps the take you were reviewing selected.
+A new render selects its take automatically, unless you are listening to something: then
+playback carries on and the new take waits in the take list. A refresh of the same
+segment (for example after approval, or a render elsewhere saving the project) keeps the
+take you were reviewing selected, keeps it playing, and leaves the editor's caret and
+word-follow highlighting where they were.
+
+## Rail row actions
+
+Hover a row in the chapter rail to show its actions. They float over the right edge of
+the row, so the text does not move.
+
+- **Segment rows**: **Play** plays the take that needs listening to: the newest take
+  awaiting review, otherwise the approved take, otherwise the latest take. The tooltip
+  names the take. Play opens the segment (saving a draft first, as a click does) so word
+  follow works, and turns into **Pause** while that take plays. **Approve** appears when
+  a take made from the current script is awaiting review, and approves exactly that take.
+  **Generate** opens the batch confirmation for that one segment with the project voice.
+  **More** opens the row menu.
+- **Chapter rows**: **Play** plays the chapter's approved takes (the tooltip gives the
+  count and running time) and turns into **Stop** while the chapter plays. **Generate**
+  opens the batch confirmation for the whole chapter.
+
+The row's right-click menu has the same **Play take** and **Approve take** items, for
+keyboard and screen-reader use.
+
+Approving converts the take with FFmpeg and saves the project, so it never runs at the
+same time as a render. Approvals asked for while a take renders (from the rail, the
+Takes tab or the take bar) wait their turn: they run as soon as the current take
+finishes, before a batch starts its next take. The batch strip shows how many approvals
+are waiting.
+
+## Reorder by dragging
+
+Drag a segment above or below another segment of the same chapter, or a chapter above or
+below another chapter. The drop is saved as one move in the project history, like **Move
+up** and **Move down**, and the rail and the editor heading renumber at once. Archived
+chapters keep their place. Moving a segment into another chapter, a chapter into a
+chapter, or dropping a segment onto another segment is refused with a message, and the
+rail goes back to the saved order. Dragging is off while you tick segments to generate.
 
 Status messages appear on a card at the bottom of the script. Progress and success
 messages close on their own after a few seconds (hovering keeps them open). Warnings
@@ -87,7 +125,9 @@ click **Use as project voice** first to generate with it. When the project has n
 yet, the voice shown in the Voice tab becomes the project voice.
 
 While it runs, a strip above the take bar shows `Generating 2 of 5` and the segment, and
-the render queue shows `BATCH 2 OF 5`. The editor follows each segment. **Stop after
+the render queue shows `BATCH 2 OF 5`. The editor stays on the segment you have open:
+segments that aren't open render in the background from their saved script and voice, so
+you can keep reading, listening to finished takes and approving them. **Stop after
 this take** finishes the current take and stops; pressing it again (**Cancel this take
 too**) cancels the current request. **Cancel render** in the Voice tab cancels at once.
 

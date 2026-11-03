@@ -1,7 +1,28 @@
 # Active program index
 
-- Batch generation and Workbench extras, 2026-11-03: implemented on
-  `codex/batch-generate` (based on `codex/ui-overhaul`). Generate several segments with
+- Rail row actions, uninterrupted playback and drag reorder, 2026-11-03: implemented on
+  `codex/rail-actions` (based on master after PR #15). Playback is no longer stopped when a
+  render or any other save refreshes the project: a playing take stays selected and loaded
+  (new takes wait in the take list), the editor keeps its text and caret, and segments that
+  aren't open render from their saved voice without being loaded into the editor (batch and
+  agent `render.start`). Hovering a rail row shows Play/Pause, Approve, Generate and More;
+  rules in `Services/RailRowActions.cs`. Approvals asked for during a render queue and run
+  after the current take. Dragging rail rows now saves the order (`Services/RailReorder.cs`);
+  cross-chapter and nested drops are refused. Installed signed 1.2.0.9; Release build clean,
+  520 tests pass. Runtime smoke on a throwaway project with imported tone takes (no provider
+  requests): a take kept playing while a new take landed on its segment and while it was
+  approved itself (the processed file loads once playback stops), hover play/approve and
+  the More menu, drag reorder of segments and chapters, and refused drops. An independent
+  review's findings are fixed: the deferred take-bar refresh now also runs after chapter
+  playback, alignment status refreshes while a take plays (no stale "Cancel alignment"), the
+  shortcut checks the take bar really holds the take's audio, and waiting approvals are
+  dropped when another project opens. Residual risk: chapter/segment moves load and save
+  the project without the update gate, as Move up/down already did. Not run live:
+  the approval queue during a real render, and batch background renders (both cost provider
+  requests). Operator guide: [workbench](../workbench.md).
+
+- Batch generation and Workbench extras, 2026-11-03: merged to master in PR #15
+  (implemented on `codex/batch-generate`, based on `codex/ui-overhaul`). Generate several segments with
   the project voice from rail ticks (TreeView multi-select mode), "from here to chapter
   end" or a whole chapter, behind a confirmation checklist (approved segments start
   unticked). Sequential tracked `render.start` jobs with stop-after-take/cancel and
@@ -15,8 +36,8 @@
   97%). An independent review's cancellation and request-count findings are fixed.
   Render & play has not been run live (it costs a provider request).
 
-- Desktop UI overhaul 1.2, 2026-11-03: implemented on `codex/ui-overhaul` (based on
-  `codex/take-review-playback`). TitleBar project-folder menu; Workbench with the
+- Desktop UI overhaul 1.2, 2026-11-03: merged to master in PR #15 (implemented on
+  `codex/ui-overhaul`, based on `codex/take-review-playback`). TitleBar project-folder menu; Workbench with the
   script at full height, inspector tabs (Voice/Takes/Write), a one-row take bar, and
   an opt-in timeline dock. Show in folder/open/copy path for takes, scripts, projects,
   masters, auditions and FFmpeg. Projects card grid with filter and remove. Assembly
@@ -29,8 +50,8 @@
   auto-advance and completion, and MCP `workspace.get`/`panels.set timelineDock`. No
   provider requests. Next: review/PR this branch after the take-review repair lands.
 
-- Take Review playback repair, 2026-11-03: implemented on
-  `codex/take-review-playback` (based on `codex/audio-timeline`). Installed signed
+- Take Review playback repair, 2026-11-03: merged to master in PR #15 (implemented on
+  `codex/take-review-playback`, based on `codex/audio-timeline`). Installed signed
   1.1.0.7; startup, native **Listen to take**, pause, word-follow and selected-take
   seeking verified with the operator's existing Take 23. Script, directions,
   caret and saved state remained unchanged. Full Release build and all 395 tests
@@ -47,8 +68,8 @@
   See [ratified specification](specs/2026-11-01-audio-timeline.md) and
   [execution ledger](plans/2026-11-01-audio-timeline.md) and
   [operator guide](../audio-timeline.md). All six integration slices are merged;
-  [final PR #14](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/14) is open
-  against master. Next: review/merge that PR and run the operator checklist. No smoke
+  [final PR #14](https://github.com/dodzikojo/Generate-Speech-From-Text/pull/14) was merged
+  to master on 2026-11-03. The operator checklist remains. No smoke
   skill or paid provider generation.
 
 - VoiceBench local MCP, 2026-11-01: implementation, installed-runtime verification,
