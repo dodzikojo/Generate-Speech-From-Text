@@ -15,7 +15,8 @@ public static class AudioTimelineRules
         foreach (SegmentDocument segment in project.Segments)
         foreach (RenderRecord render in segment.RenderHistory)
         {
-            if (assets.Any(a => a.RenderId == render.RenderId) || string.IsNullOrWhiteSpace(render.RawAudioRelativePath)) continue;
+            if (assets.Any(a => a.RenderId == render.RenderId) || string.IsNullOrWhiteSpace(render.RawAudioRelativePath)
+                || render.AudioDeletedAt is not null) continue;
             assets.Add(new AudioAssetRecord
             {
                 AssetId = render.RenderId, RenderId = render.RenderId, SegmentId = segment.SegmentId,
