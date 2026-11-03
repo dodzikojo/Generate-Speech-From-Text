@@ -977,4 +977,71 @@ public sealed class XamlContractTests
         Assert.Contains("ChapterPlaylistBuilder.Build(project, chapter.ChapterId).TotalDuration", assembly, StringComparison.Ordinal);
         Assert.Contains("APPROVED AUDIO", assembly, StringComparison.Ordinal);
     }
+    [Fact]
+    public void Rail_rows_offer_hover_actions_with_menu_equivalents()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.RailActions.cs"));
+
+        Assert.Contains("PointerEntered=\"RailRow_PointerEntered\" PointerExited=\"RailRow_PointerExited\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"RailRowActions\"", xaml, StringComparison.Ordinal);
+        foreach (string handler in new[] { "RailRowPlay_Click", "RailRowApprove_Click", "RailRowGenerate_Click", "RailRowMore_Click" })
+            Assert.Contains($"Click=\"{handler}\"", xaml, StringComparison.Ordinal);
+        // Keyboard and screen-reader users reach play and approve from the row menu.
+        Assert.Contains("Tag=\"segment-play\" Click=\"RailRowPlay_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Tag=\"segment-approve\" Click=\"RailRowApprove_Click\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("RailRowActions.TakeToPlay(segment)", code, StringComparison.Ordinal);
+        Assert.Contains("RailRowActions.TakeToApprove(segment)", code, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(button, label)", code, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Dragging_rail_rows_saves_the_new_order()
+    {
+        string xaml = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.RailActions.cs"));
+        string batch = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.BatchGeneration.cs"));
+
+        Assert.Contains("DragItemsCompleted=\"ChapterTree_DragItemsCompleted\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("RailReorder.Plan(project, SnapshotRail(), draggedId)", code, StringComparison.Ordinal);
+        Assert.Contains("ChapterAuthoring.MoveChapterAsync", code, StringComparison.Ordinal);
+        Assert.Contains("ChapterAuthoring.MoveSegmentAsync", code, StringComparison.Ordinal);
+        Assert.Contains("RestoreRail();", code, StringComparison.Ordinal);
+        Assert.Contains("ChapterTree.CanDragItems = !on;", batch, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Playback_carries_on_while_takes_render_and_the_project_refreshes()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+        string automation = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.Automation.cs"));
+        string batch = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.BatchGeneration.cs"));
+
+        Assert.Contains("segment.RenderHistory.Count > _takeSelectorCount && !TakeTransport.IsPlaying && !ChapterPlaybackActive", workbench, StringComparison.Ordinal);
+        Assert.Contains("_approvalQueue.Clear();", workbench, StringComparison.Ordinal);
+        Assert.Contains("bool keepPlaying = render is not null && TransportIsPlayingTake(render);", workbench, StringComparison.Ordinal);
+        // Alignment status still refreshes while the take plays, so a finished alignment never leaves "Cancel alignment" behind.
+        Assert.Contains("if (keepPlaying && _followSessionActive)", workbench, StringComparison.Ordinal);
+        // Chapter playback must not swallow the refresh deferred until playback stops.
+        Assert.Contains("if (_transportRefreshPending && !_chapterPlaybackDriving) _ = UpdateTransportAsync();", workbench, StringComparison.Ordinal);
+        Assert.Contains("The take bar now holds an artifact, not a take, so no refresh may treat it as one.", automation, StringComparison.Ordinal);
+        Assert.Contains("if (!refreshingOpenSegment) SetEditorText(text);", workbench, StringComparison.Ordinal);
+        Assert.Contains("bool listening = TakeTransport.IsPlaying;", workbench, StringComparison.Ordinal);
+        // Segments that aren't open render from their saved voice instead of being loaded into the editor.
+        Assert.Contains("if (presetId is not null && _project.VoicePresets.Any(item => item.PresetId == presetId)) return;", automation, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (TakeTransport.IsPlaying) TakeTransport.Pause();", batch, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Approvals_asked_for_during_a_render_wait_for_the_current_take()
+    {
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.RailActions.cs"));
+        string batch = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.BatchGeneration.cs"));
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml.cs"));
+
+        Assert.Contains("_approvalQueue.Enqueue(approval);", code, StringComparison.Ordinal);
+        Assert.Contains("await DrainQueuedApprovalsAsync();", batch, StringComparison.Ordinal);
+        Assert.Contains("if (!busy) ScheduleQueuedApprovals();", workbench, StringComparison.Ordinal);
+        Assert.Contains("await RequestTakeApprovalAsync(_segment, selected);", workbench, StringComparison.Ordinal);
+    }
 }

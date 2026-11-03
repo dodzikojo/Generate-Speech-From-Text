@@ -57,6 +57,9 @@ public sealed partial class WorkbenchView : UserControl
     private int _projectChangeVersion;
     private Task _pendingProjectRefresh = Task.CompletedTask;
     private int _transportLoadVersion;
+    /// <summary>The take whose audio the take bar holds, so a refresh can tell it apart from a new choice.</summary>
+    private Guid? _transportRenderId;
+    private bool _transportRefreshPending;
     private bool _suppressProjectChangedReload;
     private string _lastEditorText = string.Empty;
     private string _lastEditorDirections = string.Empty;
@@ -429,6 +432,8 @@ public sealed partial class WorkbenchView : UserControl
         if (!App.Services.Session.HasProject)
         {
             StopChapterPlayback(announce: false);
+            _approvalQueue.Clear();
+            _transportRefreshPending = false;
             _alignmentRecoveryRoot = null;
             EndFollowSession();
             DisposeScriptFileMonitor();
@@ -458,7 +463,12 @@ public sealed partial class WorkbenchView : UserControl
         }
 
         if (!string.Equals(_monitoredProjectRoot, Path.GetFullPath(projectRoot), StringComparison.OrdinalIgnoreCase))
+        {
+            // Waiting approvals name takes of the previous project; never run them against this one.
             StopChapterPlayback(announce: false);
+            _approvalQueue.Clear();
+            _transportRefreshPending = false;
+        }
         _project = App.Services.Session.RequireProject();
         _ignoreCueToggle = true;
         GenerateProductionCuesToggle.IsOn = _project.WritingProfile.GenerateProductionCues;
@@ -531,6 +541,7 @@ public sealed partial class WorkbenchView : UserControl
     {
         _populatingRail = true;
         _railContextNode = null;
+        _hoveredRailRow = null;
         try { PopulateChapterTreeCore(project); }
         finally { _populatingRail = false; }
         if (RailSelecting) ApplyRailChecks();
@@ -658,6 +669,8 @@ public sealed partial class WorkbenchView : UserControl
                 item.Visibility = chapterSelected ? Visibility.Collapsed : Visibility.Visible;
             }
         }
+
+        ConfigureRailMenuTakeItems(flyout);
     }
 
     private async void OpenSelected_Click(object sender, RoutedEventArgs e)
@@ -805,7 +818,6 @@ public sealed partial class WorkbenchView : UserControl
 
     private async Task LoadSegmentAsync(string segmentId, bool discardDraft = false)
     {
-        EndFollowSession();
         string rootAtStart = App.Services.Session.RequireProjectRoot();
         string? segmentAtStart = _segment?.SegmentId;
         string revisionAtStart = _automationRevision;
@@ -819,6 +831,11 @@ public sealed partial class WorkbenchView : UserControl
             _segment?.SegmentId != segmentAtStart) return;
         if (discardDraft && revisionAtStart != _automationRevision) return;
         if (!discardDraft && HasUnsavedSegmentChanges && _segment?.SegmentId == segmentId) return;
+        // A project refresh (a render or approval elsewhere saving the project) reloads the open segment.
+        // When its script is unchanged, keep the editor, its caret and the word-follow session as they are.
+        bool refreshingOpenSegment = !discardDraft && !HasUnsavedSegmentChanges && _segment?.SegmentId == segmentId
+            && string.Equals(text, _loadedText, StringComparison.Ordinal);
+        if (!refreshingOpenSegment) EndFollowSession();
         ParsedScriptDocument parsed = new ProductionScriptParser().Parse(text);
         string sourceHash = SourceTextHasher.Compute(parsed.NarrationText);
         string authoringHash = SourceTextHasher.Compute(text);
@@ -838,7 +855,7 @@ public sealed partial class WorkbenchView : UserControl
         _loadedDiskHash = authoringHash;
         _externalOverwriteApproved = false;
         ExternalEditBar.IsOpen = false;
-        SetEditorText(text);
+        if (!refreshingOpenSegment) SetEditorText(text);
         ChapterDocument? chapter = project.Chapters.SingleOrDefault(item => item.ChapterId == current.ChapterId);
         int chapterPosition = Math.Max(0, project.ChapterOrder.IndexOf(current.ChapterId)) + 1;
         int segmentPosition = Math.Max(0, chapter?.SegmentOrder.IndexOf(current.SegmentId) ?? 0) + 1;
@@ -2772,7 +2789,7 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
 
-        if (_renderCancellation is not null || _renderRequestCancellation is not null || BatchGenerationActive)
+        if (StudioBusy)
         {
             ShowStatus(InfoBarSeverity.Warning, "A render is already active", "Cancel the current job or wait for it to finish.");
             return;
@@ -2791,7 +2808,10 @@ public sealed partial class WorkbenchView : UserControl
                 "render.start", new { segmentId = _segment.SegmentId }, _renderRequestCancellation.Token);
             await WaitForProjectRefreshAsync(CancellationToken.None);
             bool newTakeSelected = false;
-            if (_segment?.RenderHistory.Any(take => take.RenderId == result.Render.RenderId) == true)
+            // If the operator started listening to something while this rendered, leave it playing;
+            // the new take is waiting in the take list.
+            bool listening = TakeTransport.IsPlaying;
+            if (!listening && _segment?.RenderHistory.Any(take => take.RenderId == result.Render.RenderId) == true)
             {
                 newTakeSelected = true;
                 TakeSelector.SelectedItem = TakeSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag is Guid id && id == result.Render.RenderId);
@@ -2820,6 +2840,13 @@ public sealed partial class WorkbenchView : UserControl
                     $"Take {result.Render.TakeNumber:00} rendered · playing",
                     $"Press Ctrl+Space to pause, or open the Takes tab to compare it with earlier takes.{alignment}{guidance}");
                 await PlaySelectedTakeAsync();
+            }
+            else if (listening)
+            {
+                ShowStatus(
+                    InfoBarSeverity.Success,
+                    $"Take {result.Render.TakeNumber:00} rendered",
+                    $"Playback wasn't interrupted. Play the new take from the chapter rail or the Takes tab when you're ready.{alignment}{guidance}");
             }
             else
             {
@@ -2890,6 +2917,8 @@ public sealed partial class WorkbenchView : UserControl
         CancelRenderButton.IsEnabled = busy;
         RenderAndPlayButton.IsEnabled = !busy;
         BatchGenerateButton.IsEnabled = !busy;
+        if (!busy) ScheduleQueuedApprovals();
+        RefreshHoveredRailRow();
     }
 
     private async void Pickup_Click(object sender, RoutedEventArgs e)
@@ -2917,26 +2946,13 @@ public sealed partial class WorkbenchView : UserControl
             return;
         }
 
-        try
+        if (GetSelectedRender() is not RenderRecord selected)
         {
-            ShowStatus(InfoBarSeverity.Informational, "Preparing take", "VoiceBench is converting and verifying the latest generated take with FFmpeg.");
-            RenderRecord selected = GetSelectedRender() ?? throw new InvalidOperationException("Select a take before approving it.");
-            bool confirmedTranscript = false;
-            if (selected.Origin == RenderOrigin.Imported)
-            {
-                ContentDialog confirmation = new() { XamlRoot = XamlRoot, Title = "Confirm recording transcript",
-                    Content = "Listen to this recording and verify that the current reference transcript accurately represents its spoken words before approving it.",
-                    PrimaryButtonText = "Transcript is accurate · approve", CloseButtonText = "Cancel" };
-                if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
-                confirmedTranscript = true;
-            }
-            RenderRecord approved = await App.Services.ProcessAndApproveTakeAsync(_segment.SegmentId, selected.RenderId,confirmedTranscript: confirmedTranscript);
-            ShowStatus(InfoBarSeverity.Success, $"Take {approved.TakeNumber:00} approved", "The processed take is approved against the current canonical source.");
+            ShowStatus(InfoBarSeverity.Warning, "Select a take first", "Choose the take to approve in the take bar or the Takes tab.");
+            return;
         }
-        catch (Exception exception)
-        {
-            ShowStatus(InfoBarSeverity.Error, "Take could not be approved", Actionable(exception));
-        }
+
+        await RequestTakeApprovalAsync(_segment, selected);
     }
 
     private void OpenAssembly_Click(object sender, RoutedEventArgs e) => App.MainWindow?.NavigateTo("assembly");
@@ -3079,7 +3095,9 @@ public sealed partial class WorkbenchView : UserControl
         // after approval). A different segment, or a segment that just gained a take, starts on the newest.
         Guid? previous = TakeSelector.SelectedItem is ComboBoxItem { Tag: Guid selectedId } ? selectedId : null;
         bool sameSegment = string.Equals(_takeSelectorSegmentId, segment.SegmentId, StringComparison.Ordinal);
-        bool gainedTake = segment.RenderHistory.Count > _takeSelectorCount;
+        // Never switch away from a take the operator is listening to: a new take waits in the take list.
+        // Chapter playback also keeps its take through the short gap between takes.
+        bool gainedTake = segment.RenderHistory.Count > _takeSelectorCount && !TakeTransport.IsPlaying && !ChapterPlaybackActive;
         _takeSelectorSegmentId = segment.SegmentId;
         _takeSelectorCount = segment.RenderHistory.Count;
         // Clearing and refilling raises transient selection changes (including "no take"); handle the
@@ -3103,7 +3121,9 @@ public sealed partial class WorkbenchView : UserControl
         EndChapterPlaybackForManualChange(GetSelectedRender()?.RenderId);
         PopulateTakeList(segment);
         _ = UpdateTransportAsync();
-        if (GetSelectedRender() is not null) AudioDock.SelectTakeTarget();
+        // Only a new selection claims the dock's player; a refresh must not pull it off the mix.
+        Guid? selected = GetSelectedRender()?.RenderId;
+        if (selected is not null && (!sameSegment || selected != previous)) AudioDock.SelectTakeTarget();
     }
 
     private void ResetTakeReviewContext()
@@ -3171,18 +3191,31 @@ public sealed partial class WorkbenchView : UserControl
 
     private async Task UpdateTransportAsync()
     {
-        EndFollowSession();
+        RenderRecord? render = GetSelectedRender();
+        UpdateTakeCommandStates(render);
+        // A refresh that keeps the playing take selected (a project save, not a new choice) must not
+        // stop it: leave its audio playing and switch files only once playback stops.
+        bool keepPlaying = render is not null && TransportIsPlayingTake(render);
+        if (keepPlaying && _followSessionActive)
+        {
+            // Word follow is reading this take's alignment right now. An alignment run ends follow
+            // before it starts, so nothing here can be stale; catch up once playback stops.
+            _transportRefreshPending = true;
+            UpdateListenToTakeButton();
+            return;
+        }
+
+        _transportRefreshPending = false;
+        if (!keepPlaying)
+        {
+            EndFollowSession();
+            _transportRenderId = null;
+        }
         int loadVersion = Interlocked.Increment(ref _transportLoadVersion);
         _activeWordAlignment = null;
         _activeAlignmentRecord = null;
         _activeAlignmentRender = null;
-        RenderRecord? render = GetSelectedRender();
         bool hasTake = render is not null;
-        PreviousTakeButton.IsEnabled = TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1;
-        NextTakeButton.IsEnabled = TakeSelector.SelectedIndex > 0;
-        RevealTakeButton.IsEnabled = hasTake;
-        PickupButton.IsEnabled = hasTake;
-        ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated;
         AlignmentProgressRing.IsActive = false;
         AlignmentProgressRing.Visibility = Visibility.Collapsed;
         AlignWordsButton.IsEnabled = hasTake;
@@ -3278,15 +3311,43 @@ public sealed partial class WorkbenchView : UserControl
             ?? render.ProcessedAudioRelativePath
             ?? render.RawAudioRelativePath;
         string path = App.Services.Session.ResolveProjectPath(relativePath);
-        if (File.Exists(path))
+        if (keepPlaying)
+        {
+            // A newly processed or aligned file for this take is loaded when playback stops.
+            if (!string.Equals(Path.GetFullPath(path), TakeTransport.SourcePath, StringComparison.OrdinalIgnoreCase))
+                _transportRefreshPending = true;
+        }
+        else if (File.Exists(path))
         {
             TakeTransport.LoadAudio(path, $"Take {render.TakeNumber:00} · {render.Voice}", render.Duration);
+            _transportRenderId = render.RenderId;
         }
         else
         {
             TakeTransport.ClearAudio("TAKE AUDIO MISSING");
         }
         UpdateListenToTakeButton();
+    }
+
+    /// <summary>True when the take bar is playing this take's own audio (not an agent-chosen artifact).</summary>
+    private bool TransportIsPlayingTake(RenderRecord render)
+    {
+        if (render.RenderId != _transportRenderId || !TakeTransport.IsPlaying || TakeTransport.SourcePath is not string playing) return false;
+        IEnumerable<string?> takeFiles = render.AlignmentHistory.Select(item => item.AudioRelativePath)
+            .Append(render.ProcessedAudioRelativePath)
+            .Append(render.RawAudioRelativePath);
+        return takeFiles.Any(relative => !string.IsNullOrWhiteSpace(relative) && string.Equals(
+            Path.GetFullPath(App.Services.Session.ResolveProjectPath(relative)), playing, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void UpdateTakeCommandStates(RenderRecord? render)
+    {
+        bool hasTake = render is not null;
+        PreviousTakeButton.IsEnabled = TakeSelector.SelectedIndex >= 0 && TakeSelector.SelectedIndex < TakeSelector.Items.Count - 1;
+        NextTakeButton.IsEnabled = TakeSelector.SelectedIndex > 0;
+        RevealTakeButton.IsEnabled = hasTake;
+        PickupButton.IsEnabled = hasTake;
+        ApproveButton.IsEnabled = render?.Status == RenderStatus.Generated && !_approvalQueue.Contains(render.RenderId);
     }
 
     private async void AlignWords_Click(object sender, RoutedEventArgs e)
@@ -3480,11 +3541,16 @@ public sealed partial class WorkbenchView : UserControl
     {
         UpdateListenToTakeButton();
         AdvanceChapterPlaybackIfEnded(e.State);
+        if (e.State == AudioTransportState.Cleared) _transportRenderId = null;
         if (e.State is AudioTransportState.Paused or AudioTransportState.Ended
             or AudioTransportState.Failed or AudioTransportState.Cleared)
         {
             EndFollowSession();
+            // A refresh arrived while this take played; apply it now that nothing is being heard. During
+            // chapter playback the next entry's own load supersedes this one through the load version.
+            if (_transportRefreshPending && !_chapterPlaybackDriving) _ = UpdateTransportAsync();
         }
+        RefreshHoveredRailRow();
     }
 
     private void EndFollowSession()

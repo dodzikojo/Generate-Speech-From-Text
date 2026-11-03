@@ -87,8 +87,14 @@ public sealed partial class WorkbenchView
         if (_segment?.SegmentId != segmentId)
         {
             _project = App.Services.Session.RequireProject();
-            if (!_project.Segments.Any(item => item.SegmentId == segmentId))
-                throw new AutomationException("segment_not_found", "The requested segment does not exist.");
+            SegmentDocument segment = _project.Segments.FirstOrDefault(item => item.SegmentId == segmentId)
+                ?? throw new AutomationException("segment_not_found", "The requested segment does not exist.");
+            // A segment that isn't open renders from its saved script and voice (its own preset or the
+            // project voice), exactly as the render service reads them. Loading it into the editor first
+            // would pull the operator away from what they are reading or listening to, so only do that
+            // when it has no voice at all and the Voice tab's choice has to be applied.
+            string? presetId = segment.VoicePresetId ?? _project.DefaultVoicePresetId;
+            if (presetId is not null && _project.VoicePresets.Any(item => item.PresetId == presetId)) return;
             await LoadSegmentAsync(segmentId);
         }
         if (!await PrepareCurrentRenderAsync())
@@ -316,6 +322,8 @@ public sealed partial class WorkbenchView
                     string path = ResolveAutomationArtifact(audioPath, audioOnly: true);
                     EndFollowSession();
                     _activeWordAlignment = null;
+                    // The take bar now holds an artifact, not a take, so no refresh may treat it as one.
+                    _transportRenderId = null;
                     TakeTransport.LoadAudio(path, Path.GetFileName(path), TimeSpan.Zero);
                 }
                 await TakeTransport.PlayAsync();
