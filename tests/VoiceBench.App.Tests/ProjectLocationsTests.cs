@@ -78,6 +78,7 @@ public sealed class ProjectLocationsTests : IDisposable
         Assert.Equal(raw.RawAudioRelativePath, ProjectLocations.TakeAudioRelativePath(raw));
         Assert.Equal(processed.ProcessedAudioRelativePath, ProjectLocations.TakeAudioRelativePath(processed));
         Assert.Null(ProjectLocations.TakeAudioRelativePath(missing));
+        Assert.Null(ProjectLocations.TakeAudioRelativePath(processed with { AudioDeletedAt = DateTimeOffset.UnixEpoch }));
     }
 
     [Theory]

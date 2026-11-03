@@ -80,6 +80,22 @@ public sealed class TakeListPresentationTests
         Assert.False(rows[1].CanApprove);
     }
 
+    [Fact]
+    public void Cleaned_up_takes_say_so_and_cannot_be_played_or_approved()
+    {
+        SegmentDocument segment = new()
+        {
+            SourceSha256 = "current",
+            RenderHistory = [Render(First, 1, RenderStatus.Generated, "current") with { AudioDeletedAt = DateTimeOffset.UnixEpoch }],
+        };
+
+        TakeRow row = Assert.Single(TakeListPresentation.Build(segment, CultureInfo.InvariantCulture));
+
+        Assert.Equal(("Audio cleaned up", TakeTone.Failed), (row.StatusText, row.Tone));
+        Assert.False(row.CanApprove);
+        Assert.Null(row.AudioRelativePath);
+    }
+
     [Theory]
     [InlineData(0, "--:--")]
     [InlineData(28.4, "00:28")]

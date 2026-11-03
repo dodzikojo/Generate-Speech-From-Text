@@ -1044,4 +1044,30 @@ public sealed class XamlContractTests
         Assert.Contains("if (!busy) ScheduleQueuedApprovals();", workbench, StringComparison.Ordinal);
         Assert.Contains("await RequestTakeApprovalAsync(_segment, selected);", workbench, StringComparison.Ordinal);
     }
+    [Fact]
+    public void Approved_takes_can_be_packaged_and_other_takes_cleaned_up_from_assembly_and_the_rail()
+    {
+        string workbench = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.xaml"));
+        string assembly = File.ReadAllText(RepositoryPaths.App("Views/AssemblyView.xaml"));
+        string code = File.ReadAllText(RepositoryPaths.App("Views/WorkbenchView.Packaging.cs"));
+
+        Assert.Contains("Text=\"Package approved takes…\" Click=\"PackageApprovedTakes_Click\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Package approved takes…\" Tag=\"chapter\" Click=\"PackageApprovedTakes_Click\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("Text=\"Clean up takes…\" Click=\"CleanUpTakes_Click\"", workbench, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"PackageTakesButton\"", assembly, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"CleanUpTakesButton\"", assembly, StringComparison.Ordinal);
+        // The package dialog shows storage per chapter, remembers the folder per project, and offers clean-up after packaging.
+        Assert.Contains("App.Services.TakeCleanup.MeasureAsync(projectRoot)", code, StringComparison.Ordinal);
+        Assert.Contains("PackageFolderSettingPrefix + project.ProjectId.ToString(\"N\")", code, StringComparison.Ordinal);
+        Assert.Contains("PrimaryButtonText = storage.RemovableTakes > 0 ? \"Clean up takes…\" : string.Empty", code, StringComparison.Ordinal);
+        // A folder picker can't open over a ContentDialog, so the dialog steps aside while it is open.
+        Assert.Contains("dialog.Hide();", code, StringComparison.Ordinal);
+        Assert.Contains("string? chosen = await PickFolderAsync();", code, StringComparison.Ordinal);
+        // Colour-coded size bars: approved, what clean-up frees, and takes that stay.
+        Assert.Contains("(approved, \"ApprovalBrush\"), (removable, \"PickupBrush\"), (kept, \"MutedTextBrush\")", code, StringComparison.Ordinal);
+        Assert.Contains("StorageLegend()", code, StringComparison.Ordinal);
+        // Clean-up never overlaps a render or approval and moves files to the Recycle Bin.
+        Assert.Contains("if (StudioBusy)", code, StringComparison.Ordinal);
+        Assert.Contains("to the Recycle Bin", code, StringComparison.Ordinal);
+    }
 }

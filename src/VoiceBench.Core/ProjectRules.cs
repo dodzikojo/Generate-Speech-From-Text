@@ -98,6 +98,11 @@ public static class SegmentStateRules
             throw new InvalidOperationException("A failed or cancelled render cannot be approved.");
         }
 
+        if (selected.AudioDeletedAt is not null)
+        {
+            throw new InvalidOperationException("This take's audio was cleaned up, so it cannot be approved.");
+        }
+
         var renders = segment.RenderHistory
             .Select(render => render.RenderId == renderId
                 ? render with

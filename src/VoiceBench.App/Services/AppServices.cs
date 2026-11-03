@@ -74,6 +74,9 @@ public sealed partial class AppServices : IDisposable
         ScriptImporter = new ProjectImportService(Projects);
         WritingContexts = new WritingContextLoader(Projects);
         ProductionExports = new ProductionExportService(Projects);
+        TakePackages = new IssueLab.VoiceBench.Infrastructure.Packaging.ApprovedTakePackageService();
+        TakeCleanup = new IssueLab.VoiceBench.Infrastructure.Packaging.TakeCleanupService(
+            Projects, new IssueLab.VoiceBench.Infrastructure.Packaging.WindowsRecycleBin());
         _toolchainManager = new FfmpegToolchainManager(_httpClient);
         InitializeAudioWorkspace();
     }
@@ -95,6 +98,12 @@ public sealed partial class AppServices : IDisposable
     public WritingContextLoader WritingContexts { get; }
 
     public IProductionExportService ProductionExports { get; }
+
+    /// <summary>Copies approved takes into a package folder and keeps it in sync.</summary>
+    public IssueLab.VoiceBench.Infrastructure.Packaging.ApprovedTakePackageService TakePackages { get; }
+
+    /// <summary>Measures take storage and moves unneeded takes to the Recycle Bin.</summary>
+    public IssueLab.VoiceBench.Infrastructure.Packaging.TakeCleanupService TakeCleanup { get; }
 
     public IWordAlignmentService WordAlignments { get; }
     public IReadOnlyList<AlignmentProviderChoice> AlignmentProviders => new[] { "openai", "gemini" }

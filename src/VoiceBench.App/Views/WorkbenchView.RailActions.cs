@@ -26,7 +26,8 @@ public sealed partial class WorkbenchView
 
     /// <summary>True while a render, a batch, an agent job or queued approvals hold the studio.</summary>
     private bool StudioBusy =>
-        _renderCancellation is not null || _renderRequestCancellation is not null || BatchGenerationActive || _drainingApprovals;
+        _renderCancellation is not null || _renderRequestCancellation is not null || BatchGenerationActive || _drainingApprovals
+        || _takeCleanupRunning;
 
     // ---- Hover actions --------------------------------------------------------------------------
 

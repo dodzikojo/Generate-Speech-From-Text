@@ -149,6 +149,12 @@ public sealed record RenderRecord
     public string? SubmittedTextMapRelativePath { get; init; }
 
     public List<WordAlignmentRecord> AlignmentHistory { get; init; } = [];
+
+    /// <summary>
+    /// When the operator cleaned this take up: its audio went to the Recycle Bin, and the record
+    /// stays so the history is complete and take numbers are never reused. Null for live takes.
+    /// </summary>
+    public DateTimeOffset? AudioDeletedAt { get; init; }
 }
 
 public sealed record VoicePreset

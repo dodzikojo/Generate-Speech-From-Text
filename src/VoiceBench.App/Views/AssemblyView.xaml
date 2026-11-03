@@ -36,6 +36,22 @@
                         <TextBlock Text="Masters folder" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="PackageTakesButton" Style="{StaticResource QuietButtonStyle}" Click="PackageTakes_Click"
+                        IsEnabled="False" AutomationProperties.Name="Package approved takes"
+                        ToolTipService.ToolTip="Copy every approved take into a folder, one per chapter, named in chapter order">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE7B8;" FontSize="13" />
+                        <TextBlock Text="Package approved takes…" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="CleanUpTakesButton" Style="{StaticResource QuietButtonStyle}" Click="CleanUpTakes_Click"
+                        IsEnabled="False" AutomationProperties.Name="Clean up takes"
+                        ToolTipService.ToolTip="See how much space takes use, and move the other takes of approved segments to the Recycle Bin">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE74D;" FontSize="13" />
+                        <TextBlock Text="Clean up takes…" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="BuildCompilationButton" Style="{StaticResource SignalButtonStyle}"
                         Click="BuildCompilation_Click" IsEnabled="False"
                         AutomationProperties.Name="Build compilation"

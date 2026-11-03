@@ -153,6 +153,13 @@
                                     <MenuFlyoutItem Text="Generate whole chapter…" Click="GenerateChapter_Click" />
                                     <MenuFlyoutItem Text="Select segments to generate" Click="ChooseSegmentsToGenerate_Click" />
                                     <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="Package approved takes…" Click="PackageApprovedTakes_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7B8;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="Clean up takes…" Click="CleanUpTakes_Click">
+                                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="Rename selected" Click="RenameSelected_Click" />
                                     <MenuFlyoutItem Text="Duplicate selected" Click="DuplicateSelected_Click" />
                                     <MenuFlyoutSeparator />
@@ -213,6 +220,9 @@
                                             </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="Select segments to generate" Tag="all" Click="ChooseSegmentsToGenerate_Click">
                                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE762;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Package approved takes…" Tag="chapter" Click="PackageApprovedTakes_Click">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7B8;" /></MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Open" Tag="all" Click="OpenSelected_Click" />
