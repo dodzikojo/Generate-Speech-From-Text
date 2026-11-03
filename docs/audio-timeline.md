@@ -4,6 +4,18 @@ VoiceBench 1.1 adds an Audio workspace and a compact Workbench timeline dock. Bo
 use the same chapter arrangement and playback engine. The library contains imported
 media and exact narration takes; source files and scripts remain unchanged by mix edits.
 
+## Listen to a generated take
+
+After rendering in the Voice tab, press **Play take** (Ctrl+Space) in the take bar at
+the bottom of the Workbench. The new take is selected automatically and can be heard
+before approval or placement in an arrangement. The button changes to **Pause** while
+playing, and the take bar's slider seeks within the take. The Takes tab lists every
+take with play, approve and show-in-folder actions. See [Workbench](workbench.md).
+
+The Workbench timeline dock is hidden by default; turn it on with the timeline toggle
+in the Workbench header. It defaults to **Selected take**. Choose **Mix arrangement**
+explicitly to listen to the saved arrangement instead.
+
 ## Start a mix
 
 1. Open a project and choose Audio. Select a chapter or the compilation.

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using IssueLab.VoiceBench.Core;
 using IssueLab.VoiceBench.App.Layout;
+using IssueLab.VoiceBench.App.Services;
 using IssueLab.VoiceBench.Infrastructure.Projects;
 using IssueLab.VoiceBench.Infrastructure.Rendering;
 using Microsoft.UI.Xaml;
@@ -14,6 +15,9 @@ public sealed partial class ProjectsView : UserControl
     private int _recentProjectsRefreshVersion;
 
     public ObservableCollection<RecentProjectListItem> RecentProjects { get; } = [];
+
+    /// <summary>The recent projects that match the filter box.</summary>
+    public ObservableCollection<RecentProjectListItem> VisibleProjects { get; } = [];
 
     public ProjectsView()
     {
@@ -132,7 +136,7 @@ public sealed partial class ProjectsView : UserControl
 
     private async void RecentProject_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string projectRoot })
+        if (sender is not FrameworkElement { Tag: string projectRoot })
         {
             return;
         }
@@ -208,22 +212,28 @@ public sealed partial class ProjectsView : UserControl
                 System.Globalization.CultureInfo.CurrentCulture);
             string detailLine = project is null
                 ? $"Folder moved, deleted, or unreadable · last opened {lastOpened}"
-                : $"{project.Segments.Count} segments · " +
+                : $"{project.Segments.Count} segment{(project.Segments.Count == 1 ? "" : "s")} · " +
                   $"{project.Segments.Count(segment => segment.Status == SegmentStatus.Approved)} approved · " +
                   $"{(int)expectedTiming.Duration.TotalMinutes:00}:{expectedTiming.Duration.Seconds:00} expected " +
                   $"({expectedTiming.MeasuredCount} measured, {expectedTiming.EstimatedCount} estimated) · " +
                   $"opened {lastOpened}";
 
+            string displayName = project?.Name ?? entry.Name;
+            string statusBrushKey = isActive ? "ActiveSignalBrush" : isAvailable ? "MutedTextBrush" : "PickupBrush";
             items.Add(new RecentProjectListItem(
-                project?.Name ?? entry.Name,
+                displayName,
                 entry.ProjectRoot,
                 detailLine,
                 isActive ? "● ACTIVE" : isAvailable ? "AVAILABLE" : "MISSING FOLDER",
                 isActive ? "Continue" : isAvailable ? "Open" : "Missing",
                 isAvailable,
                 isAvailable
-                    ? $"{(isActive ? "Continue" : "Open")} {project?.Name ?? entry.Name}"
-                    : $"{entry.Name} is unavailable"));
+                    ? $"{(isActive ? "Continue" : "Open")} {displayName}"
+                    : $"{entry.Name} is unavailable")
+            {
+                StatusBrush = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources[statusBrushKey],
+                CardBorderBrush = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources[isActive ? "ActiveSignalBrush" : "DividerBrush"],
+            });
         }
 
         if (refreshVersion != _recentProjectsRefreshVersion)
@@ -238,8 +248,79 @@ public sealed partial class ProjectsView : UserControl
         }
 
         RecentProjectCountText.Text = $"{items.Count} SAVED";
-        RecentProjectsEmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RecentProjectsList.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ApplyProjectFilter();
+    }
+
+    private void ApplyProjectFilter()
+    {
+        string filter = ProjectFilterBox.Text?.Trim() ?? string.Empty;
+        VisibleProjects.Clear();
+        foreach (RecentProjectListItem item in RecentProjects)
+        {
+            if (filter.Length == 0
+                || item.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)
+                || item.ProjectRoot.Contains(filter, StringComparison.CurrentCultureIgnoreCase))
+            {
+                VisibleProjects.Add(item);
+            }
+        }
+
+        bool none = RecentProjects.Count == 0;
+        EmptyProjectCard.Visibility = none ? Visibility.Visible : Visibility.Collapsed;
+        ProjectFilterBox.Visibility = RecentProjects.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        RecentProjectsEmptyText.Text = none
+            ? "Projects you create or open will stay here after VoiceBench restarts."
+            : $"No recent project matches “{filter}”.";
+        RecentProjectsEmptyText.Visibility = VisibleProjects.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RecentProjectsList.Visibility = VisibleProjects.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ProjectFilterBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) =>
+        ApplyProjectFilter();
+
+    private async void ShowProjectInFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string projectRoot }) return;
+        try
+        {
+            await ShellLauncher.OpenFolderAsync(projectRoot);
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Folder could not be opened", exception.Message);
+        }
+    }
+
+    private void CopyProjectPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string projectRoot }) return;
+        try
+        {
+            ShellLauncher.CopyPath(projectRoot);
+            ShowStatus(InfoBarSeverity.Success, "Folder path copied", projectRoot);
+        }
+        catch (InvalidOperationException exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Folder path could not be copied", exception.Message);
+        }
+    }
+
+    private async void RemoveRecentProject_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string projectRoot }) return;
+        try
+        {
+            await App.Services.RecentProjects.RemoveAsync(projectRoot);
+            await UpdateRecentProjectsAsync();
+            ShowStatus(
+                InfoBarSeverity.Informational,
+                "Removed from recent projects",
+                $"The folder was not changed. Use Open folder to add it back: {projectRoot}");
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(InfoBarSeverity.Error, "Project could not be removed from the list", exception.Message);
+        }
     }
 
     private static async Task<DurationProjectionSummary> ProjectDurationAsync(
@@ -318,4 +399,12 @@ public sealed class RecentProjectListItem(
     public bool IsAvailable { get; set; } = isAvailable;
 
     public string AutomationName { get; set; } = automationName;
+
+    public string ShowInFolderAutomationName => $"Show {Name} in File Explorer";
+
+    public string RemoveAutomationName => $"Remove {Name} from recent projects";
+
+    public Microsoft.UI.Xaml.Media.Brush? StatusBrush { get; set; }
+
+    public Microsoft.UI.Xaml.Media.Brush? CardBorderBrush { get; set; }
 }

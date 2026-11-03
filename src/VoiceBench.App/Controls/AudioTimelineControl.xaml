@@ -124,14 +124,23 @@
                 </ScrollViewer>
             </Border>
         </Grid>
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <StackPanel Grid.Row="2" Spacing="4">
+        <TextBlock x:Name="PlaybackSourceText" Text="Chapter mix" Style="{StaticResource UtilityLabelTextStyle}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+        <Grid ColumnSpacing="8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Button x:Name="MixPlayButton" Content="▶ Play" Click="Play_Click" AutomationProperties.Name="Play or pause shared audio transport"/>
             <Button Grid.Column="1" Content="■" Click="Stop_Click" AutomationProperties.Name="Stop audio"/>
-            <ComboBox x:Name="PlaybackTargetPicker" Grid.Column="2" SelectedIndex="0" AutomationProperties.Name="Playback target"><ComboBoxItem Content="Mix"/><ComboBoxItem Content="Selected take"/></ComboBox>
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><TextBlock x:Name="PositionText" Text="00:00.000" Style="{StaticResource UtilityLabelTextStyle}"/><ToggleButton x:Name="LoopToggle" Content="Loop" Click="Loop_Click"/></StackPanel>
+            <ComboBox x:Name="PlaybackTargetPicker" Grid.Column="2" SelectedIndex="0" AutomationProperties.Name="Playback target"><ComboBoxItem Content="Mix arrangement"/><ComboBoxItem Content="Selected take"/></ComboBox>
+            <Grid Grid.Column="3" ColumnSpacing="8" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="0"><TextBlock x:Name="PositionText" Text="00:00.000" Style="{StaticResource UtilityLabelTextStyle}"/>
+                    <Slider x:Name="TakePositionSlider" Minimum="0" Maximum="1" Height="20" MinHeight="20" MinWidth="80" ValueChanged="TakePosition_ValueChanged" Visibility="Collapsed" AutomationProperties.Name="Selected take position seconds"/>
+                </StackPanel>
+                <ToggleButton x:Name="LoopToggle" Grid.Column="1" Content="Loop" Click="Loop_Click"/>
+            </Grid>
             <StackPanel Grid.Column="4" Width="52" VerticalAlignment="Center" Spacing="3" AutomationProperties.Name="Stereo monitor meters"><ProgressBar x:Name="LeftMeter" Minimum="0" Maximum="1"/><ProgressBar x:Name="RightMeter" Minimum="0" Maximum="1"/></StackPanel>
         </Grid>
+        </StackPanel>
         <TextBlock x:Name="TimelineNotice" Grid.Row="3" Text="Open a project to mix audio" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Style="{StaticResource UtilityLabelTextStyle}" AutomationProperties.LiveSetting="Polite"/>
     </Grid>
 </UserControl>

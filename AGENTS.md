@@ -58,6 +58,9 @@ change is not complete until the packaged app has also been launched and inspect
 - Approved text changes mark matching renders stale and block mastering.
 - Render jobs are journaled; recovered `InProgress` jobs become `Interrupted`.
 - Local MCP setup and runtime checks are documented in `docs/local-mcp.md`. The installed alias is `voicebench-mcp.exe`.
+- Desktop layout, project-folder actions and chapter playback are described in `docs/workbench.md`.
+  Testable presentation/path logic lives in `VoiceBench.App/Services` and is linked into
+  `VoiceBench.App.Tests`; resolve file actions through `ProjectLocations` so they stay inside the project.
 - Multitrack rules and runtime checks are in `docs/audio-timeline.md`. Audio clip splits
   do not split canonical scripts; mix transcripts use retained approved source ranges.
 

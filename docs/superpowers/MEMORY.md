@@ -1,5 +1,46 @@
 # Active program index
 
+- Batch generation and Workbench extras, 2026-11-03: implemented on
+  `codex/batch-generate` (based on `codex/ui-overhaul`). Generate several segments with
+  the project voice from rail ticks (TreeView multi-select mode), "from here to chapter
+  end" or a whole chapter, behind a confirmation checklist (approved segments start
+  unticked). Sequential tracked `render.start` jobs with stop-after-take/cancel and
+  tested stop rules. Also: Voice tab **Render & play**; segment **Export text** (copy or
+  save full script or narration only); chapter approved-audio totals in the rail and
+  Assembly; the status toast moved to an opaque, auto-dismissing card over the script.
+  Operator guide: [workbench](../workbench.md). Installed signed 1.2.0.7; Release build
+  clean, 486 tests pass. Runtime smoke covered selection mode, the confirmation dialogs,
+  clipboard and file export, toast dismissal and the totals, plus one live operator-
+  approved batch (ORCA segment 008: one Gemini take with the project voice, word follow
+  97%). An independent review's cancellation and request-count findings are fixed.
+  Render & play has not been run live (it costs a provider request).
+
+- Desktop UI overhaul 1.2, 2026-11-03: implemented on `codex/ui-overhaul` (based on
+  `codex/take-review-playback`). TitleBar project-folder menu; Workbench with the
+  script at full height, inspector tabs (Voice/Takes/Write), a one-row take bar, and
+  an opt-in timeline dock. Show in folder/open/copy path for takes, scripts, projects,
+  masters, auditions and FFmpeg. Projects card grid with filter and remove. Assembly
+  built-masters list (and a fix for duplicated chapter cards). Chapter playback of
+  approved takes. Operator guide: [workbench](../workbench.md). Installed signed
+  1.2.0.5; Release build is clean, all 436 tests pass. An independent review's five
+  findings (chapter advance saving drafts, missing-take skip, refresh/selection
+  guard, skip-race versions, clipboard errors) are fixed and re-smoked. Runtime smoke covered every
+  section at three window sizes, take reveal (Explorer selects the file), chapter
+  auto-advance and completion, and MCP `workspace.get`/`panels.set timelineDock`. No
+  provider requests. Next: review/PR this branch after the take-review repair lands.
+
+- Take Review playback repair, 2026-11-03: implemented on
+  `codex/take-review-playback` (based on `codex/audio-timeline`). Installed signed
+  1.1.0.7; startup, native **Listen to take**, pause, word-follow and selected-take
+  seeking verified with the operator's existing Take 23. Script, directions,
+  caret and saved state remained unchanged. Full Release build and all 395 tests
+  pass; MSIX signature verified. No smoke skill or paid provider requests.
+  The dock defaults to Selected take; new renders select their resulting take and
+  reveal Take Review. Playback routing tests cover switching targets and playing
+  unapproved/unplaced takes. The 1.1.0.6 startup regression was fixed by wiring the
+  playback selector only after XAML initialization. Next: review/integrate this
+  repair into the audio timeline branch; master remains unchanged.
+
 - VoiceBench audio timeline, 2026-11-01: implemented on codex/audio-timeline; installed
   1.1.0.5, signed package verified, 389 automated tests pass. Integration PR review
   and focused operator checks remain; no master merge is authorized by this slice.

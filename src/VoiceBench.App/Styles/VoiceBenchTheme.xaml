@@ -183,6 +183,59 @@
         </Setter>
     </Style>
 
+    <!-- Small square icon-only command; always pair with ToolTip and AutomationProperties.Name. -->
+    <Style x:Key="IconButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="MinWidth" Value="32" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource StudioCornerRadius}" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ActiveSignalBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ReadingTextBrush}" />
+    </Style>
+
+    <!-- Transparent text+icon command used in panel toolbars. -->
+    <Style x:Key="ToolbarButtonStyle" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource StudioCornerRadius}" />
+        <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ActiveSignalBrush}" />
+        <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource ReadingTextBrush}" />
+    </Style>
+
+    <!-- Rounded status label, e.g. APPROVED, AWAITING REVIEW. Set BorderBrush and the child Foreground to the tone brush. -->
+    <Style x:Key="StatusChipStyle" TargetType="Border">
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="BorderBrush" Value="{ThemeResource DividerBrush}" />
+    </Style>
+
+    <!-- Raised card used for list rows such as recent projects, takes and built masters. -->
+    <Style x:Key="StudioCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource PanelRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource DividerBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource StudioCornerRadius}" />
+        <Setter Property="Padding" Value="12" />
+    </Style>
+
+    <!-- Section label inside panels: small caps heading with muted colour. -->
+    <Style x:Key="SectionLabelTextStyle" TargetType="TextBlock" BasedOn="{StaticResource UtilityLabelTextStyle}">
+        <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+
     <Style TargetType="TextBox">
         <Setter Property="FontFamily" Value="{StaticResource ReadingFont}" />
         <Setter Property="Foreground" Value="{ThemeResource ReadingTextBrush}" />
