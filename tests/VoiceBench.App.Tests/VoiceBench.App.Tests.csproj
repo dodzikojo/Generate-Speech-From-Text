@@ -20,5 +20,7 @@
     <Compile Include="..\..\src\VoiceBench.App\Services\ProjectLocations.cs" Link="Services\ProjectLocations.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\TakeListPresentation.cs" Link="Services\TakeListPresentation.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\ChapterPlaylist.cs" Link="Services\ChapterPlaylist.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\BatchGeneration.cs" Link="Services\BatchGeneration.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\SegmentTextExport.cs" Link="Services\SegmentTextExport.cs" />
   </ItemGroup>
 </Project>
