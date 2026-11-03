@@ -9,7 +9,8 @@ preserves every raw take, and makes narration status visible in a chapter/segmen
 The Audio workspace and Workbench dock share a multitrack arrangement for narration,
 music, and effects. Import recordings, arrange immutable clips, review word-safe cuts,
 and export chapter/compilation mixes with source-aligned scripts and track stems.
-See the [audio timeline guide](docs/audio-timeline.md) for workflows and runtime checks.
+See the [Workbench guide](docs/workbench.md) for the desktop layout, project folders and chapter playback,
+and the [audio timeline guide](docs/audio-timeline.md) for mixing workflows and runtime checks.
 
 The repository contains a packaged .NET 10 / WinUI 3 app and a companion `voicebench` CLI.
 Google Gemini and OpenAI speech and writing generation sit behind provider-neutral contracts;

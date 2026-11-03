@@ -6,13 +6,15 @@ media and exact narration takes; source files and scripts remain unchanged by mi
 
 ## Listen to a generated take
 
-After rendering in Voice director, use **Listen to take** beside the Take Review
-selector. The new take is selected automatically and can be heard before approval
-or placement in an arrangement. The button changes to **Pause take** while playing.
+After rendering in the Voice tab, press **Play take** (Ctrl+Space) in the take bar at
+the bottom of the Workbench. The new take is selected automatically and can be heard
+before approval or placement in an arrangement. The button changes to **Pause** while
+playing, and the take bar's slider seeks within the take. The Takes tab lists every
+take with play, approve and show-in-folder actions. See [Workbench](workbench.md).
 
-The Workbench dock defaults to **Selected take** and shows its own position slider
-and elapsed/total duration. Use that slider to seek within the take. Choose
-**Mix arrangement** explicitly to listen to the saved arrangement instead.
+The Workbench timeline dock is hidden by default; turn it on with the timeline toggle
+in the Workbench header. It defaults to **Selected take**. Choose **Mix arrangement**
+explicitly to listen to the saved arrangement instead.
 
 ## Start a mix
 

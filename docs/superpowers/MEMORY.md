@@ -1,5 +1,19 @@
 # Active program index
 
+- Desktop UI overhaul 1.2, 2026-11-03: implemented on `codex/ui-overhaul` (based on
+  `codex/take-review-playback`). TitleBar project-folder menu; Workbench with the
+  script at full height, inspector tabs (Voice/Takes/Write), a one-row take bar, and
+  an opt-in timeline dock. Show in folder/open/copy path for takes, scripts, projects,
+  masters, auditions and FFmpeg. Projects card grid with filter and remove. Assembly
+  built-masters list (and a fix for duplicated chapter cards). Chapter playback of
+  approved takes. Operator guide: [workbench](../workbench.md). Installed signed
+  1.2.0.5; Release build is clean, all 436 tests pass. An independent review's five
+  findings (chapter advance saving drafts, missing-take skip, refresh/selection
+  guard, skip-race versions, clipboard errors) are fixed and re-smoked. Runtime smoke covered every
+  section at three window sizes, take reveal (Explorer selects the file), chapter
+  auto-advance and completion, and MCP `workspace.get`/`panels.set timelineDock`. No
+  provider requests. Next: review/PR this branch after the take-review repair lands.
+
 - Take Review playback repair, 2026-11-03: implemented on
   `codex/take-review-playback` (based on `codex/audio-timeline`). Installed signed
   1.1.0.7; startup, native **Listen to take**, pause, word-follow and selected-take
