@@ -17,5 +17,8 @@
     <Compile Include="..\..\src\VoiceBench.App\Services\WorkspaceSession.cs" Link="Services\WorkspaceSession.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\TimelinePresentation.cs" Link="Services\TimelinePresentation.cs" />
     <Compile Include="..\..\src\VoiceBench.App\Services\TimelinePlaybackRouting.cs" Link="Services\TimelinePlaybackRouting.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\ProjectLocations.cs" Link="Services\ProjectLocations.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\TakeListPresentation.cs" Link="Services\TakeListPresentation.cs" />
+    <Compile Include="..\..\src\VoiceBench.App\Services\ChapterPlaylist.cs" Link="Services\ChapterPlaylist.cs" />
   </ItemGroup>
 </Project>
